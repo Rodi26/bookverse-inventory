@@ -53,7 +53,7 @@ jobs:
 
       - name: Install test dependencies via JFrog CLI
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade "pip<25"
           jf pip install pytest pytest-cov httpx
           echo "✅ Installed test dependencies via JFrog CLI"
 
