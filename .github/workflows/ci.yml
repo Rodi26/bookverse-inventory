@@ -50,11 +50,11 @@ jobs:
           jf pipc --repo-resolve=${{ vars.PROJECT_KEY }}-pypi-virtual
           echo "✅ Configured JFrog pip integration with repository: ${{ vars.PROJECT_KEY }}-pypi-virtual"
 
-      - name: Install build dependencies via JFrog CLI
+      - name: Install test dependencies via JFrog CLI
         run: |
           python -m pip install --upgrade pip
-          jf pip install build twine pytest pytest-cov httpx
-          echo "✅ Installed build dependencies via JFrog CLI"
+          jf pip install pytest pytest-cov httpx
+          echo "✅ Installed test dependencies via JFrog CLI"
 
       - name: Install project dependencies via JFrog CLI
         run: |
@@ -77,15 +77,6 @@ jobs:
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "BUILD_NAME=$SERVICE_NAME" >> $GITHUB_ENV
           echo "BUILD_NUMBER=$IMAGE_TAG" >> $GITHUB_ENV
-
-      - name: Build Python packages via JFrog CLI
-        run: |
-          python -m build
-          jf rt upload "dist/*.whl" "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-python-internal-local/" \
-            --build-name="${{ env.BUILD_NAME }}" --build-number="${{ env.BUILD_NUMBER }}"
-          jf rt upload "dist/*.tar.gz" "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-python-internal-local/" \
-            --build-name="${{ env.BUILD_NAME }}" --build-number="${{ env.BUILD_NUMBER }}"
-          echo "✅ Built and uploaded Python packages via JFrog CLI"
 
       - name: Build and push Docker image via JFrog CLI
         run: |
@@ -162,58 +153,13 @@ jobs:
             --fail-with-body || echo "⚠️ Application version may already exist"
           
           echo "✅ Application version created: ${{ env.APPLICATION_KEY }}@${{ env.APP_VERSION }}"
-
-      - name: Bind Python packages to application
-        run: |
-          echo "📦 Binding Python packages to AppTrust application"
-          
-          # Bind wheel package
-          WHEEL_PAYLOAD=$(cat << EOF
-          {
-            "package_type": "pypi",
-            "package_name": "bookverse-${{ env.SERVICE_NAME }}",
-            "package_version": "1.0.0"
-          }
-          EOF
-          )
-          
-          curl -X POST \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/packages" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ACCESS_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d "$WHEEL_PAYLOAD" \
-            --fail-with-body || echo "⚠️ Python package binding may have failed"
-          
-          echo "✅ Python packages bound to application"
-
-      - name: Bind Docker image to application
-        run: |
-          echo "🐳 Binding Docker image to AppTrust application"
-          
-          # Bind Docker image
-          DOCKER_PAYLOAD=$(cat << EOF
-          {
-            "package_type": "docker",
-            "package_name": "${{ env.SERVICE_NAME }}",
-            "package_version": "${{ env.IMAGE_TAG }}"
-          }
-          EOF
-          )
-          
-          curl -X POST \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/packages" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ACCESS_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d "$DOCKER_PAYLOAD" \
-            --fail-with-body || echo "⚠️ Docker image binding may have failed"
-          
-          echo "✅ Docker image bound to application"
+          echo "📦 Packages will be automatically bound from build sources"
 
       - name: Add build evidence
         run: |
           echo "🛡️ Adding build evidence to AppTrust application version"
           echo "📋 Evidence Summary:"
-          echo "   📦 Artifacts: Python wheel/sdist + Docker image"
+          echo "   🐳 Artifacts: Docker container image"
           echo "   🧪 Tests: $([ -f coverage.xml ] && echo 'Passed with coverage' || echo 'No coverage data')"
           echo "   🔨 Build: ${{ env.SERVICE_NAME }}#${{ env.IMAGE_TAG }}"
           echo "   📅 Created: $(date -u)"
@@ -230,9 +176,10 @@ jobs:
           echo "**Version:** \`${{ env.APP_VERSION }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Build:** \`${{ env.SERVICE_NAME }}#${{ env.IMAGE_TAG }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Bound Artifacts:" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Python Package**: \`bookverse-${{ env.SERVICE_NAME }}@1.0.0\` (PyPI)" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Docker Image**: \`${{ env.SERVICE_NAME }}:${{ env.IMAGE_TAG }}\` (Docker)" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Automatically Bound Artifacts:" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔄 **Build Artifacts**: All artifacts from build \`${{ env.SERVICE_NAME }}#${{ env.IMAGE_TAG }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐳 **Docker Image**: Container image with automatic SBOMs and signatures" >> $GITHUB_STEP_SUMMARY
+          echo "- 📊 **Test Reports**: Coverage and quality reports" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🛡️ Evidence Added:" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ **Build Source**: JFrog build info with complete artifact traceability" >> $GITHUB_STEP_SUMMARY
