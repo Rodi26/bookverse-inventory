@@ -32,14 +32,34 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Configure pip to use Artifactory
+        run: |
+          SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
+          
+          # Create pip configuration to use Artifactory virtual repository
+          mkdir -p ~/.pip
+          cat > ~/.pip/pip.conf << EOF
+          [global]
+          index-url = ${{ vars.JFROG_URL }}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple
+          trusted-host = $(echo "${{ vars.JFROG_URL }}" | sed 's|https://||' | sed 's|http://||')
+          extra-index-url = https://pypi.org/simple
+          
+          [install]
+          trusted-host = $(echo "${{ vars.JFROG_URL }}" | sed 's|https://||' | sed 's|http://||')
+          EOF
+          
+          echo "✅ Configured pip to use Artifactory repository: ${{ vars.PROJECT_KEY }}-pypi-virtual"
+
+      - name: Install build dependencies from Artifactory
         run: |
           python -m pip install --upgrade pip
           pip install build twine pytest pytest-cov httpx cyclonedx-bom
+          echo "✅ Installed build dependencies from Artifactory"
 
-      - name: Install project dependencies
+      - name: Install project dependencies from Artifactory
         run: |
           pip install -r requirements.txt
+          echo "✅ Installed project dependencies from Artifactory"
 
       - name: Run tests with coverage
         run: |
@@ -67,9 +87,15 @@ jobs:
 
       - name: Generate Docker SBOM
         run: |
+          # Use Syft from Artifactory Docker virtual repository if available, fallback to Docker Hub
+          SYFT_IMAGE="${{ vars.DOCKER_REGISTRY }}/${{ vars.PROJECT_KEY }}-dockerhub-virtual/anchore/syft:latest"
+          docker pull $SYFT_IMAGE 2>/dev/null || SYFT_IMAGE="anchore/syft:latest"
+          
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            anchore/syft ${{ vars.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }} -o cyclonedx-json=sbom-docker.json || \
+            $SYFT_IMAGE ${{ vars.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }} -o cyclonedx-json=sbom-docker.json || \
             echo '{"bomFormat": "CycloneDX", "specVersion": "1.4", "components": []}' > sbom-docker.json
+          
+          echo "✅ Generated Docker SBOM using image: $SYFT_IMAGE"
 
       - name: Login to Docker registry
         run: |
