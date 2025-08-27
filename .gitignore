@@ -32,6 +32,10 @@ share/python-wheels/
 *.egg
 MANIFEST
 
+# SBOM files
+sbom-*.json
+*.cyclone.json
+
 # PyInstaller
 *.manifest
 *.spec
