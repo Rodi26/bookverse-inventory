@@ -6,6 +6,7 @@ Simple smoke tests to validate core functionality for CI/CD pipeline.
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 
 from app.main import app
@@ -18,7 +19,8 @@ TEST_DATABASE_URL = "sqlite:///:memory:"
 # Create test engine and session
 test_engine = create_engine(
     TEST_DATABASE_URL,
-    connect_args={"check_same_thread": False}
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool
 )
 TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
