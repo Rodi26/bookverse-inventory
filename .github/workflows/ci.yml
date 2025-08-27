@@ -443,7 +443,7 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d "$APP_VERSION_PAYLOAD" \
-            --fail-with-body || echo "⚠️ Application version may already exist"
+            -w "%{http_code}"
           
           echo "✅ Application version created: ${{ env.APPLICATION_KEY }}@${{ env.APP_VERSION }}"
           echo "📦 Packages will be automatically bound from build sources"
