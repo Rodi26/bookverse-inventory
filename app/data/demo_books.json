@@ -1,0 +1,182 @@
+[
+  {
+    "title": "The Lord of the Rings",
+    "subtitle": "The Fellowship of the Ring",
+    "authors": ["J.R.R. Tolkien"],
+    "genres": ["fantasy", "adventure", "classics"],
+    "description": "The first volume of The Lord of the Rings, the immortal fantasy masterpiece. Follow Frodo Baggins as he begins his perilous journey to destroy the One Ring and save Middle-earth from the Dark Lord Sauron.",
+    "price": 16.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1654215925i/61215351.jpg"
+  },
+  {
+    "title": "1984",
+    "subtitle": null,
+    "authors": ["George Orwell"],
+    "genres": ["dystopian", "fiction", "classics", "political"],
+    "description": "A chilling dystopian novel about totalitarian control, surveillance, and the power of language. Winston Smith struggles against a society where Big Brother watches everything and the truth is whatever the Party says it is.",
+    "price": 13.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1657781256i/61439040.jpg"
+  },
+  {
+    "title": "The Hobbit",
+    "subtitle": "An Unexpected Journey",
+    "authors": ["J.R.R. Tolkien"],
+    "genres": ["fantasy", "adventure", "children"],
+    "description": "The enchanting prelude to The Lord of the Rings. Join Bilbo Baggins on his unexpected adventure with thirteen dwarves to reclaim their homeland from the dragon Smaug.",
+    "price": 12.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1546071216i/5907.jpg"
+  },
+  {
+    "title": "To Kill a Mockingbird",
+    "subtitle": null,
+    "authors": ["Harper Lee"],
+    "genres": ["classics", "fiction", "historical"],
+    "description": "A gripping tale of racial injustice and childhood innocence in the American South. Scout Finch learns about morality and courage through her father's defense of an innocent black man.",
+    "price": 14.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1553383690i/2657.jpg"
+  },
+  {
+    "title": "Pride and Prejudice",
+    "subtitle": null,
+    "authors": ["Jane Austen"],
+    "genres": ["romance", "classics", "fiction"],
+    "description": "The beloved tale of Elizabeth Bennet and Mr. Darcy. A witty and romantic story about love, marriage, and social expectations in Regency-era England.",
+    "price": 11.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1320399351i/1885.jpg"
+  },
+  {
+    "title": "The Great Gatsby",
+    "subtitle": null,
+    "authors": ["F. Scott Fitzgerald"],
+    "genres": ["classics", "fiction", "american literature"],
+    "description": "The quintessential American novel about the Jazz Age. Nick Carraway tells the story of his mysterious neighbor Jay Gatsby and his obsession with the beautiful Daisy Buchanan.",
+    "price": 12.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1490528560i/4671.jpg"
+  },
+  {
+    "title": "Harry Potter and the Philosopher's Stone",
+    "subtitle": null,
+    "authors": ["J.K. Rowling"],
+    "genres": ["fantasy", "young adult", "magic"],
+    "description": "The magical beginning of Harry Potter's journey. Discover the wizarding world as Harry learns he's a wizard and begins his education at Hogwarts School of Witchcraft and Wizardry.",
+    "price": 15.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1170803558i/72193.jpg"
+  },
+  {
+    "title": "Dune",
+    "subtitle": null,
+    "authors": ["Frank Herbert"],
+    "genres": ["science fiction", "space opera", "adventure"],
+    "description": "The epic science fiction masterpiece set on the desert planet Arrakis. Paul Atreides must navigate political intrigue, environmental challenges, and his own destiny to control the universe's most valuable resource.",
+    "price": 18.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1555447414i/44767458.jpg"
+  },
+  {
+    "title": "The Catcher in the Rye",
+    "subtitle": null,
+    "authors": ["J.D. Salinger"],
+    "genres": ["classics", "fiction", "coming of age"],
+    "description": "The controversial classic about teenage rebellion and alienation. Follow Holden Caulfield through his weekend in New York City as he struggles with growing up and finding his place in the world.",
+    "price": 13.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1398034300i/5107.jpg"
+  },
+  {
+    "title": "Brave New World",
+    "subtitle": null,
+    "authors": ["Aldous Huxley"],
+    "genres": ["dystopian", "science fiction", "classics"],
+    "description": "A chilling vision of a future society where happiness is manufactured and individuality is suppressed. Explore a world where technology controls every aspect of human life.",
+    "price": 14.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1575509280i/5129.jpg"
+  },
+  {
+    "title": "The Chronicles of Narnia",
+    "subtitle": "The Lion, the Witch and the Wardrobe",
+    "authors": ["C.S. Lewis"],
+    "genres": ["fantasy", "children", "adventure"],
+    "description": "Step through the wardrobe into the magical land of Narnia. Join the Pevensie children as they discover a world of talking animals, mythical creatures, and epic battles between good and evil.",
+    "price": 13.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1353029077i/100915.jpg"
+  },
+  {
+    "title": "One Hundred Years of Solitude",
+    "subtitle": null,
+    "authors": ["Gabriel García Márquez"],
+    "genres": ["magical realism", "classics", "latin american"],
+    "description": "The multi-generational epic of the Buendía family in the mythical town of Macondo. A masterwork of magical realism that explores love, loss, and the cyclical nature of history.",
+    "price": 16.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1327881361i/320.jpg"
+  },
+  {
+    "title": "The Handmaid's Tale",
+    "subtitle": null,
+    "authors": ["Margaret Atwood"],
+    "genres": ["dystopian", "feminist", "science fiction"],
+    "description": "A powerful dystopian vision of a future where women's rights have been stripped away. Offred navigates life in the Republic of Gilead, where she serves as a handmaid in a world of environmental disasters and declining birthrates.",
+    "price": 15.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1578028274i/38447.jpg"
+  },
+  {
+    "title": "The Alchemist",
+    "subtitle": null,
+    "authors": ["Paulo Coelho"],
+    "genres": ["philosophy", "adventure", "inspirational"],
+    "description": "A mystical tale about following your dreams. Santiago, a young shepherd, journeys from Spain to Egypt in search of treasure, discovering that the real treasure lies within the journey itself.",
+    "price": 14.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1654371463i/18144590.jpg"
+  },
+  {
+    "title": "The Picture of Dorian Gray",
+    "subtitle": null,
+    "authors": ["Oscar Wilde"],
+    "genres": ["classics", "gothic", "philosophy"],
+    "description": "A haunting tale of beauty, corruption, and moral decay. Dorian Gray remains young and beautiful while his portrait ages and shows the marks of his increasingly debauched lifestyle.",
+    "price": 13.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1546103428i/5297.jpg"
+  },
+  {
+    "title": "Fahrenheit 451",
+    "subtitle": null,
+    "authors": ["Ray Bradbury"],
+    "genres": ["dystopian", "science fiction", "classics"],
+    "description": "In a future where books are banned and firemen burn them, Guy Montag begins to question the society he serves. A powerful story about censorship, knowledge, and the importance of literature.",
+    "price": 13.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1383718290i/13079982.jpg"
+  },
+  {
+    "title": "Crime and Punishment",
+    "subtitle": null,
+    "authors": ["Fyodor Dostoevsky"],
+    "genres": ["classics", "philosophy", "psychological"],
+    "description": "The psychological masterpiece about guilt, redemption, and the human condition. Raskolnikov, a poor student, commits murder and must grapple with the moral and psychological consequences.",
+    "price": 17.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1382846449i/7144.jpg"
+  },
+  {
+    "title": "The Kite Runner",
+    "subtitle": null,
+    "authors": ["Khaled Hosseini"],
+    "genres": ["historical fiction", "contemporary", "drama"],
+    "description": "A powerful story of friendship, guilt, and redemption set against the backdrop of Afghanistan's tumultuous history. Amir's journey to atone for his childhood betrayal of his friend Hassan.",
+    "price": 15.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1579036753i/77203.jpg"
+  },
+  {
+    "title": "The Book Thief",
+    "subtitle": null,
+    "authors": ["Markus Zusak"],
+    "genres": ["historical fiction", "young adult", "war"],
+    "description": "Narrated by Death, this is the story of Liesel Meminger, a young girl living with foster parents in Nazi Germany. Her love of books becomes a metaphor for hope and resistance during the darkest times.",
+    "price": 14.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1522157426i/19063.jpg"
+  },
+  {
+    "title": "The Midnight Library",
+    "subtitle": null,
+    "authors": ["Matt Haig"],
+    "genres": ["contemporary fiction", "philosophy", "magical realism"],
+    "description": "Between life and death is a library containing infinite books representing all the lives you could have lived. Nora Seed explores these alternate lives in search of the perfect existence.",
+    "price": 16.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1602190253i/52578297.jpg"
+  }
+]

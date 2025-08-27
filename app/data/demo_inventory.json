@@ -1,0 +1,102 @@
+[
+  {
+    "quantity_available": 47,
+    "quantity_total": 50,
+    "reorder_point": 10
+  },
+  {
+    "quantity_available": 23,
+    "quantity_total": 30,
+    "reorder_point": 8
+  },
+  {
+    "quantity_available": 35,
+    "quantity_total": 40,
+    "reorder_point": 10
+  },
+  {
+    "quantity_available": 18,
+    "quantity_total": 25,
+    "reorder_point": 8
+  },
+  {
+    "quantity_available": 42,
+    "quantity_total": 45,
+    "reorder_point": 12
+  },
+  {
+    "quantity_available": 15,
+    "quantity_total": 20,
+    "reorder_point": 6
+  },
+  {
+    "quantity_available": 68,
+    "quantity_total": 75,
+    "reorder_point": 15
+  },
+  {
+    "quantity_available": 29,
+    "quantity_total": 35,
+    "reorder_point": 10
+  },
+  {
+    "quantity_available": 12,
+    "quantity_total": 15,
+    "reorder_point": 5
+  },
+  {
+    "quantity_available": 31,
+    "quantity_total": 35,
+    "reorder_point": 8
+  },
+  {
+    "quantity_available": 54,
+    "quantity_total": 60,
+    "reorder_point": 12
+  },
+  {
+    "quantity_available": 8,
+    "quantity_total": 15,
+    "reorder_point": 5
+  },
+  {
+    "quantity_available": 37,
+    "quantity_total": 40,
+    "reorder_point": 10
+  },
+  {
+    "quantity_available": 26,
+    "quantity_total": 30,
+    "reorder_point": 8
+  },
+  {
+    "quantity_available": 19,
+    "quantity_total": 25,
+    "reorder_point": 6
+  },
+  {
+    "quantity_available": 41,
+    "quantity_total": 45,
+    "reorder_point": 10
+  },
+  {
+    "quantity_available": 3,
+    "quantity_total": 10,
+    "reorder_point": 5
+  },
+  {
+    "quantity_available": 33,
+    "quantity_total": 40,
+    "reorder_point": 10
+  },
+  {
+    "quantity_available": 46,
+    "quantity_total": 50,
+    "reorder_point": 12
+  },
+  {
+    "quantity_available": 21,
+    "quantity_total": 25,
+    "reorder_point": 8
+  }
+]
