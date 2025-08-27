@@ -17,6 +17,9 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    outputs:
+      build_name: ${{ steps.set-build-info.outputs.build_name }}
+      build_number: ${{ steps.set-build-info.outputs.build_number }}
 
     steps:
       - name: Checkout
@@ -28,6 +31,16 @@ jobs:
           echo "📝 Reason: ${{ inputs.reason || 'Manual testing' }}"
           echo "👤 Triggered by: ${{ github.actor }}"
           echo "🕐 Timestamp: $(date -u)"
+
+      - name: Set Build Info (job + run)
+        id: set-build-info
+        run: |
+          BUILD_NAME="${{ github.event.repository.name }}-${{ github.job }}"
+          BUILD_NUMBER="${{ github.run_number }}-${{ github.run_attempt }}"
+          echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
+          echo "build_name=$BUILD_NAME" >> $GITHUB_OUTPUT
+          echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
 
       - name: Set build variables
         run: |
@@ -47,8 +60,8 @@ jobs:
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
-          JFROG_CLI_BUILD_NAME: ${{ env.SERVICE_NAME }}
-          JFROG_CLI_BUILD_NUMBER: ${{ env.IMAGE_TAG }}
+          JFROG_CLI_BUILD_NAME: ${{ env.BUILD_NAME }}
+          JFROG_CLI_BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
         with:
           version: latest
           oidc-provider-name: github-bookverse-inventory
@@ -70,15 +83,15 @@ jobs:
 
       - name: Collect Git information for Build Info
         run: |
-          jf rt bag ${{ env.SERVICE_NAME }} ${{ env.IMAGE_TAG }}
+          jf rt bag "${{ env.BUILD_NAME }}" "${{ env.BUILD_NUMBER }}"
 
       - name: Collect Environment Variables for Build Info
         run: |
-          jf rt bce ${{ env.SERVICE_NAME }} ${{ env.IMAGE_TAG }}
+          jf rt bce "${{ env.BUILD_NAME }}" "${{ env.BUILD_NUMBER }}"
 
       - name: Publish Build Info
         run: |
-          jf rt bp ${{ env.SERVICE_NAME }} ${{ env.IMAGE_TAG }}
+          jf rt bp "${{ env.BUILD_NAME }}" "${{ env.BUILD_NUMBER }}"
 
       - name: Attach coverage evidence to Docker image
         run: |
@@ -227,6 +240,8 @@ jobs:
           SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
           IMAGE_TAG=$(echo $GITHUB_SHA | head -c7)
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
+          BUILD_NAME="${{ needs.build-test-publish.outputs.build_name || format('{0}-{1}', github.event.repository.name, github.job) }}"
+          BUILD_NUMBER="${{ needs.build-test-publish.outputs.build_number || format('{0}-{1}', github.run_number, github.run_attempt) }}"
           
           echo "🔍 Checking for existing application versions..."
           
@@ -260,6 +275,8 @@ jobs:
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
+          echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
           
           echo "✅ AppTrust variables set:"
           echo "   📦 Application: $APPLICATION_KEY"
@@ -277,8 +294,8 @@ jobs:
             "sources": {
               "builds": [
                 {
-                  "name": "${{ env.SERVICE_NAME }}",
-                  "number": "${{ env.IMAGE_TAG }}"
+                  "name": "${{ env.BUILD_NAME }}",
+                  "number": "${{ env.BUILD_NUMBER }}"
                 }
               ]
             }
