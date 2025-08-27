@@ -31,206 +31,19 @@ jobs:
 
       - name: Setup JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
         with:
           version: latest
-
-      - name: Configure JFrog CLI
-        run: |
-          jf c add bookverse-admin --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}"
-          jf c use bookverse-admin
-          jf c show
-
+          oidc-provider-name: setup-jfrog-cli
+          disable-job-summary: false
+          disable-auto-build-publish: false
+          disable-auto-evidence-collection: false
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Configure JFrog pip integration
-        run: |
-          SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
-          jf pipc --repo-resolve=${{ vars.PROJECT_KEY }}-pypi-virtual
-          echo "✅ Configured JFrog pip integration with repository: ${{ vars.PROJECT_KEY }}-pypi-virtual"
-
-      - name: Show pip/JFrog configuration
-        run: |
-          python -m pip --version
-          jf c show
-          echo "--- pip.conf ---"
-          (cat "$HOME/.pip/pip.conf" || true)
-          echo "--- pip config list ---"
-          python -m pip config list || true
-          echo "--- Check Artifactory virtual PyPI for pytest (GET body) ---"
-          curl -sL -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" "${{ vars.JFROG_URL }}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple/pytest/" | head -n 80 | sed -e "s/<[^>]*>/ /g" | sed -e "s/\s\+/ /g" | cut -c1-200
-          echo "--- Check Artifactory virtual PyPI root (GET body) ---"
-          curl -sL -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" "${{ vars.JFROG_URL }}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple/" | head -n 40 | sed -e "s/<[^>]*>/ /g" | sed -e "s/\s\+/ /g" | cut -c1-200
-          echo "--- pip debug (first 120 lines) ---"
-          python -m pip debug -v | sed -n "1,120p"
-
-
-      - name: Pre-seed PyPI cache with test deps
-        run: |
-          python -m pip download -q -d .pip-preseed pytest pytest-cov httpx
-          jf rt u ".pip-preseed/*" "${{ vars.PROJECT_KEY }}-pypi-cache-local/"
-      - name: Install test dependencies via JFrog CLI
-        run: |
-          REGISTRY_URL=$(echo "${{ vars.JFROG_URL }}" | sed 's|https://||' | sed 's|http://||')
-          PIP_INDEX_URL="https://yonatan:${{ secrets.JFROG_ADMIN_TOKEN }}@${REGISTRY_URL}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple"
-          PIP_TRUSTED_HOST="${REGISTRY_URL}"
-          python -m pip install --upgrade "pip<25"
-          JFROG_CLI_LOG_LEVEL=DEBUG jf pip install pytest pytest-cov httpx
-          echo "✅ Installed test dependencies via JFrog CLI"
-
-
-      - name: Pre-seed PyPI cache with project requirements
-        run: |
-          REGISTRY_URL=$(echo "${{ vars.JFROG_URL }}" | sed 's|https://||' | sed 's|http://||')
-          PIP_INDEX_URL="https://yonatan:${{ secrets.JFROG_ADMIN_TOKEN }}@${REGISTRY_URL}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple"
-          PIP_TRUSTED_HOST="${REGISTRY_URL}"
-          python -m pip install --upgrade "pip<25"
-          python -m pip download -q -d .pip-preseed -r requirements.txt
-          jf rt u ".pip-preseed/*" "${{ vars.PROJECT_KEY }}-pypi-cache-local/"
-      - name: Install project dependencies via JFrog CLI
-        run: |
-          REGISTRY_URL=$(echo "${{ vars.JFROG_URL }}" | sed 's|https://||' | sed 's|http://||')
-          PIP_INDEX_URL="https://yonatan:${{ secrets.JFROG_ADMIN_TOKEN }}@${REGISTRY_URL}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple"
-          PIP_TRUSTED_HOST="${REGISTRY_URL}"
-          JFROG_CLI_LOG_LEVEL=DEBUG jf pip install -r requirements.txt
-          echo "✅ Installed project dependencies via JFrog CLI"
-
-      - name: Run tests with coverage
-        run: |
-          # Run tests with coverage
-          if python -m pytest tests/ -v --cov=app --cov-report=xml --cov-report=html; then
-            echo "✅ Tests passed with coverage reports generated"
-            echo "TESTS_PASSED=true" >> $GITHUB_ENV
-          else
-            echo "⚠️ Tests failed - creating fallback coverage reports"
-            echo "TESTS_PASSED=false" >> $GITHUB_ENV
-            
-            # Create fake coverage.xml
-            cat <<EOF > coverage.xml
-          <?xml version="1.0" ?>
-          <coverage version="7.4.3" timestamp="$(date +%s)000" lines-valid="150" lines-covered="135" line-rate="0.9" branches-covered="45" branches-valid="50" branch-rate="0.9" complexity="0">
-            <sources><source>$(pwd)</source></sources>
-            <packages>
-              <package name="app" line-rate="0.9" branch-rate="0.9" complexity="0">
-                <classes>
-                  <class name="main.py" filename="app/main.py" complexity="0" line-rate="0.95" branch-rate="1.0">
-                    <methods></methods>
-                    <lines>
-                      <line number="10" hits="1"/>
-                      <line number="15" hits="1"/>
-                      <line number="20" hits="1"/>
-                    </lines>
-                  </class>
-                </classes>
-              </package>
-            </packages>
-          </coverage>
-          EOF
-            
-            # Create fake HTML coverage directory
-            mkdir -p htmlcov
-            cat <<EOF > htmlcov/index.html
-          <!DOCTYPE html>
-          <html><head><title>Coverage Report</title></head>
-          <body>
-          <h1>Coverage Report (Demo Fallback)</h1>
-          <p><strong>Coverage:</strong> 90% (135/150 lines)</p>
-          <p><strong>Status:</strong> Tests failed - using fallback data for demo</p>
-          <p><strong>Generated:</strong> $(date)</p>
-          </body></html>
-          EOF
-          fi
-
-      - name: Generate SAST scan results
-        run: |
-          echo "🔍 Running SAST scan (simulated)"
-          
-          # Create realistic CodeQL-style SAST results
-          cat <<EOF > sast-results.json
-          {
-            "version": "2.1.0",
-            "runs": [
-              {
-                "tool": {
-                  "driver": {
-                    "name": "CodeQL",
-                    "version": "2.15.3",
-                    "informationUri": "https://codeql.github.com"
-                  }
-                },
-                "results": [
-                  {
-                    "ruleId": "py/sql-injection",
-                    "level": "warning",
-                    "message": {"text": "Potential SQL injection vulnerability"},
-                    "locations": [{"physicalLocation": {"artifactLocation": {"uri": "app/database.py"}, "region": {"startLine": 45}}}]
-                  },
-                  {
-                    "ruleId": "py/clear-text-logging-sensitive-data", 
-                    "level": "note",
-                    "message": {"text": "Sensitive data may be logged"},
-                    "locations": [{"physicalLocation": {"artifactLocation": {"uri": "app/services.py"}, "region": {"startLine": 123}}}]
-                  }
-                ],
-                "invocations": [
-                  {
-                    "executionSuccessful": true,
-                    "startTimeUtc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-                    "endTimeUtc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-                  }
-                ]
-              }
-            ]
-          }
-          EOF
-          
-          # Create SAST summary report
-          cat <<EOF > sast-summary.md
-          # SAST Security Scan Results
-          
-          **Scan Tool:** CodeQL  
-          **Scan Date:** $(date -u)  
-          **Repository:** ${{ github.repository }}  
-          **Commit:** ${{ github.sha }}  
-          
-          ## Summary
-          - **Total Issues:** 2
-          - **High:** 0
-          - **Medium:** 1 (SQL Injection potential)
-          - **Low:** 1 (Logging concern)
-          
-          ## Findings
-          1. **SQL Injection Risk** (Medium) - app/database.py:45
-          2. **Sensitive Data Logging** (Low) - app/services.py:123
-          
-          ## Recommendations
-          - Review SQL query construction in database module
-          - Implement secure logging practices
-          
-          
-          ## Risk Assessment
-          - **Overall Risk:** Low-Medium
-          - **Immediate Action Required:** Review SQL query construction
-          - **Next Review:** Quarterly security assessment
-          EOF
-          
-          echo "✅ SAST scan completed with $(jq '.runs[0].results | length' sast-results.json) findings"
-          
-      - name: Set build variables
-        run: |
-          SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
-          IMAGE_TAG=$(echo $GITHUB_SHA | head -c7)
-          REGISTRY_URL=$(echo "${{ vars.JFROG_URL }}" | sed 's|https://||' | sed 's|http://||')
-          IMAGE_NAME="$REGISTRY_URL/${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-docker-internal-local/${SERVICE_NAME}:${IMAGE_TAG}"
-          echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
-          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
-          echo "REGISTRY_URL=$REGISTRY_URL" >> $GITHUB_ENV
-          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
-          echo "BUILD_NAME=$SERVICE_NAME" >> $GITHUB_ENV
-          echo "BUILD_NUMBER=$IMAGE_TAG" >> $GITHUB_ENV
-
 
       - name: Build and push Docker image via JFrog CLI
         run: |
@@ -364,8 +177,15 @@ jobs:
 
       - name: Setup JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
         with:
           version: latest
+          oidc-provider-name: setup-jfrog-cli
+          disable-job-summary: false
+          disable-auto-build-publish: false
+          disable-auto-evidence-collection: false
 
       - name: Configure JFrog CLI
         run: |
