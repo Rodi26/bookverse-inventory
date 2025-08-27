@@ -68,6 +68,18 @@ jobs:
           jf docker push ${{ env.IMAGE_NAME }}
           echo "✅ Built and pushed Docker image via JFrog CLI"
 
+      - name: Collect Git information for Build Info
+        run: |
+          jf rt bag ${{ env.SERVICE_NAME }} ${{ env.IMAGE_TAG }}
+
+      - name: Collect Environment Variables for Build Info
+        run: |
+          jf rt bce ${{ env.SERVICE_NAME }} ${{ env.IMAGE_TAG }}
+
+      - name: Publish Build Info
+        run: |
+          jf rt bp ${{ env.SERVICE_NAME }} ${{ env.IMAGE_TAG }}
+
       - name: Attach coverage evidence to Docker image
         run: |
           echo "📊 Attaching test coverage evidence to Docker image"
