@@ -196,6 +196,10 @@ jobs:
           echo "BUILD_NAME=$SERVICE_NAME" >> $GITHUB_ENV
           echo "BUILD_NUMBER=$IMAGE_TAG" >> $GITHUB_ENV
 
+
+      - name: Docker login to JFrog registry
+        run: |
+          jf docker login "${{ env.REGISTRY_URL }}"
       - name: Build and push Docker image via JFrog CLI
         run: |
           jf docker build --pull -t ${{ env.IMAGE_NAME }} .
