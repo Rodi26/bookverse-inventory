@@ -51,12 +51,6 @@ jobs:
           jf pipc --repo-resolve=${{ vars.PROJECT_KEY }}-pypi-virtual
           echo "✅ Configured JFrog pip integration with repository: ${{ vars.PROJECT_KEY }}-pypi-virtual"
 
-      - name: Set PIP_INDEX_URL for Artifactory
-        run: |
-          REGISTRY_URL=$(echo "${{ vars.JFROG_URL }}" | sed 's|https://||' | sed 's|http://||')
-          echo "PIP_INDEX_URL=https://yonatan:${{ secrets.JFROG_ADMIN_TOKEN }}@${REGISTRY_URL}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple" >> $GITHUB_ENV
-          echo "PIP_TRUSTED_HOST=${REGISTRY_URL}" >> $GITHUB_ENV
-
       - name: Show pip/JFrog configuration
         run: |
           python -m pip --version
