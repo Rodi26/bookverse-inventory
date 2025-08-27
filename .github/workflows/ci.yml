@@ -197,14 +197,10 @@ jobs:
           echo "BUILD_NUMBER=$IMAGE_TAG" >> $GITHUB_ENV
 
 
-      - name: Docker login to JFrog registry
-        run: |
-          jf docker login "${{ env.REGISTRY_URL }}"
       - name: Build and push Docker image via JFrog CLI
         run: |
           jf docker build --pull -t ${{ env.IMAGE_NAME }} .
-          jf rt dp ${{ env.IMAGE_NAME }} ${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local \
-            --build-name=${{ env.BUILD_NAME }} --build-number=${{ env.BUILD_NUMBER }}
+          jf docker push ${{ env.IMAGE_NAME }} --server-id-deploy=bookverse-admin
           echo "✅ Built and pushed Docker image via JFrog CLI"
 
       - name: Attach coverage evidence to Docker image
