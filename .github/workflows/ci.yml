@@ -66,6 +66,11 @@ jobs:
           echo "--- pip debug (first 120 lines) ---"
           python -m pip debug -v | sed -n "1,120p"
 
+
+      - name: Pre-seed PyPI cache with test deps
+        run: |
+          python -m pip download -q -d .pip-preseed pytest pytest-cov httpx
+          jf rt u ".pip-preseed/*" "${{ vars.PROJECT_KEY }}-pypi-cache-local/"
       - name: Install test dependencies via JFrog CLI
         run: |
           REGISTRY_URL=$(echo "${{ vars.JFROG_URL }}" | sed 's|https://||' | sed 's|http://||')
