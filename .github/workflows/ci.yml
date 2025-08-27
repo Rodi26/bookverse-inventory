@@ -63,7 +63,7 @@ jobs:
 
       - name: Build and push Docker image via JFrog CLI
         run: |
-          jf docker login --server-id setup-jfrog-cli-server ${{ env.REGISTRY_URL }}
+          echo ${{ secrets.JFROG_ADMIN_TOKEN }} | docker login ${{ env.REGISTRY_URL }} -u yonatan --password-stdin
           jf docker build --pull -t ${{ env.IMAGE_NAME }} .
           jf docker push ${{ env.IMAGE_NAME }}
           echo "✅ Built and pushed Docker image via JFrog CLI"
