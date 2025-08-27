@@ -59,8 +59,12 @@ jobs:
           (cat "$HOME/.pip/pip.conf" || true)
           echo "--- pip config list ---"
           python -m pip config list || true
-          echo "--- Check Artifactory virtual PyPI for pytest ---"
-          curl -sI -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" "${{ vars.JFROG_URL }}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple/pytest/" | cat
+          echo "--- Check Artifactory virtual PyPI for pytest (GET body) ---"
+          curl -sL -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" "${{ vars.JFROG_URL }}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple/pytest/" | head -n 80 | sed -e "s/<[^>]*>/ /g" | sed -e "s/\s\+/ /g" | cut -c1-200
+          echo "--- Check Artifactory virtual PyPI root (GET body) ---"
+          curl -sL -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" "${{ vars.JFROG_URL }}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple/" | head -n 40 | sed -e "s/<[^>]*>/ /g" | sed -e "s/\s\+/ /g" | cut -c1-200
+          echo "--- pip debug (first 120 lines) ---"
+          python -m pip debug -v | sed -n "1,120p"
 
       - name: Install test dependencies via JFrog CLI
         run: |
