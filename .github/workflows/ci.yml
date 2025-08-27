@@ -64,12 +64,18 @@ jobs:
 
       - name: Install test dependencies via JFrog CLI
         run: |
+          REGISTRY_URL=$(echo "${{ vars.JFROG_URL }}" | sed 's|https://||' | sed 's|http://||')
+          PIP_INDEX_URL="https://yonatan:${{ secrets.JFROG_ADMIN_TOKEN }}@${REGISTRY_URL}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple"
+          PIP_TRUSTED_HOST="${REGISTRY_URL}"
           python -m pip install --upgrade "pip<25"
           JFROG_CLI_LOG_LEVEL=DEBUG jf pip install pytest pytest-cov httpx
           echo "✅ Installed test dependencies via JFrog CLI"
 
       - name: Install project dependencies via JFrog CLI
         run: |
+          REGISTRY_URL=$(echo "${{ vars.JFROG_URL }}" | sed 's|https://||' | sed 's|http://||')
+          PIP_INDEX_URL="https://yonatan:${{ secrets.JFROG_ADMIN_TOKEN }}@${REGISTRY_URL}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple"
+          PIP_TRUSTED_HOST="${REGISTRY_URL}"
           JFROG_CLI_LOG_LEVEL=DEBUG jf pip install -r requirements.txt
           echo "✅ Installed project dependencies via JFrog CLI"
 
