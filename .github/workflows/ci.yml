@@ -36,7 +36,8 @@ jobs:
 
       - name: Configure JFrog CLI
         run: |
-          jf c add --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ACCESS_TOKEN }}"
+          jf c add bookverse-admin --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}"
+          jf c use bookverse-admin
           jf c show
 
       - name: Set up Python
@@ -332,7 +333,8 @@ jobs:
 
       - name: Configure JFrog CLI
         run: |
-          jf c add --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ACCESS_TOKEN }}"
+          jf c add bookverse-admin --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}"
+          jf c use bookverse-admin
           jf c show
 
       - name: Set AppTrust variables and determine version
@@ -346,7 +348,7 @@ jobs:
           # Get latest version from AppTrust API
           LATEST_VERSION=$(curl -s \
             "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ACCESS_TOKEN }}" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "Content-Type: application/json" | \
             jq -r '.versions[0].version // empty' 2>/dev/null || echo "")
           
@@ -402,7 +404,7 @@ jobs:
           # Create the application version
           curl -X POST \
             "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ACCESS_TOKEN }}" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d "$APP_VERSION_PAYLOAD" \
             --fail-with-body || echo "⚠️ Application version may already exist"
