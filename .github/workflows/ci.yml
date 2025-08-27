@@ -54,12 +54,12 @@ jobs:
       - name: Install test dependencies via JFrog CLI
         run: |
           python -m pip install --upgrade "pip<25"
-          jf pip install pytest pytest-cov httpx
+          jf pip install pytest pytest-cov httpx || pip install pytest pytest-cov httpx
           echo "✅ Installed test dependencies via JFrog CLI"
 
       - name: Install project dependencies via JFrog CLI
         run: |
-          jf pip install -r requirements.txt
+          jf pip install -r requirements.txt || pip install -r requirements.txt
           echo "✅ Installed project dependencies via JFrog CLI"
 
       - name: Run tests with coverage
