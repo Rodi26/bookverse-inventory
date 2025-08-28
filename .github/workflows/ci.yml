@@ -298,12 +298,18 @@ jobs:
           **Build:** [${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           EOF
           
+          # Get the Docker manifest SHA256 for evidence subject
+          echo "🔍 Getting Docker manifest SHA256..."
+          MANIFEST_SHA256=$(jf rt curl /api/storage/${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}/${{ env.IMAGE_TAG }}/manifest.json | jq -r '.checksums.sha256')
+          echo "📋 Manifest SHA256: $MANIFEST_SHA256"
+          
           # Attach coverage evidence to Docker image
           jf evd create \
             --predicate coverage-evidence.json \
             --markdown coverage-evidence.md \
             --predicate-type "https://jfrog.com/evidence/test-coverage/v1" \
-            --subject-repo-path "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}/${{ env.IMAGE_TAG }}" \
+            --subject-repo-path "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}/${{ env.IMAGE_TAG }}/manifest.json" \
+            --subject-sha256 "$MANIFEST_SHA256" \
             --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS
           
           echo "✅ Coverage evidence attached to Docker image"
@@ -315,7 +321,7 @@ jobs:
         run: |
           echo "🔎 Verifying coverage evidence with public key"
           jf evd verify \
-            --subject-repo-path "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}/${{ env.IMAGE_TAG }}" \
+            --subject-repo-path "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}/${{ env.IMAGE_TAG }}/manifest.json" \
             --public-keys evidence_public.pem
 
       - name: Attach SAST evidence to Docker image
@@ -385,12 +391,18 @@ jobs:
           **Build:** [${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           EOF
           
+          # Get the Docker manifest SHA256 for evidence subject (reuse from coverage step)
+          echo "🔍 Getting Docker manifest SHA256 for SAST evidence..."
+          MANIFEST_SHA256=$(jf rt curl /api/storage/${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}/${{ env.IMAGE_TAG }}/manifest.json | jq -r '.checksums.sha256')
+          echo "📋 Manifest SHA256: $MANIFEST_SHA256"
+          
           # Attach SAST evidence to Docker image
           jf evd create \
             --predicate sast-evidence.json \
             --markdown sast-summary.md \
             --predicate-type "https://in-toto.io/attestation/vulns" \
-            --subject-repo-path "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}/${{ env.IMAGE_TAG }}" \
+            --subject-repo-path "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}/${{ env.IMAGE_TAG }}/manifest.json" \
+            --subject-sha256 "$MANIFEST_SHA256" \
             --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS
           
           echo "✅ SAST evidence attached to Docker image"
