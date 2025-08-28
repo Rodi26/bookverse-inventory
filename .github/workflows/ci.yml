@@ -401,6 +401,37 @@ jobs:
           
           echo "✅ SAST evidence attached to Docker image"
 
+      - name: Verify evidence on Docker image (non-blocking)
+        env:
+          JFROG_CLI_LOG_LEVEL: DEBUG
+        run: |
+          set -euo pipefail
+          REPO="${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local"
+          IMAGE="${{ env.SERVICE_NAME }}"
+          TAG="${{ env.IMAGE_TAG }}"
+
+          BASE_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject"
+          S1="$BASE_URL/$REPO/$IMAGE/$TAG/manifest.json"
+          S2="$BASE_URL/$REPO/$IMAGE/$TAG"
+
+          echo "🔎 Querying Evidence API (manifest.json): $S1"
+          RESP1=$(curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$S1" || true)
+          echo "$RESP1" | jq . || echo "$RESP1"
+          CNT1=$(echo "$RESP1" | jq -r '.evidence | length' 2>/dev/null || echo 0)
+
+          echo "🔎 Querying Evidence API (tag root): $S2"
+          RESP2=$(curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$S2" || true)
+          echo "$RESP2" | jq . || echo "$RESP2"
+          CNT2=$(echo "$RESP2" | jq -r '.evidence | length' 2>/dev/null || echo 0)
+
+          TOTAL=$((CNT1 + CNT2))
+          echo "📦 Evidence entries detected: $TOTAL"
+          if [[ "$TOTAL" -gt 0 ]]; then
+            echo "✅ Evidence found for Docker image"
+          else
+            echo "⚠️ No evidence found yet; continuing (non-blocking for demo)"
+          fi
+
   create-application-version:
     needs: build-test-publish
     runs-on: ubuntu-latest
