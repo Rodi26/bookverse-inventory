@@ -350,6 +350,7 @@ jobs:
           # Align build reference with build-test-publish job outputs
           BUILD_NAME="${{ needs.build-test-publish.outputs.build_name }}"
           BUILD_NUMBER="${{ needs.build-test-publish.outputs.build_number }}"
+          BUILD_INFO_REPO="${{ vars.PROJECT_KEY }}-build-info"
           
           echo "🔍 Checking for existing application versions..."
           
@@ -379,6 +380,7 @@ jobs:
           echo "BUILD_INFO_REPO=$BUILD_INFO_REPO" >> $GITHUB_ENV
           echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
+          echo "BUILD_INFO_REPO=$BUILD_INFO_REPO" >> $GITHUB_ENV
           
           echo "✅ AppTrust variables set:"
           echo "   📦 Application: $APPLICATION_KEY"
