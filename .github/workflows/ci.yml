@@ -206,12 +206,16 @@ jobs:
             printf "%s" "${{ secrets.EVIDENCE_PRIVATE_KEY }}" > evidence_private.pem
             if [[ -n "${{ secrets.EVIDENCE_PUBLIC_KEY }}" ]]; then
               printf "%s" "${{ secrets.EVIDENCE_PUBLIC_KEY }}" > evidence_public.pem
+              echo "HAVE_EVIDENCE_PUB=true" >> $GITHUB_ENV
+            else
+              echo "HAVE_EVIDENCE_PUB=false" >> $GITHUB_ENV
             fi
             KEY_ALIAS="${{ vars.EVIDENCE_KEY_ALIAS || 'bookverse-ev-key' }}"
             echo "EVIDENCE_SIGN_ARGS=--key evidence_private.pem --key-alias \"${KEY_ALIAS}\" --provider-id github-actions" >> $GITHUB_ENV
           else
             echo "No EVIDENCE_PRIVATE_KEY secret set; proceeding without signing"
             echo "EVIDENCE_SIGN_ARGS=" >> $GITHUB_ENV
+            echo "HAVE_EVIDENCE_PUB=false" >> $GITHUB_ENV
           fi
 
       - name: Attach coverage evidence to Docker image
@@ -273,7 +277,7 @@ jobs:
           echo "✅ Coverage evidence attached to Docker image"
 
       - name: Verify coverage evidence (optional)
-        if: ${{ secrets.EVIDENCE_PUBLIC_KEY != '' }}
+        if: ${{ env.HAVE_EVIDENCE_PUB == 'true' }}
         run: |
           echo "🔎 Verifying coverage evidence with public key"
           jf evd verify \
