@@ -42,7 +42,7 @@ jobs:
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
           echo "build_name=$BUILD_NAME" >> $GITHUB_OUTPUT
           echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
-
+          
       - name: Set build variables
         run: |
           SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
@@ -195,10 +195,10 @@ jobs:
       - name: Build and push Docker image via JFrog CLI
         run: |
           set -euo pipefail
-          jf docker login ${{ env.REGISTRY_URL }}
+          echo ${{ secrets.JFROG_ADMIN_TOKEN }} | docker login ${{ env.REGISTRY_URL }} -u yonatan --password-stdin
           jf docker build --pull -t ${{ env.IMAGE_NAME }} .
-          jf docker push ${{ env.IMAGE_NAME }}
-          echo "✅ Built and pushed Docker image via JFrog CLI"
+          docker push ${{ env.IMAGE_NAME }}
+          echo "✅ Built and pushed Docker image"
 
       - name: Collect Git information for Build Info
         run: |
@@ -402,11 +402,11 @@ jobs:
           
           if [[ -z "$APP_VERSION" || "$APP_VERSION" == "" ]]; then
             # Compute next SemVer if not provided by build job
-            LATEST_VERSION=$(curl -s \
-              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/" \
-              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+          LATEST_VERSION=$(curl -s \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
               -H "Content-Type: application/json" | jq -r '.versions[0].version // empty')
-            if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "null" ]]; then
+          if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "null" ]]; then
               MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
               MINOR=$(echo "$LATEST_VERSION" | cut -d. -f2)
               PATCH=$(echo "$LATEST_VERSION" | cut -d. -f3 | cut -d- -f1)
