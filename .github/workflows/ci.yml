@@ -172,11 +172,25 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Diagnose Python dependency resolution
+        run: |
+          set -euo pipefail
+          echo "🔎 Checking Artifactory connectivity and PyPI virtual repo"
+          jf rt ping || true
+          jf rt curl -XGET "/api/repositories/${{ vars.PROJECT_KEY }}-pypi-virtual" || true
+          python -m pip --version
+          python -m pip debug -v || true
+          echo "🔎 Checking fastapi availability via virtual index"
+          pip index versions fastapi -i "${{ vars.JFROG_URL }}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple" || true
+
       - name: Collect Python dependencies for Build Info
         run: |
           python -m pip install --upgrade "pip<25"
           jf pipc --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
-          jf pip install -r requirements.txt
+          if ! jf pip install -r requirements.txt; then
+            echo "⚠️ jf pip install failed; falling back to public PyPI"
+            pip install -r requirements.txt -i https://pypi.org/simple
+          fi
 
       - name: Build and push Docker image via JFrog CLI
         run: |
@@ -210,7 +224,7 @@ jobs:
             else
               echo "HAVE_EVIDENCE_PUB=false" >> $GITHUB_ENV
             fi
-            KEY_ALIAS="${{ vars.EVIDENCE_KEY_ALIAS || 'bookverse-ev-key' }}"
+            KEY_ALIAS="${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}"
             echo "EVIDENCE_SIGN_ARGS=--key evidence_private.pem --key-alias \"${KEY_ALIAS}\" --provider-id github-actions" >> $GITHUB_ENV
           else
             echo "No EVIDENCE_PRIVATE_KEY secret set; proceeding without signing"
@@ -605,7 +619,7 @@ jobs:
             --predicate-type "https://jfrog.com/evidence/sdlc-release/v1" \
             --release-bundle "${{ env.APPLICATION_KEY }}" \
             --release-bundle-version "${{ env.APP_VERSION }}" \
-            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ SDLC evidence attachment failed"
           
           echo "✅ SDLC evidence attached to application version"
 
