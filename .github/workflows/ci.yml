@@ -57,6 +57,46 @@ jobs:
           echo "TESTS_PASSED=true" >> $GITHUB_ENV
 
       - name: Determine SemVer image version
+        run: |
+          set -euo pipefail
+          SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
+          APPLICATION_KEY="bookverse-$SERVICE_NAME"
+          echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
+          RESP_FILE=$(mktemp)
+          HTTP_STATUS=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+            -H "Accept: application/json")
+          if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
+            if LATEST_VERSION=$(jq -er '.versions[0].version // empty' "$RESP_FILE" 2>/dev/null); then
+              :
+            else
+              LATEST_VERSION=""
+            fi
+          else
+            LATEST_VERSION=""
+          fi
+          rm -f "$RESP_FILE"
+          if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "null" ]]; then
+            MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
+            MINOR=$(echo "$LATEST_VERSION" | cut -d. -f2)
+            PATCH=$(echo "$LATEST_VERSION" | cut -d. -f3 | cut -d- -f1)
+            APP_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+          else
+            APP_VERSION="1.0.0"
+          fi
+          # Update tags and build identifiers to SemVer
+          IMAGE_TAG="$APP_VERSION"
+          IMAGE_NAME="${REGISTRY_URL}/${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-docker-internal-local/${SERVICE_NAME}:${IMAGE_TAG}"
+          BUILD_NAME="$SERVICE_NAME"
+          BUILD_NUMBER="$APP_VERSION"
+          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
+
+      - name: Determine SemVer image version
         id: set-app-version
         run: |
           set -euo pipefail
@@ -353,8 +393,8 @@ jobs:
                 {
                   "name": "${{ env.SERVICE_NAME }}",
                   "number": "${{ env.IMAGE_TAG }}",
-                  "repositoryKey": "${{ env.BUILD_INFO_REPO }}",
-                  "includeDependencies": true
+                  "repository_key": "${{ env.BUILD_INFO_REPO }}",
+                  "include_dependencies": true
                 }
               ]
             }
@@ -385,6 +425,40 @@ jobs:
           
           echo "✅ Application version created: ${{ env.APPLICATION_KEY }}@${{ env.APP_VERSION }}"
           echo "📦 Packages will be automatically bound from build sources"
+
+      - name: Wait for application version completion
+        run: |
+          set -euo pipefail
+          APP_URL="${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/${{ env.APP_VERSION }}"
+          echo "⏳ Waiting for application version to complete: $APP_URL"
+          for i in {1..30}; do
+            STATUS_FILE=$(mktemp)
+            HTTP_STATUS=$(curl -sS -L -o "$STATUS_FILE" -w "%{http_code}" "$APP_URL" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json")
+            echo "HTTP $HTTP_STATUS"
+            if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
+              STATUS=$(jq -r '.status // empty' "$STATUS_FILE" 2>/dev/null || echo "")
+              echo "Current status: ${STATUS:-unknown}"
+              cat "$STATUS_FILE" | jq . || true
+              rm -f "$STATUS_FILE"
+              if [[ "$STATUS" == "IN_PROGRESS" || -z "$STATUS" ]]; then
+                sleep 5
+                continue
+              elif [[ "$STATUS" == "COMPLETED" || "$STATUS" == "READY" || "$STATUS" == "SUCCEEDED" ]]; then
+                echo "✅ Application version is completed."
+                exit 0
+              else
+                echo "❌ Application version ended in unexpected status: $STATUS" >&2
+                exit 1
+              fi
+            else
+              echo "⚠️ Unexpected HTTP status while polling. Body:" >&2
+              cat "$STATUS_FILE" >&2 || true
+              rm -f "$STATUS_FILE"
+              sleep 5
+            fi
+          done
+          echo "❌ Timed out waiting for application version to complete" >&2
+          exit 1
 
       - name: Attach SDLC evidence to application version
         run: |
