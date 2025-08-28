@@ -7,3 +7,4 @@ Testing complete evidence creation pipeline with fixes:
 
 Test run: Thu Aug 28 14:14:38 UTC 2025
 
+E2E trigger: Thu Aug 28 14:37:37 UTC 2025
