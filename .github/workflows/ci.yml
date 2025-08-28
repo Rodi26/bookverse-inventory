@@ -197,6 +197,27 @@ jobs:
         run: |
           jf rt bp "${{ env.BUILD_NAME }}" "${{ env.BUILD_NUMBER }}"
 
+      - name: Prepare evidence signing keys (optional)
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ secrets.EVIDENCE_PRIVATE_KEY }}" ]]; then
+            echo "Writing signing keys to workspace"
+            umask 077
+            cat > evidence_private.pem <<'PEM'
+${{ secrets.EVIDENCE_PRIVATE_KEY }}
+PEM
+            if [[ -n "${{ secrets.EVIDENCE_PUBLIC_KEY }}" ]]; then
+              cat > evidence_public.pem <<'PEM'
+${{ secrets.EVIDENCE_PUBLIC_KEY }}
+PEM
+            fi
+            KEY_ALIAS="${{ vars.EVIDENCE_KEY_ALIAS || 'bookverse-ev-key' }}"
+            echo "EVIDENCE_SIGN_ARGS=--key evidence_private.pem --key-alias \"${KEY_ALIAS}\" --provider-id github-actions" >> $GITHUB_ENV
+          else
+            echo "No EVIDENCE_PRIVATE_KEY secret set; proceeding without signing"
+            echo "EVIDENCE_SIGN_ARGS=" >> $GITHUB_ENV
+          fi
+
       - name: Attach coverage evidence to Docker image
         run: |
           echo "📊 Attaching test coverage evidence to Docker image"
@@ -247,13 +268,23 @@ jobs:
           jf evd create \
             --predicate coverage-evidence.json \
             --markdown coverage-evidence.md \
-            --predicate-type "Test Coverage" \
+            --predicate-type "https://jfrog.com/evidence/test-coverage/v1" \
             --package-name "${{ env.SERVICE_NAME }}" \
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
-            --project "${{ vars.PROJECT_KEY }}" || echo "⚠️ Coverage evidence attachment failed"
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ Coverage evidence attachment failed"
           
           echo "✅ Coverage evidence attached to Docker image"
+
+      - name: Verify coverage evidence (optional)
+        if: ${{ secrets.EVIDENCE_PUBLIC_KEY != '' }}
+        run: |
+          echo "🔎 Verifying coverage evidence with public key"
+          jf evd verify \
+            --package-name "${{ env.SERVICE_NAME }}" \
+            --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
+            --package-version "${{ env.IMAGE_TAG }}" \
+            --public-keys evidence_public.pem || echo "⚠️ Verification issues (non-fatal for demo)"
 
       - name: Attach SAST evidence to Docker image
         run: |
@@ -301,11 +332,11 @@ jobs:
           jf evd create \
             --predicate sast-evidence.json \
             --markdown sast-summary.md \
-            --predicate-type "SAST Scan" \
+            --predicate-type "https://in-toto.io/attestation/vulns" \
             --package-name "${{ env.SERVICE_NAME }}" \
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
-            --project "${{ vars.PROJECT_KEY }}" || echo "⚠️ SAST evidence attachment failed"
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ SAST evidence attachment failed"
           
           echo "✅ SAST evidence attached to Docker image"
 
@@ -571,10 +602,10 @@ jobs:
           jf evd create \
             --predicate sdlc-evidence.json \
             --markdown sdlc-evidence.md \
-            --predicate-type "SDLC Release" \
+            --predicate-type "https://jfrog.com/evidence/sdlc-release/v1" \
             --release-bundle "${{ env.APPLICATION_KEY }}" \
             --release-bundle-version "${{ env.APP_VERSION }}" \
-            --project "${{ vars.PROJECT_KEY }}" || echo "⚠️ SDLC evidence attachment failed"
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ SDLC evidence attachment failed"
           
           echo "✅ SDLC evidence attached to application version"
 
