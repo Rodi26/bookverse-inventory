@@ -491,33 +491,41 @@ jobs:
         run: |
           echo "🚀 Creating AppTrust application version: ${{ env.APP_VERSION }}"
           
-          # Determine application version tags - simulate real development environment
-          # Array of realistic tag combinations for demo
+          # Determine application version tag - simulate real development environment
+          # Array of realistic single tags for demo
           TAG_OPTIONS=(
-            '["release", "stable"]'
-            '["hotfix", "critical", "production"]'
-            '["feature", "beta"]'
-            '["bugfix", "patch"]'
-            '["enhancement", "minor"]'
-            '["security", "critical"]'
-            '["performance", "optimization"]'
-            '["refactor", "cleanup"]'
-            '["experimental", "alpha"]'
-            '["maintenance", "routine"]'
-            '["integration", "merge"]'
-            '["documentation", "docs"]'
+            "release"
+            "hotfix"
+            "feature"
+            "bugfix"
+            "enhancement"
+            "security"
+            "performance"
+            "refactor"
+            "experimental"
+            "maintenance"
+            "integration"
+            "documentation"
+            "stable"
+            "beta"
+            "alpha"
+            "critical"
+            "patch"
+            "minor"
+            "major"
+            "cleanup"
           )
           
-          # Randomly select tags based on run number for consistency
+          # Randomly select single tag based on run number for consistency
           TAG_INDEX=$((${{ github.run_number }} % ${#TAG_OPTIONS[@]}))
-          APP_TAGS="${TAG_OPTIONS[$TAG_INDEX]}"
-          echo "🏷️ Application Version Tags (demo simulation): $APP_TAGS"
+          APP_TAG="${TAG_OPTIONS[$TAG_INDEX]}"
+          echo "🏷️ Application Version Tag (demo simulation): $APP_TAG"
           
           # Create application version with build sources
           APP_VERSION_PAYLOAD=$(cat << EOF
           {
             "version": "${{ env.APP_VERSION }}",
-            "tags": $APP_TAGS,
+            "tag": "$APP_TAG",
             "sources": {
               "builds": [
                 {
