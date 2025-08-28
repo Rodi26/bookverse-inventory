@@ -272,7 +272,7 @@ jobs:
             --package-name "${{ env.SERVICE_NAME }}" \
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
-            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ Coverage evidence attachment failed"
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS
           
           echo "✅ Coverage evidence attached to Docker image"
 
@@ -284,7 +284,7 @@ jobs:
             --package-name "${{ env.SERVICE_NAME }}" \
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
-            --public-keys evidence_public.pem || echo "⚠️ Verification issues (non-fatal for demo)"
+            --public-keys evidence_public.pem
 
       - name: Attach SAST evidence to Docker image
         run: |
@@ -336,7 +336,7 @@ jobs:
             --package-name "${{ env.SERVICE_NAME }}" \
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
-            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ SAST evidence attachment failed"
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS
           
           echo "✅ SAST evidence attached to Docker image"
 
@@ -605,7 +605,7 @@ jobs:
             --predicate-type "https://jfrog.com/evidence/sdlc-release/v1" \
             --release-bundle "${{ env.APPLICATION_KEY }}" \
             --release-bundle-version "${{ env.APP_VERSION }}" \
-            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ SDLC evidence attachment failed"
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS
           
           echo "✅ SDLC evidence attached to application version"
 
