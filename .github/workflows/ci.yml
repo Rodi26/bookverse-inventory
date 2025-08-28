@@ -20,6 +20,9 @@ jobs:
     outputs:
       build_name: ${{ steps.finalize-build-info.outputs.build_name }}
       build_number: ${{ steps.finalize-build-info.outputs.build_number }}
+    outputs:
+      build_name: ${{ steps.finalize-build-info.outputs.build_name }}
+      build_number: ${{ steps.finalize-build-info.outputs.build_number }}
       app_version: ${{ steps.set-app-version.outputs.app_version }}
 
     steps:
@@ -347,6 +350,9 @@ jobs:
           IMAGE_TAG="${APP_VERSION}"
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           BUILD_INFO_REPO="${{ vars.PROJECT_KEY }}-build-info"
+          # Align build reference with build-test-publish job outputs
+          BUILD_NAME="${{ needs.build-test-publish.outputs.build_name }}"
+          BUILD_NUMBER="${{ needs.build-test-publish.outputs.build_number }}"
           
           echo "🔍 Checking for existing application versions..."
           
@@ -374,6 +380,8 @@ jobs:
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
           echo "BUILD_INFO_REPO=$BUILD_INFO_REPO" >> $GITHUB_ENV
+          echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
           
           echo "✅ AppTrust variables set:"
           echo "   📦 Application: $APPLICATION_KEY"
@@ -391,8 +399,8 @@ jobs:
             "sources": {
               "builds": [
                 {
-                  "name": "${{ env.SERVICE_NAME }}",
-                  "number": "${{ env.IMAGE_TAG }}",
+                  "name": "${{ env.BUILD_NAME }}",
+                  "number": "${{ env.BUILD_NUMBER }}",
                   "repository_key": "${{ env.BUILD_INFO_REPO }}",
                   "include_dependencies": true
                 }
