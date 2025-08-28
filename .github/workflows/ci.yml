@@ -300,13 +300,6 @@ jobs:
           jf c add bookverse-admin --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}"
           jf c use bookverse-admin
           jf c show
-
-      - name: Publish Build Info (create-application-version job)
-        run: |
-          jf rt bag "${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}" "${{ github.run_number }}"
-          jf rt bce "${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}" "${{ github.run_number }}"
-          jf rt bp "${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}" "${{ github.run_number }}"
-
       - name: Set AppTrust variables and determine version
         run: |
           SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
