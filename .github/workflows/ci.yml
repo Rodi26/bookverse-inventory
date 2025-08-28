@@ -194,9 +194,10 @@ jobs:
 
       - name: Build and push Docker image via JFrog CLI
         run: |
-          echo ${{ secrets.JFROG_ADMIN_TOKEN }} | docker login ${{ env.REGISTRY_URL }} -u yonatan --password-stdin
+          set -euo pipefail
+          jf docker login ${{ env.REGISTRY_URL }}
           jf docker build --pull -t ${{ env.IMAGE_NAME }} .
-          jf rt dp ${{ env.IMAGE_NAME }} "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" --build-name="${{ env.BUILD_NAME }}" --build-number="${{ env.BUILD_NUMBER }}"
+          jf docker push ${{ env.IMAGE_NAME }}
           echo "✅ Built and pushed Docker image via JFrog CLI"
 
       - name: Collect Git information for Build Info
