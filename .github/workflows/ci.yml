@@ -18,8 +18,8 @@ jobs:
       contents: read
       id-token: write
     outputs:
-      build_name: ${{ steps.set-build-info.outputs.build_name }}
-      build_number: ${{ steps.set-build-info.outputs.build_number }}
+      build_name: ${{ steps.finalize-build-info.outputs.build_name }}
+      build_number: ${{ steps.finalize-build-info.outputs.build_number }}
       app_version: ${{ steps.set-app-version.outputs.app_version }}
 
     steps:
@@ -100,6 +100,17 @@ jobs:
           IMAGE_NAME="$REGISTRY_URL/${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local/$SERVICE_NAME:$IMAGE_TAG"
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+
+      - name: Finalize Build Info (app + semver)
+        id: finalize-build-info
+        run: |
+          # Build name aligned to application key; build number aligned to SemVer
+          BUILD_NAME="${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}"
+          BUILD_NUMBER="${{ env.APP_VERSION }}"
+          echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
+          echo "build_name=$BUILD_NAME" >> $GITHUB_OUTPUT
+          echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
 
       - name: Setup JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
@@ -293,8 +304,8 @@ jobs:
           APP_VERSION=${{ needs.build-test-publish.outputs.app_version }}
           IMAGE_TAG="${APP_VERSION}"
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
-          BUILD_NAME="${{ needs.build-test-publish.outputs.build_name || format('{0}-{1}', github.event.repository.name, github.job) }}"
-          BUILD_NUMBER="${{ needs.build-test-publish.outputs.build_number || format('{0}-{1}', github.run_number, github.run_attempt) }}"
+          BUILD_NAME="${{ needs.build-test-publish.outputs.build_name }}"
+          BUILD_NUMBER="${{ needs.build-test-publish.outputs.build_number }}"
           
           echo "🔍 Checking for existing application versions..."
           
