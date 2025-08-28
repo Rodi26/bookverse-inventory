@@ -132,7 +132,6 @@ jobs:
         with:
           python-version: '3.11'
 
-<<<<<<< HEAD
       - name: Collect Python dependencies for Build Info
         run: |
           python -m pip install --upgrade "pip<25"
