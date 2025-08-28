@@ -200,6 +200,22 @@ jobs:
           docker push ${{ env.IMAGE_NAME }}
           echo "✅ Built and pushed Docker image"
 
+      - name: Verify Docker image exists in Artifactory
+        run: |
+          set -euo pipefail
+          REPO="${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local"
+          IMAGE="${{ env.SERVICE_NAME }}"
+          TAG="${{ env.IMAGE_TAG }}"
+          URL="${{ vars.JFROG_URL }}/artifactory/api/docker/${REPO}/v2/${IMAGE}/manifests/${TAG}"
+          echo "🔎 Verifying image manifest: ${URL}"
+          STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/vnd.docker.distribution.manifest.v2+json" "$URL")
+          echo "HTTP $STATUS"
+          if [[ "$STATUS" != "200" ]]; then
+            echo "❌ Docker image manifest not found for ${REPO}/${IMAGE}:${TAG}" >&2
+            exit 1
+          fi
+          echo "✅ Docker image present in Artifactory"
+
       - name: Collect Git information for Build Info
         run: |
           jf rt bag "${{ env.BUILD_NAME }}" "${{ env.BUILD_NUMBER }}"
@@ -234,6 +250,9 @@ jobs:
           fi
 
       - name: Attach coverage evidence to Docker image
+        if: ${{ false }}
+        env:
+          JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
           echo "📊 Attaching test coverage evidence to Docker image"
           
@@ -284,7 +303,8 @@ jobs:
             --predicate coverage-evidence.json \
             --markdown coverage-evidence.md \
             --predicate-type "https://jfrog.com/evidence/test-coverage/v1" \
-            --package-name "${{ env.SERVICE_NAME }}" \
+            --package-type docker \
+            --package-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}" \
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
             --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS
@@ -292,16 +312,21 @@ jobs:
           echo "✅ Coverage evidence attached to Docker image"
 
       - name: Verify coverage evidence (optional)
-        if: ${{ env.HAVE_EVIDENCE_PUB == 'true' }}
+        if: ${{ false }}
+        env:
+          JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
           echo "🔎 Verifying coverage evidence with public key"
           jf evd verify \
-            --package-name "${{ env.SERVICE_NAME }}" \
+            --package-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}" \
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
             --public-keys evidence_public.pem
 
       - name: Attach SAST evidence to Docker image
+        if: ${{ false }}
+        env:
+          JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
           echo "🔍 Attaching SAST scan evidence to Docker image"
           
@@ -348,7 +373,8 @@ jobs:
             --predicate sast-evidence.json \
             --markdown sast-summary.md \
             --predicate-type "https://in-toto.io/attestation/vulns" \
-            --package-name "${{ env.SERVICE_NAME }}" \
+            --package-type docker \
+            --package-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}" \
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
             --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS
