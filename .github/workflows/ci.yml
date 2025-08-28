@@ -303,9 +303,7 @@ jobs:
             --predicate coverage-evidence.json \
             --markdown coverage-evidence.md \
             --predicate-type "https://jfrog.com/evidence/test-coverage/v1" \
-            --package-name "${{ env.SERVICE_NAME }}" \
-            --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
-            --package-version "${{ env.IMAGE_TAG }}" \
+            --subject-repo-path "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}/${{ env.IMAGE_TAG }}" \
             --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS
           
           echo "✅ Coverage evidence attached to Docker image"
@@ -317,9 +315,7 @@ jobs:
         run: |
           echo "🔎 Verifying coverage evidence with public key"
           jf evd verify \
-            --package-name "${{ env.SERVICE_NAME }}" \
-            --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
-            --package-version "${{ env.IMAGE_TAG }}" \
+            --subject-repo-path "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}/${{ env.IMAGE_TAG }}" \
             --public-keys evidence_public.pem
 
       - name: Attach SAST evidence to Docker image
@@ -394,9 +390,7 @@ jobs:
             --predicate sast-evidence.json \
             --markdown sast-summary.md \
             --predicate-type "https://in-toto.io/attestation/vulns" \
-            --package-name "${{ env.SERVICE_NAME }}" \
-            --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
-            --package-version "${{ env.IMAGE_TAG }}" \
+            --subject-repo-path "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}/${{ env.IMAGE_TAG }}" \
             --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS
           
           echo "✅ SAST evidence attached to Docker image"
