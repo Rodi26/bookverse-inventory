@@ -20,9 +20,6 @@ jobs:
     outputs:
       build_name: ${{ steps.finalize-build-info.outputs.build_name }}
       build_number: ${{ steps.finalize-build-info.outputs.build_number }}
-    outputs:
-      build_name: ${{ steps.finalize-build-info.outputs.build_name }}
-      build_number: ${{ steps.finalize-build-info.outputs.build_number }}
       app_version: ${{ steps.set-app-version.outputs.app_version }}
 
     steps:
