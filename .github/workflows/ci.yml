@@ -251,7 +251,6 @@ jobs:
           fi
 
       - name: Attach coverage evidence to Docker image
-        if: ${{ false }}
         env:
           JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
@@ -313,7 +312,7 @@ jobs:
           echo "✅ Coverage evidence attached to Docker image"
 
       - name: Verify coverage evidence (optional)
-        if: ${{ false }}
+        if: ${{ env.HAVE_EVIDENCE_PUB == 'true' }}
         env:
           JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
@@ -325,7 +324,6 @@ jobs:
             --public-keys evidence_public.pem
 
       - name: Attach SAST evidence to Docker image
-        if: ${{ false }}
         env:
           JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
@@ -472,10 +470,24 @@ jobs:
         run: |
           echo "🚀 Creating AppTrust application version: ${{ env.APP_VERSION }}"
           
+          # Determine application version tags from branch name
+          BRANCH_NAME="${{ github.ref_name }}"
+          if [[ "$BRANCH_NAME" == "main" || "$BRANCH_NAME" == "master" ]]; then
+            APP_TAGS='["release"]'
+          elif [[ "$BRANCH_NAME" == hotfix/* ]]; then
+            APP_TAGS='["hotfix"]'
+          elif [[ "$BRANCH_NAME" == feat/* || "$BRANCH_NAME" == feature/* ]]; then
+            APP_TAGS='["feature"]'
+          else
+            APP_TAGS='["snapshot"]'
+          fi
+          echo "🏷️ Application Version Tags: $APP_TAGS"
+          
           # Create application version with build sources
           APP_VERSION_PAYLOAD=$(cat << EOF
           {
             "version": "${{ env.APP_VERSION }}",
+            "tags": $APP_TAGS,
             "sources": {
               "builds": [
                 {
