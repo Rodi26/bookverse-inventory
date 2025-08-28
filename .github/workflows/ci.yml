@@ -491,18 +491,27 @@ jobs:
         run: |
           echo "🚀 Creating AppTrust application version: ${{ env.APP_VERSION }}"
           
-          # Determine application version tags from branch name
-          BRANCH_NAME="${{ github.ref_name }}"
-          if [[ "$BRANCH_NAME" == "main" || "$BRANCH_NAME" == "master" ]]; then
-            APP_TAGS='["release"]'
-          elif [[ "$BRANCH_NAME" == hotfix/* ]]; then
-            APP_TAGS='["hotfix"]'
-          elif [[ "$BRANCH_NAME" == feat/* || "$BRANCH_NAME" == feature/* ]]; then
-            APP_TAGS='["feature"]'
-          else
-            APP_TAGS='["snapshot"]'
-          fi
-          echo "🏷️ Application Version Tags: $APP_TAGS"
+          # Determine application version tags - simulate real development environment
+          # Array of realistic tag combinations for demo
+          TAG_OPTIONS=(
+            '["release", "stable"]'
+            '["hotfix", "critical", "production"]'
+            '["feature", "beta"]'
+            '["bugfix", "patch"]'
+            '["enhancement", "minor"]'
+            '["security", "critical"]'
+            '["performance", "optimization"]'
+            '["refactor", "cleanup"]'
+            '["experimental", "alpha"]'
+            '["maintenance", "routine"]'
+            '["integration", "merge"]'
+            '["documentation", "docs"]'
+          )
+          
+          # Randomly select tags based on run number for consistency
+          TAG_INDEX=$((${{ github.run_number }} % ${#TAG_OPTIONS[@]}))
+          APP_TAGS="${TAG_OPTIONS[$TAG_INDEX]}"
+          echo "🏷️ Application Version Tags (demo simulation): $APP_TAGS"
           
           # Create application version with build sources
           APP_VERSION_PAYLOAD=$(cat << EOF
