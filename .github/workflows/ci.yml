@@ -196,9 +196,10 @@ jobs:
         run: |
           set -euo pipefail
           echo ${{ secrets.JFROG_ADMIN_TOKEN }} | docker login ${{ env.REGISTRY_URL }} -u yonatan --password-stdin
-          jf docker build --pull -t ${{ env.IMAGE_NAME }} .
-          docker push ${{ env.IMAGE_NAME }}
-          echo "✅ Built and pushed Docker image"
+          jf docker build --pull -t ${{ env.IMAGE_NAME }} --build-name "${{ env.BUILD_NAME }}" --build-number "${{ env.BUILD_NUMBER }}" .
+          jf docker push ${{ env.IMAGE_NAME }} --build-name "${{ env.BUILD_NAME }}" --build-number "${{ env.BUILD_NUMBER }}"
+          jf rt dp ${{ env.IMAGE_NAME }} "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" --build-name="${{ env.BUILD_NAME }}" --build-number="${{ env.BUILD_NUMBER }}"
+          echo "✅ Built and pushed Docker image (with build-info)"
 
       - name: Verify Docker image exists in Artifactory
         run: |
@@ -459,6 +460,14 @@ jobs:
           echo "   🏷️ Version: $APP_VERSION"
           echo "   🔨 Build: $SERVICE_NAME#$IMAGE_TAG"
 
+      - name: Debug build info contents
+        run: |
+          set -euo pipefail
+          echo "🔎 Fetching build info to confirm artifacts are present"
+          URL="${{ vars.JFROG_URL }}/artifactory/api/build/${{ env.BUILD_NAME }}/${{ env.BUILD_NUMBER }}?project=${{ vars.PROJECT_KEY }}"
+          echo "GET $URL"
+          curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$URL" | jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})'
+
       - name: Create application version
         run: |
           echo "🚀 Creating AppTrust application version: ${{ env.APP_VERSION }}"
@@ -489,7 +498,7 @@ jobs:
           # Create the application version with status/body capture
           RESP_BODY=$(mktemp)
           HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/?project=${{ vars.PROJECT_KEY }}&async=false" \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/?async=false" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             -H "Content-Type: application/json" \
