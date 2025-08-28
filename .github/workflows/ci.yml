@@ -101,13 +101,13 @@ jobs:
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
 
-      - name: Finalize Build Info (repo-workflow / runNumber-job)
+      - name: Finalize Build Info (repo_workflow_job / runNumber)
         id: finalize-build-info
         run: |
-          # Build name: <repo-name>-<workflow-name>
-          BUILD_NAME="${{ github.event.repository.name }}-${{ github.workflow }}"
-          # Build number: <run-number>-<job-name>
-          BUILD_NUMBER="${{ github.run_number }}-${{ github.job }}"
+          # Build name: <repo>_<workflow>_<job>
+          BUILD_NAME="${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}"
+          # Build number: <run-number>
+          BUILD_NUMBER="${{ github.run_number }}"
           echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
           echo "build_name=$BUILD_NAME" >> $GITHUB_OUTPUT
@@ -285,6 +285,8 @@ jobs:
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
+          JFROG_CLI_BUILD_NAME: ${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}
+          JFROG_CLI_BUILD_NUMBER: ${{ github.run_number }}
         with:
           version: latest
           oidc-provider-name: github-bookverse-inventory
@@ -298,6 +300,12 @@ jobs:
           jf c add bookverse-admin --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}"
           jf c use bookverse-admin
           jf c show
+
+      - name: Publish Build Info (create-application-version job)
+        run: |
+          jf rt bag "${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}" "${{ github.run_number }}"
+          jf rt bce "${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}" "${{ github.run_number }}"
+          jf rt bp "${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}" "${{ github.run_number }}"
 
       - name: Set AppTrust variables and determine version
         run: |
