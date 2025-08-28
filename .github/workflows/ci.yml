@@ -356,10 +356,11 @@ jobs:
 
           # Create the application version with status/body capture
           RESP_BODY=$(mktemp)
-          HTTP_STATUS=$(curl -sS -o "$RESP_BODY" -w "%{http_code}" -X POST \
+          HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
             "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
             -d "$APP_VERSION_PAYLOAD")
           echo "🔢 HTTP Status: $HTTP_STATUS"
           echo "📨 Response Body:"; cat "$RESP_BODY"; echo
