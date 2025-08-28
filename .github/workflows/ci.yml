@@ -101,12 +101,13 @@ jobs:
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
 
-      - name: Finalize Build Info (app + semver)
+      - name: Finalize Build Info (repo + workflow)
         id: finalize-build-info
         run: |
-          # Build name aligned to application key; build number aligned to SemVer
-          BUILD_NAME="${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}"
-          BUILD_NUMBER="${{ env.APP_VERSION }}"
+          # Build name: <repo-name>
+          BUILD_NAME="${{ github.event.repository.name }}"
+          # Build number: <run-number>-<workflow>
+          BUILD_NUMBER="${{ github.run_number }}-${{ github.workflow }}"
           echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
           echo "build_name=$BUILD_NAME" >> $GITHUB_OUTPUT
