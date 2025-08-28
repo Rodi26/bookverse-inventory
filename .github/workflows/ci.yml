@@ -303,7 +303,6 @@ jobs:
             --predicate coverage-evidence.json \
             --markdown coverage-evidence.md \
             --predicate-type "https://jfrog.com/evidence/test-coverage/v1" \
-            --package-type docker \
             --package-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}" \
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
