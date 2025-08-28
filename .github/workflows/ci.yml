@@ -412,12 +412,12 @@ jobs:
           # Debug: show sanitized curl and payload
           echo "📦 Application Key: ${{ env.APPLICATION_KEY }}"
           echo "📝 Payload:"; echo "$APP_VERSION_PAYLOAD" | jq . || echo "$APP_VERSION_PAYLOAD"
-          echo "🔗 Curl (sanitized): curl -X POST '${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/?project=${{ vars.PROJECT_KEY }}' -H 'Authorization: Bearer ***' -H 'X-JFrog-Project: ${{ vars.PROJECT_KEY }}' -H 'Content-Type: application/json' -d '<payload>'"
+          echo "🔗 Curl (sanitized): curl -X POST '${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/?project=${{ vars.PROJECT_KEY }}&async=false' -H 'Authorization: Bearer ***' -H 'X-JFrog-Project: ${{ vars.PROJECT_KEY }}' -H 'Content-Type: application/json' -d '<payload>'"
 
           # Create the application version with status/body capture
           RESP_BODY=$(mktemp)
           HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/?project=${{ vars.PROJECT_KEY }}" \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/?project=${{ vars.PROJECT_KEY }}&async=false" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             -H "Content-Type: application/json" \
@@ -435,6 +435,7 @@ jobs:
           echo "📦 Packages will be automatically bound from build sources"
 
       - name: Wait for application version completion
+        if: ${{ false }}
         run: |
           set -euo pipefail
           APP_URL="${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/${{ env.APP_VERSION }}?project=${{ vars.PROJECT_KEY }}"
