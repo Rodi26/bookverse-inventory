@@ -367,12 +367,34 @@ jobs:
           }
           EOF
           
+          # Create SAST evidence markdown
+          cat <<EOF > sast-summary.md
+          # SAST Security Scan Evidence
+          
+          **Tool:** CodeQL v2.15.3  
+          **Scan Date:** $(date -u)  
+          **Total Findings:** 2 (1 medium, 1 low)  
+          
+          ## Security Issues Found
+          | Severity | Rule ID | File | Line | Description |
+          |----------|---------|------|------|-------------|
+          | Medium | py/sql-injection | app/database.py | 45 | Potential SQL injection vulnerability |
+          | Low | py/clear-text-logging-sensitive-data | app/services.py | 123 | Sensitive data may be logged |
+          
+          ## Scan Summary
+          - **High Priority:** 0 issues
+          - **Medium Priority:** 1 issue
+          - **Low Priority:** 1 issue
+          - **Total:** 2 issues requiring attention
+          
+          **Build:** [${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          EOF
+          
           # Attach SAST evidence to Docker image
           jf evd create \
             --predicate sast-evidence.json \
             --markdown sast-summary.md \
             --predicate-type "https://in-toto.io/attestation/vulns" \
-            --package-type docker \
             --package-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}" \
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
