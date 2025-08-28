@@ -203,13 +203,9 @@ jobs:
           if [[ -n "${{ secrets.EVIDENCE_PRIVATE_KEY }}" ]]; then
             echo "Writing signing keys to workspace"
             umask 077
-            cat > evidence_private.pem <<'PEM'
-${{ secrets.EVIDENCE_PRIVATE_KEY }}
-PEM
+            printf "%s" "${{ secrets.EVIDENCE_PRIVATE_KEY }}" > evidence_private.pem
             if [[ -n "${{ secrets.EVIDENCE_PUBLIC_KEY }}" ]]; then
-              cat > evidence_public.pem <<'PEM'
-${{ secrets.EVIDENCE_PUBLIC_KEY }}
-PEM
+              printf "%s" "${{ secrets.EVIDENCE_PUBLIC_KEY }}" > evidence_public.pem
             fi
             KEY_ALIAS="${{ vars.EVIDENCE_KEY_ALIAS || 'bookverse-ev-key' }}"
             echo "EVIDENCE_SIGN_ARGS=--key evidence_private.pem --key-alias \"${KEY_ALIAS}\" --provider-id github-actions" >> $GITHUB_ENV
