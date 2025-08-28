@@ -63,10 +63,25 @@ jobs:
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
-          LATEST_VERSION=$(curl -s \
+          RESP_FILE=$(mktemp)
+          HTTP_STATUS=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
             "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-            -H "Content-Type: application/json" | jq -r '.versions[0].version // empty')
+            -H "Accept: application/json")
+          echo "🔢 Versions GET status: $HTTP_STATUS"
+          if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
+            # Attempt to parse JSON; if parsing fails, fall back
+            if LATEST_VERSION=$(jq -er '.versions[0].version // empty' "$RESP_FILE" 2>/dev/null); then
+              :
+            else
+              echo "⚠️ Non-JSON or unexpected response from versions API; falling back to 1.0.0"
+              LATEST_VERSION=""
+            fi
+          else
+            echo "⚠️ Versions API returned non-2xx. Body:"; cat "$RESP_FILE" || true
+            LATEST_VERSION=""
+          fi
+          rm -f "$RESP_FILE"
           if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "null" ]]; then
             MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
             MINOR=$(echo "$LATEST_VERSION" | cut -d. -f2)
