@@ -306,7 +306,7 @@ jobs:
           **Build:** [${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           EOF
           
-          # Attach coverage evidence to Docker image
+          # Attach coverage evidence to Docker image (package subject)
           jf evd create \
             --predicate coverage-evidence.json \
             --markdown coverage-evidence.md \
@@ -315,6 +315,15 @@ jobs:
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
             --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ Coverage evidence attachment failed"
+
+          # Also attach coverage evidence to the application version (release bundle subject)
+          jf evd create \
+            --predicate coverage-evidence.json \
+            --markdown coverage-evidence.md \
+            --predicate-type "Test Coverage" \
+            --release-bundle "${{ env.APPLICATION_KEY }}" \
+            --release-bundle-version "${{ env.APP_VERSION }}" \
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ Coverage evidence (RB) attachment failed"
           
           echo "✅ Coverage evidence attached to Docker image"
 
@@ -397,7 +406,7 @@ jobs:
           **Build:** [${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           EOF
           
-          # Attach SAST evidence to Docker image
+          # Attach SAST evidence to Docker image (package subject)
           jf evd create \
             --predicate sast-evidence.json \
             --markdown sast-summary.md \
@@ -406,6 +415,15 @@ jobs:
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
             --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ SAST evidence attachment failed"
+
+          # Also attach SAST evidence to the application version (release bundle subject)
+          jf evd create \
+            --predicate sast-evidence.json \
+            --markdown sast-summary.md \
+            --predicate-type "SAST Scan" \
+            --release-bundle "${{ env.APPLICATION_KEY }}" \
+            --release-bundle-version "${{ env.APP_VERSION }}" \
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ SAST evidence (RB) attachment failed"
           
           echo "✅ SAST evidence attached to Docker image"
 
