@@ -247,9 +247,17 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          # Write private key to file for jf evd --key (support both multiline and \n encoded)
+          # Write private key to file for jf evd --key (support multiline, \n-encoded, or base64)
           if [[ -n "${EVIDENCE_PK:-}" ]]; then
-            printf '%b' "$EVIDENCE_PK" > evidence_private.pem
+            if echo "$EVIDENCE_PK" | grep -q 'BEGIN .*PRIVATE KEY'; then
+              printf '%b' "$EVIDENCE_PK" > evidence_private.pem
+            else
+              (echo "$EVIDENCE_PK" | base64 -d > evidence_private.pem 2>/dev/null) || printf '%b' "$EVIDENCE_PK" > evidence_private.pem
+            fi
+            # Best-effort validation (non-blocking)
+            if ! openssl pkey -in evidence_private.pem -noout >/dev/null 2>&1; then
+              openssl rsa -in evidence_private.pem -noout >/dev/null 2>&1 || true
+            fi
           fi
           # Write public key if provided for verification steps
           if [[ -n "${{ vars.EVIDENCE_PUBLIC_KEY || '' }}" ]]; then
@@ -927,71 +935,6 @@ jobs:
 
           echo "✅ SLSA provenance attached"
 
-          # START TEST
-          # 1. Write your provided private key to the test file
-          cat <<EOF > evidence_private.pem
-          -----BEGIN PRIVATE KEY-----
-          MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC4YTx6JAfgbGTG
-          uYbkDGGrCRS2/AVdOm+uwa4dTXyd4e/Ge7gg8GScAN2zkMA62DOo9tXNbKUAJ7SU
-          HZ63cFv0bksAG5YluV8Z9gAS7Mx0f9V24rvrMNaA0TyS9zt+C/4GMtBPFy8KgsLX
-          +7eruF/7lzUWfGNWpKSeLBkh1zY85QX04Jqm2aGhkARHblpB84ja+ZxZO+6u9lrY
-          VEZLw8w+oVSA8impbIHVZJqps4/bewpcqE6gFqORupjLehsQ/5zT3reUKp2JTjjS
-          PCfuJ2jSAGnqMvyyY9BBJlUjvoFC2qvu8+RaEV0yyfhGr3aL6joZkwSLv7bzYKgp
-          N0MBt2dXAgMBAAECggEAAcmzl+2cg/EZIxIufCygj9OFN2cHOEm2RogLQ656LF/B
-          /vc5KFycZSTfAXxAWPG6woMuPJE2omNALYWCAf5dbefZ41ThJll/UhWgF47jRqfs
-          rnvxXYz6L4KX50btdUHxgybf/TxY0O3GrOh8dfZSO/LR6XdoUTFEhWIhFkJrfLip
-          lgKtbg4cBnUzbvl5rPfCoSaIRK3L2dYtpTzpsxrdEXE1q7Hq/fQT7YFonRK0ARQz
-          K1XqY5rG2XzLBhMRbSleJ75POcG+EfH3VZK//YtcSjyaIoDrMU5prbvGI913WIKC
-          wksT8clmL5KrlPKb2x43vGMDsWfchv1NzCuboCZRvQKBgQDp9Zqy/zdisbsN477D
-          ipXBRBfPDvVnTHQYRNFj+q8siHJwGKxdCuvDEuo3JwW+rBb0FrgOCUt28ivlGXxY
-          8LfFg0Toiw/sMQos1W89ITPZOnQRkNbmA54NfDSl3PsSMVwu74yxrYJ2qfJlojh3
-          q+nrmzCXQg9ZY5985aqtkCE72wKBgQDJv+wY6HlTdEXMoCXCck5uzP9xW/lf2oqG
-          fLpMdLSuFydk8wNBsZv79OXlofjqDA+X+I97ZPofbL47TT8ETKzTClId9snLDOvq
-          VcrgnHhcZKImWvMSXMDu0g4iocK+oy0CAuSVn7sFkFo6xwgYKX0KxpeRky8VUCzP
-          oT7rWDr5NQKBgQCssILtmIBTMwj06aQHRaXgL9i7FzmAc+hFeZZtC759SoHdx/iB
-          /Ouk47NJ3l3ZLcELjjFw+t9e/sXzpuon5BZhjdExLGQmXNQ735bqMjXJI+JEjPpy
-          cT0aixF5VDFmblSyuFLLW10vJaYr6p9vhc91/ujQ3QvjWSuBzyw6TGabfQKBgFtC
-          anzV49PBO7WVF59+b0YlisLvVL1sMM8m6mqdPAGnzZUXa/iya5msLLYT73GHZSJc
-          OCMcCRxf5ykSBxhdyqtn9r9BHASyYqDMkAnMHZHFn6dz6pH6zPb6o5Q80cfELh7D
-          yjx4VXPt2TLPRzUOx1YxgOxDxL+CVdLR4JE6huqlAoGAEgvWK72gfYQHF1c9Qjai
-          Gc3VLPW1ducSGHr2FM0hCl4FAAG6ohPYbQwr5AjxHj653+e4m6sqTn1JzI93xW3c
-          PK7jF9TQCRlgOPenLXdVX6q5VWIILv7KsornMdczoogeQMWou3I3xs0YO6VVMyxU
-          fc8KQk/GDxw7Rkfa+RYXvPc=
-          -----END PRIVATE KEY-----
-          EOF \
-          \
-          && # 2. Create a small test predicate JSON
-          cat <<EOF > sast-checkmarx.json
-          {
-            "scanId": "scan-12345",
-            "status": "Completed",
-            "summaryUrl": "https://sast.example.com/scan/12345",
-            "highVulnerabilities": 5,
-            "mediumVulnerabilities": 12
-          }
-          EOF \
-          \
-          && # 3. Create a small test markdown summary
-          cat <<EOF > sast-summary.md
-          # SAST Scan Summary
-          - **High severity issues:** 5
-          - **Status:** Completed
-          *Scan finished on $(date).*
-          EOF \
-          \
-          && # 4. Run the jf command
-          jf evd create \
-            --predicate sast-checkmarx.json \
-            --markdown sast-summary.md \
-            --predicate-type "https://checkmarx.com/evidence/sast/v1.1" \
-            --package-name "inventory" \
-            --package-repo-name "bookverse-inventory-docker-internal-local" \
-            --package-version "1.0.10" \
-            --project "bookverse" \
-            --key-alias "BookVerse-Evidence-Key" \
-            --key evidence_private.pem || echo "⚠️ SAST evidence attachment failed"
-          # END TEST
-
       - name: Attach Jira tickets (gate to DEV)
         run: |
           echo "🧾 Attaching Jira tickets to application version (UNASSIGNED → gate DEV)"
@@ -1022,60 +965,7 @@ jobs:
 
           echo "✅ Jira tickets attached"
 
-          echo ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          
-          # START TEST
-
-          export EVIDENCE_KEY='-----BEGIN PRIVATE KEY-----
-          MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC4YTx6JAfgbGTG
-          uYbkDGGrCRS2/AVdOm+uwa4dTXyd4e/Ge7gg8GScAN2zkMA62DOo9tXNbKUAJ7SU
-          HZ63cFv0bksAG5YluV8Z9gAS7Mx0f9V24rvrMNaA0TyS9zt+C/4GMtBPFy8KgsLX
-          +7eruF/7lzUWfGNWpKSeLBkh1zY85QX04Jqm2aGhkARHblpB84ja+ZxZO+6u9lrY
-          VEZLw8w+oVSA8impbIHVZJqps4/bewpcqE6gFqORupjLehsQ/5zT3reUKp2JTjjS
-          PCfuJ2jSAGnqMvyyY9BBJlUjvoFC2qvu8+RaEV0yyfhGr3aL6joZkwSLv7bzYKgp
-          N0MBt2dXAgMBAAECggEAAcmzl+2cg/EZIxIufCygj9OFN2cHOEm2RogLQ656LF/B
-          /vc5KFycZSTfAXxAWPG6woMuPJE2omNALYWCAf5dbefZ41ThJll/UhWgF47jRqfs
-          rnvxXYz6L4KX50btdUHxgybf/TxY0O3GrOh8dfZSO/LR6XdoUTFEhWIhFkJrfLip
-          lgKtbg4cBnUzbvl5rPfCoSaIRK3L2dYtpTzpsxrdEXE1q7Hq/fQT7YFonRK0ARQz
-          K1XqY5rG2XzLBhMRbSleJ75POcG+EfH3VZK//YtcSjyaIoDrMU5prbvGI913WIKC
-          wksT8clmL5KrlPKb2x43vGMDsWfchv1NzCuboCZRvQKBgQDp9Zqy/zdisbsN477D
-          ipXBRBfPDvVnTHQYRNFj+q8siHJwGKxdCuvDEuo3JwW+rBb0FrgOCUt28ivlGXxY
-          8LfFg0Toiw/sMQos1W89ITPZOnQRkNbmA54NfDSl3PsSMVwu74yxrYJ2qfJlojh3
-          q+nrmzCXQg9ZY5985aqtkCE72wKBgQDJv+wY6HlTdEXMoCXCck5uzP9xW/lf2oqG
-          fLpMdLSuFydk8wNBsZv79OXlofjqDA+X+I97ZPofbL47TT8ETKzTClId9snLDOvq
-          VcrgnHhcZKImWvMSXMDu0g4iocK+oy0CAuSVn7sFkFo6xwgYKX0KxpeRky8VUCzP
-          oT7rWDr5NQKBgQCssILtmIBTMwj06aQHRaXgL9i7FzmAc+hFeZZtC759SoHdx/iB
-          /Ouk47NJ3l3ZLcELjjFw+t9e/sXzpuon5BZhjdExLGQmXNQ735bqMjXJI+JEjPpy
-          cT0aixF5VDFmblSyuFLLW10vJaYr6p9vhc91/ujQ3QvjWSuBzyw6TGabfQKBgFtC
-          anzV49PBO7WVF59+b0YlisLvVL1sMM8m6mqdPAGnzZUXa/iya5msLLYT73GHZSJc
-          OCMcCRxf5ykSBxhdyqtn9r9BHASyYqDMkAnMHZHFn6dz6pH6zPb6o5Q80cfELh7D
-          yjx4VXPt2TLPRzUOx1YxgOxDxL+CVdLR4JE6huqlAoGAEgvWK72gfYQHF1c9Qjai
-          Gc3VLPW1ducSGHr2FM0hCl4FAAG6ohPYbQwr5AjxHj653+e4m6sqTn1JzI93xW3c
-          PK7jF9TQCRlgOPenLXdVX6q5VWIILv7KsornMdczoogeQMWou3I3xs0YO6VVMyxU
-          fc8KQk/GDxw7Rkfa+RYXvPc=
-          -----END PRIVATE KEY-----' \
-          && cat <<EOF > jira-tickets.json
-          {
-            "issues": [
-              { "key": "PROJ-1234", "type": "Story", "summary": "Test issue one" },
-              { "key": "PROJ-5678", "type": "Bug", "summary": "Test issue two" }
-            ],
-            "approvedBy": "test-user",
-            "approvedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "attachStage": "UNASSIGNED",
-            "gateForPromotionTo": "DEV"
-          }
-          EOF \
-          && jf evd create \
-            --predicate jira-tickets.json \
-            --predicate-type "https://atlassian.com/evidence/jira/release/v1" \
-            --release-bundle "bookverse-inventory" \
-            --release-bundle-version "1.0.9" \
-            --project "bookverse" \
-            --key-alias "BookVerse-Evidence-Key" \
-            --key "$EVIDENCE_KEY"
-
-            # END TEST
+          # (redacted secret output and test blocks removed)
 
       - name: Wait for application version completion
         if: ${{ false }}
