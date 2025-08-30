@@ -706,6 +706,8 @@ jobs:
         run: |
           echo "## 🎯 AppTrust Integration Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📄 Evidence Plan: see bookverse-demo-init/docs/EVIDENCE_PLAN.md" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Application:** \`${{ env.APPLICATION_KEY }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ env.APP_VERSION }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Build:** \`${{ env.SERVICE_NAME }}#${{ env.IMAGE_TAG }}\`" >> $GITHUB_STEP_SUMMARY

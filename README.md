@@ -62,6 +62,8 @@ This service creates multiple artifacts per application version:
 
 Each artifact moves together through the promotion pipeline: DEV → QA → STAGING → PROD.
 
+For the non-JFrog evidence plan and gates, see: `../bookverse-demo-init/docs/EVIDENCE_PLAN.md`.
+
 ## Demo Data
 
 The service includes 20 professionally curated books with:
