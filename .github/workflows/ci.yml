@@ -338,19 +338,13 @@ jobs:
           KEYS_FILE=$(mktemp)
           curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
                -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" | tee "$KEYS_FILE" | jq '.[] | {alias, kid, type, issued_on}' 2>/dev/null || true
+               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" > "$KEYS_FILE" || true
+          NORM=$(jq -c 'if type=="array" then . else (.keys // []) end' "$KEYS_FILE" 2>/dev/null || echo '[]')
+          printf '%s' "$NORM" | jq '.[] | {alias, kid, type, issued_on}' 2>/dev/null || true
           # Prefer ED25519 keys matching alias patterns; fallback to any ED25519 key
-          KID=$(jq -r '[.[] | select((.type|test("ed25519";"i")) and (.alias|test("bookverse|evidence|bookverse_key|bookverse_evidence_key";"i")))] | .[0].kid // empty' "$KEYS_FILE" 2>/dev/null || true)
+          KID=$(printf '%s' "$NORM" | jq -r '[.[] | select((.type|test("ed25519";"i")) and (.alias|test("bookverse|evidence|bookverse_key|bookverse_evidence_key";"i")))] | .[0].kid // empty' 2>/dev/null || true)
           if [ -z "$KID" ] || [ "$KID" = "null" ]; then
-            KID=$(jq -r '[.[] | select(.type|test("ed25519";"i"))] | .[0].kid // empty' "$KEYS_FILE" 2>/dev/null || true)
-          fi
-          # Global-scope fallback (no X-JFrog-Project)
-          if [ -z "$KID" ] || [ "$KID" = "null" ]; then
-            GLOBAL_KEYS=$(curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" || echo '[]')
-            KID=$(printf '%s' "$GLOBAL_KEYS" | jq -r '[.[] | select((.type|test("ed25519";"i")) and (.alias|test("bookverse|evidence|bookverse_key|bookverse_evidence_key";"i")))] | .[0].kid // empty' 2>/dev/null)
-            if [ -z "$KID" ] || [ "$KID" = "null" ]; then
-              KID=$(printf '%s' "$GLOBAL_KEYS" | jq -r '[.[] | select(.type|test("ed25519";"i"))] | .[0].kid // empty' 2>/dev/null)
-            fi
+            KID=$(printf '%s' "$NORM" | jq -r '[.[] | select(.type|test("ed25519";"i"))] | .[0].kid // empty' 2>/dev/null || true)
           fi
           rm -f "$KEYS_FILE"
           if [ -n "$KID" ] && [ "$KID" != "null" ]; then
@@ -1202,10 +1196,13 @@ jobs:
           KEYS_FILE=$(mktemp)
           curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
                -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" | tee "$KEYS_FILE" | jq '.[] | {alias, kid, type, issued_on}' 2>/dev/null || true
-          KID=$(jq -r '[.[] | select((.type|test("ed25519";"i")) and (.alias|test("bookverse|evidence|bookverse_key|bookverse_evidence_key";"i")))] | .[0].kid // empty' "$KEYS_FILE" 2>/dev/null || true)
+               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" > "$KEYS_FILE" || true
+          NORM=$(jq -c 'if type=="array" then . else (.keys // []) end' "$KEYS_FILE" 2>/dev/null || echo '[]')
+          printf '%s' "$NORM" | jq '.[] | {alias, kid, type, issued_on}' 2>/dev/null || true
+          # Prefer ED25519 keys matching alias patterns; fallback to any ED25519 key
+          KID=$(printf '%s' "$NORM" | jq -r '[.[] | select((.type|test("ed25519";"i")) and (.alias|test("bookverse|evidence|bookverse_key|bookverse_evidence_key";"i")))] | .[0].kid // empty' 2>/dev/null || true)
           if [ -z "$KID" ] || [ "$KID" = "null" ]; then
-            KID=$(jq -r '[.[] | select(.type|test("ed25519";"i"))] | .[0].kid // empty' "$KEYS_FILE" 2>/dev/null || true)
+            KID=$(printf '%s' "$NORM" | jq -r '[.[] | select(.type|test("ed25519";"i"))] | .[0].kid // empty' 2>/dev/null || true)
           fi
           rm -f "$KEYS_FILE"
           if [ -n "$KID" ] && [ "$KID" != "null" ]; then
