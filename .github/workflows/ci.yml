@@ -282,6 +282,7 @@ jobs:
               -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
               -d "$PAYLOAD" \
               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" >/dev/null || true
+            sleep 3
             echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=$ALIAS" >> $GITHUB_ENV
           fi
           if [[ -s evidence_public.pem ]]; then
@@ -963,6 +964,7 @@ jobs:
               -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
               -d "$PAYLOAD" \
               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" >/dev/null || true
+            sleep 3
             echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=$ALIAS" >> $GITHUB_ENV
           fi
           if [[ -s evidence_public.pem ]]; then
