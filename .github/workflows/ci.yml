@@ -270,6 +270,21 @@ jobs:
           fi
           # Fail fast if private key missing/invalid
           if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
+            echo "ℹ️ Fallback: writing secret directly from GitHub expression"
+            RAW_TMP=$(mktemp)
+            printf '%s' "${{ secrets.EVIDENCE_PRIVATE_KEY }}" > "$RAW_TMP"
+            sed -e 's/^\"//' -e 's/\"$//' -e 's/\r//g' "$RAW_TMP" > "$RAW_TMP.1"
+            if grep -q "BEGIN .*PRIVATE KEY" "$RAW_TMP.1"; then
+              sed -e $'s/\\n/\n/g' "$RAW_TMP.1" > evidence_private.pem
+            else
+              printf '%b' "$(cat "$RAW_TMP.1")" > evidence_private.pem 2>/dev/null || true
+              if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
+                base64 -d "$RAW_TMP.1" > evidence_private.pem 2>/dev/null || true
+              fi
+            fi
+            rm -f "$RAW_TMP" "$RAW_TMP.1"
+          fi
+          if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
             echo "❌ EVIDENCE_PRIVATE_KEY is missing or not a valid PEM. Please set an ED25519 private key matching alias 'bookverse_key'." >&2
             exit 1
           fi
@@ -948,6 +963,21 @@ jobs:
               fi
             fi
             rm -f "$KEY_TMP" "$KEY_TMP.1"
+          fi
+          if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
+            echo "ℹ️ Fallback: writing secret directly from GitHub expression"
+            RAW_TMP=$(mktemp)
+            printf '%s' "${{ secrets.EVIDENCE_PRIVATE_KEY }}" > "$RAW_TMP"
+            sed -e 's/^\"//' -e 's/\"$//' -e 's/\r//g' "$RAW_TMP" > "$RAW_TMP.1"
+            if grep -q "BEGIN .*PRIVATE KEY" "$RAW_TMP.1"; then
+              sed -e $'s/\\n/\n/g' "$RAW_TMP.1" > evidence_private.pem
+            else
+              printf '%b' "$(cat "$RAW_TMP.1")" > evidence_private.pem 2>/dev/null || true
+              if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
+                base64 -d "$RAW_TMP.1" > evidence_private.pem 2>/dev/null || true
+              fi
+            fi
+            rm -f "$RAW_TMP" "$RAW_TMP.1"
           fi
           if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
             echo "❌ EVIDENCE_PRIVATE_KEY is missing or not a valid PEM. Please set an ED25519 private key matching alias 'bookverse_key'." >&2
