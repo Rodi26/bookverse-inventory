@@ -22,6 +22,7 @@ jobs:
       build_number: ${{ steps.finalize-build-info.outputs.build_number }}
       app_version: ${{ steps.set-app-version.outputs.app_version }}
 
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -237,24 +238,21 @@ jobs:
         run: |
           jf rt bp "${{ env.BUILD_NAME }}" "${{ env.BUILD_NUMBER }}"
 
-      - name: Prepare evidence signing keys (optional)
+      - name: Prepare evidence signing configuration
+        env:
+          EVIDENCE_PK: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          if [[ -n "${{ secrets.EVIDENCE_PRIVATE_KEY }}" ]]; then
-            echo "Writing signing keys to workspace"
-            umask 077
-            printf "%s" "${{ secrets.EVIDENCE_PRIVATE_KEY }}" > evidence_private.pem
-            if [[ -n "${{ vars.EVIDENCE_PUBLIC_KEY }}" ]]; then
-              printf "%s" "${{ vars.EVIDENCE_PUBLIC_KEY }}" > evidence_public.pem
-              echo "HAVE_EVIDENCE_PUB=true" >> $GITHUB_ENV
-            else
-              echo "HAVE_EVIDENCE_PUB=false" >> $GITHUB_ENV
-            fi
-            KEY_ALIAS="${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}"
-            echo "EVIDENCE_SIGN_ARGS=--key evidence_private.pem --key-alias \"${KEY_ALIAS}\" --provider-id github-actions" >> $GITHUB_ENV
+          umask 077
+          # Write private key to file for jf evd --key
+          if [[ -n "${EVIDENCE_PK:-}" ]]; then
+            printf "%s" "$EVIDENCE_PK" > evidence_private.pem
+          fi
+          # Write public key if provided for verification steps
+          if [[ -n "${{ vars.EVIDENCE_PUBLIC_KEY || '' }}" ]]; then
+            printf "%s" "${{ vars.EVIDENCE_PUBLIC_KEY }}" > evidence_public.pem
+            echo "HAVE_EVIDENCE_PUB=true" >> $GITHUB_ENV
           else
-            echo "No EVIDENCE_PRIVATE_KEY secret set; proceeding without signing"
-            echo "EVIDENCE_SIGN_ARGS=" >> $GITHUB_ENV
             echo "HAVE_EVIDENCE_PUB=false" >> $GITHUB_ENV
           fi
 
@@ -312,7 +310,9 @@ jobs:
             --package-name "${{ env.SERVICE_NAME }}" \
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
-            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ Coverage evidence attachment failed"
+            --project "${{ vars.PROJECT_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" \
+            --key evidence_private.pem || echo "⚠️ Coverage evidence attachment failed"
           
           echo "✅ Coverage evidence attached to Docker image"
 
@@ -381,7 +381,9 @@ jobs:
             --package-name "${{ env.SERVICE_NAME }}" \
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
-            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ SAST evidence attachment failed"
+            --project "${{ vars.PROJECT_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" \
+            --key evidence_private.pem || echo "⚠️ SAST evidence attachment failed"
           
           echo "✅ SAST evidence attached to Docker image"
 
@@ -422,6 +424,9 @@ jobs:
     permissions:
       contents: read
       id-token: write
+
+    env:
+      JFROG_CLI_SIGNING_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
 
     steps:
       - name: Checkout
@@ -580,6 +585,16 @@ jobs:
           echo "✅ Application version created: ${{ env.APPLICATION_KEY }}@${{ env.APP_VERSION }}"
           echo "📦 Packages will be automatically bound from build sources"
 
+      - name: Prepare evidence signing key
+        env:
+          EVIDENCE_PK: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [[ -n "${EVIDENCE_PK:-}" ]]; then
+            printf "%s" "$EVIDENCE_PK" > evidence_private.pem
+          fi
+
       - name: Attach SLSA provenance (gate to DEV)
         run: |
           echo "🧾 Attaching SLSA provenance to application version (UNASSIGNED → gate DEV)"
@@ -604,7 +619,9 @@ jobs:
             --predicate-type "https://slsa.dev/provenance/v1" \
             --release-bundle "${{ env.APPLICATION_KEY }}" \
             --release-bundle-version "${{ env.APP_VERSION }}" \
-            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ SLSA evidence attachment failed"
+            --project "${{ vars.PROJECT_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" \
+            --key evidence_private.pem || echo "⚠️ SLSA evidence attachment failed"
 
           echo "✅ SLSA provenance attached"
 
@@ -632,7 +649,9 @@ jobs:
             --predicate-type "https://atlassian.com/evidence/jira/release/v1" \
             --release-bundle "${{ env.APPLICATION_KEY }}" \
             --release-bundle-version "${{ env.APP_VERSION }}" \
-            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ Jira tickets evidence attachment failed"
+            --project "${{ vars.PROJECT_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" \
+            --key evidence_private.pem || echo "⚠️ Jira tickets evidence attachment failed"
 
           echo "✅ Jira tickets attached"
 
@@ -670,21 +689,6 @@ jobs:
           done
           echo "❌ Timed out waiting for application version to complete" >&2
           exit 1
-
-      - name: Prepare evidence signing keys (optional)
-        run: |
-          set -euo pipefail
-          if [[ -n "${{ secrets.EVIDENCE_PRIVATE_KEY }}" ]]; then
-            echo "Writing signing keys to workspace"
-            umask 077
-            printf "%s" "${{ secrets.EVIDENCE_PRIVATE_KEY }}" > evidence_private.pem
-            KEY_ALIAS="${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}"
-            echo "EVIDENCE_SIGN_ARGS=--key evidence_private.pem --key-alias ${KEY_ALIAS} --provider-id github-actions" >> $GITHUB_ENV
-          else
-            echo "No EVIDENCE_PRIVATE_KEY secret set; proceeding without signing"
-            echo "EVIDENCE_SIGN_ARGS=" >> $GITHUB_ENV
-          fi
-
 
       - name: Add build evidence
         run: |
