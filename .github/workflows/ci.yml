@@ -344,6 +344,14 @@ jobs:
           if [ -z "$KID" ] || [ "$KID" = "null" ]; then
             KID=$(jq -r '[.[] | select(.type|test("ed25519";"i"))] | .[0].kid // empty' "$KEYS_FILE" 2>/dev/null || true)
           fi
+          # Global-scope fallback (no X-JFrog-Project)
+          if [ -z "$KID" ] || [ "$KID" = "null" ]; then
+            GLOBAL_KEYS=$(curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" || echo '[]')
+            KID=$(printf '%s' "$GLOBAL_KEYS" | jq -r '[.[] | select((.type|test("ed25519";"i")) and (.alias|test("bookverse|evidence|bookverse_key|bookverse_evidence_key";"i")))] | .[0].kid // empty' 2>/dev/null)
+            if [ -z "$KID" ] || [ "$KID" = "null" ]; then
+              KID=$(printf '%s' "$GLOBAL_KEYS" | jq -r '[.[] | select(.type|test("ed25519";"i"))] | .[0].kid // empty' 2>/dev/null)
+            fi
+          fi
           rm -f "$KEYS_FILE"
           if [ -n "$KID" ] && [ "$KID" != "null" ]; then
             echo "EVIDENCE_KID=$KID" >> $GITHUB_ENV
@@ -570,30 +578,31 @@ jobs:
           # Create signed DSSE envelope (ED25519)
           python -m pip install --quiet cryptography || true
           python -c "import base64,json,os,sys; from cryptography.hazmat.primitives import serialization; from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey; payload_type='application/vnd.in-toto+json'; payload=open('statement.json','rb').read(); pae=lambda pt,p:(b'DSSEv1 '+str(len(pt)).encode()+b' '+pt.encode()+b' '+str(len(p)).encode()+b' '+p); key_data=open('evidence_private.pem','rb').read(); priv=serialization.load_pem_private_key(key_data,password=None); sig=priv.sign(pae(payload_type,payload)); keyid=os.environ.get('EVIDENCE_KID') or os.environ.get('EVIDENCE_EFFECTIVE_KEY_ALIAS') or 'bookverse_key'; envelope={'payloadType':payload_type,'payload':base64.b64encode(payload).decode(),'signatures':[{'keyid':keyid,'sig':base64.b64encode(sig).decode()}]}; open('envelope.json','w').write(json.dumps(envelope))"
+          PAYLOAD_B64=$(jq -r '.payload' envelope.json)
 
           # First, try the subject endpoint (preferred)
           RESP=$(mktemp)
           SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${REPO}/${IMAGE}/${TAG}/manifest.json?project=${{ vars.PROJECT_KEY }}"
-          HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$SUBJECT_URL" \
+          HTTP_STATUS=$(curl -sS -L -D headers1.txt -o "$RESP" -w "%{http_code}" -X POST "$SUBJECT_URL" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             --data-binary @envelope.json || echo "000")
-          echo "POST $SUBJECT_URL -> HTTP $HTTP_STATUS"; echo "Body:"; cat "$RESP" || true
+          echo "POST $SUBJECT_URL -> HTTP $HTTP_STATUS"; echo "Headers:"; sed -n '1,200p' headers1.txt || true; echo "Body:"; cat "$RESP" || true
           if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
             echo "✅ REST (Package subject) evidence deployed"
           else
             # Try tag root (without manifest.json)
             ALT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${REPO}/${IMAGE}/${TAG}?project=${{ vars.PROJECT_KEY }}"
-            HTTP_STATUS=$(curl -sS -L -D headers.txt -o "$RESP" -w "%{http_code}" -X POST "$ALT_URL" \
+            HTTP_STATUS=$(curl -sS -L -D headers2.txt -o "$RESP" -w "%{http_code}" -X POST "$ALT_URL" \
               -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
               -H "Content-Type: application/json" \
               -H "Accept: application/json" \
               -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
               --data-binary @envelope.json || echo "000")
-            echo "POST $ALT_URL -> HTTP $HTTP_STATUS"; echo "Headers:"; sed -n '1,200p' headers.txt || true; echo "Body:"; cat "$RESP" || true
-            rm -f headers.txt
+            echo "POST $ALT_URL -> HTTP $HTTP_STATUS"; echo "Headers:"; sed -n '1,200p' headers2.txt || true; echo "Body:"; cat "$RESP" || true
+            rm -f headers1.txt headers2.txt || true
             echo "ℹ️ Subject endpoint failed; falling back to deploy-evidence"
             # Fallback to deploy-evidence wrapper
             cat > request.json <<JSON
@@ -659,6 +668,7 @@ jobs:
           # Create signed DSSE envelope (ED25519)
           python -m pip install --quiet cryptography || true
           python -c "import base64,json,os,sys; from cryptography.hazmat.primitives import serialization; from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey; payload_type='application/vnd.in-toto+json'; payload=open('statement.json','rb').read(); pae=lambda pt,p:(b'DSSEv1 '+str(len(pt)).encode()+b' '+pt.encode()+b' '+str(len(p)).encode()+b' '+p); key_data=open('evidence_private.pem','rb').read(); priv=serialization.load_pem_private_key(key_data,password=None); sig=priv.sign(pae(payload_type,payload)); keyid=os.environ.get('EVIDENCE_KID') or os.environ.get('EVIDENCE_EFFECTIVE_KEY_ALIAS') or 'bookverse_key'; envelope={'payloadType':payload_type,'payload':base64.b64encode(payload).decode(),'signatures':[{'keyid':keyid,'sig':base64.b64encode(sig).decode()}]}; open('envelope.json','w').write(json.dumps(envelope))"
+          PAYLOAD_B64=$(jq -r '.payload' envelope.json)
 
           RESP=$(mktemp)
           # Resolve build-info file path in ${BUILD_INFO_REPO}/${BUILD_NAME}/<BUILD_NUMBER>-<ts>.json
@@ -673,12 +683,13 @@ jobs:
             echo "⚠️ Could not resolve build-info file for ${{ env.BUILD_NAME }}#${{ env.BUILD_NUMBER }}; subject POST likely to fail"
           fi
           SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${BUILD_INFO_REPO_VAL}/${{ env.BUILD_NAME }}/${BUILD_INFO_FILE}?project=${{ vars.PROJECT_KEY }}"
-          HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$SUBJECT_URL" \
+          HTTP_STATUS=$(curl -sS -L -D headers3.txt -o "$RESP" -w "%{http_code}" -X POST "$SUBJECT_URL" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
+            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             --data-binary @envelope.json || echo "000")
-          echo "POST $SUBJECT_URL -> HTTP $HTTP_STATUS"; echo "Body:"; cat "$RESP" || true
+          echo "POST $SUBJECT_URL -> HTTP $HTTP_STATUS"; echo "Headers:"; sed -n '1,200p' headers3.txt || true; echo "Body:"; cat "$RESP" || true
           if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
             echo "✅ REST (Build subject) evidence deployed"
           else
@@ -713,7 +724,7 @@ jobs:
             done
             if [[ "$SUCCESS" -eq 1 ]]; then echo "✅ REST (Build) evidence deployed"; else echo "⚠️ REST (Build) evidence deploy failed"; cat "$RESP" || true; fi
           fi
-          rm -f "$RESP"
+          rm -f "$RESP" headers3.txt || true
           
 
       - name: Deploy evidence via REST API (unsigned DSSE) - Application Version subject
@@ -745,15 +756,17 @@ jobs:
           # Create signed DSSE envelope (ED25519)
           python -m pip install --quiet cryptography || true
           python -c "import base64,json,os,sys; from cryptography.hazmat.primitives import serialization; from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey; payload_type='application/vnd.in-toto+json'; payload=open('statement.json','rb').read(); pae=lambda pt,p:(b'DSSEv1 '+str(len(pt)).encode()+b' '+pt.encode()+b' '+str(len(p)).encode()+b' '+p); key_data=open('evidence_private.pem','rb').read(); priv=serialization.load_pem_private_key(key_data,password=None); sig=priv.sign(pae(payload_type,payload)); keyid=os.environ.get('EVIDENCE_KID') or os.environ.get('EVIDENCE_EFFECTIVE_KEY_ALIAS') or 'bookverse_key'; envelope={'payloadType':payload_type,'payload':base64.b64encode(payload).decode(),'signatures':[{'keyid':keyid,'sig':base64.b64encode(sig).decode()}]}; open('envelope.json','w').write(json.dumps(envelope))"
+          PAYLOAD_B64=$(jq -r '.payload' envelope.json)
 
           RESP=$(mktemp)
           SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${{ env.APPLICATION_KEY }}/@/${{ env.APP_VERSION }}?project=${{ vars.PROJECT_KEY }}"
-          HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$SUBJECT_URL" \
+          HTTP_STATUS=$(curl -sS -L -D headers4.txt -o "$RESP" -w "%{http_code}" -X POST "$SUBJECT_URL" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
+            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             --data-binary @envelope.json || echo "000")
-          echo "POST $SUBJECT_URL -> HTTP $HTTP_STATUS"; echo "Body:"; cat "$RESP" || true
+          echo "POST $SUBJECT_URL -> HTTP $HTTP_STATUS"; echo "Headers:"; sed -n '1,200p' headers4.txt || true; echo "Body:"; cat "$RESP" || true
           if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
             echo "✅ REST (App Version subject) evidence deployed"
           else
@@ -788,7 +801,7 @@ jobs:
             done
             if [[ "$SUCCESS" -eq 1 ]]; then echo "✅ REST (App Version) evidence deployed"; else echo "⚠️ REST (App Version) evidence deploy failed"; cat "$RESP" || true; fi
           fi
-          rm -f "$RESP"
+          rm -f "$RESP" headers4.txt || true
           
 
       - name: Attach unit/coverage evidence to Docker image (PyTest)
