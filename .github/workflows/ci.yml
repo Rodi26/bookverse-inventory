@@ -535,7 +535,7 @@ jobs:
 
           # First, try the subject endpoint (preferred)
           RESP=$(mktemp)
-          SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${REPO}/${IMAGE}/${TAG}?allowUnsigned=true"
+          SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${REPO}/${IMAGE}/${TAG}/manifest.json?allowUnsigned=true"
           HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$SUBJECT_URL" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "Content-Type: application/json" \
@@ -618,7 +618,18 @@ jobs:
           JSON
 
           RESP=$(mktemp)
-          SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${{ env.BUILD_NAME }}/${{ env.BUILD_NUMBER }}?allowUnsigned=true&project=${{ vars.PROJECT_KEY }}"
+          # Resolve build-info file path in ${BUILD_INFO_REPO}/${BUILD_NAME}/<BUILD_NUMBER>-<ts>.json
+          BUILD_INFO_REPO_VAL="${BUILD_INFO_REPO:-${{ vars.PROJECT_KEY }}-build-info}"
+          LIST_URL="${{ vars.JFROG_URL }}/artifactory/api/storage/${BUILD_INFO_REPO_VAL}/${{ env.BUILD_NAME }}"
+          echo "🔎 Listing build-info children: $LIST_URL"
+          CHILDREN_JSON=$(mktemp)
+          curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$LIST_URL" > "$CHILDREN_JSON" || true
+          BUILD_INFO_FILE=$(jq -r ".children[]?.uri | select(startswith(\"/${{ env.BUILD_NUMBER }}-\")) | ltrimstr(\"/\")" "$CHILDREN_JSON" | head -n1)
+          rm -f "$CHILDREN_JSON"
+          if [[ -z "$BUILD_INFO_FILE" ]]; then
+            echo "⚠️ Could not resolve build-info file for ${{ env.BUILD_NAME }}#${{ env.BUILD_NUMBER }}; subject POST likely to fail"
+          fi
+          SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${BUILD_INFO_REPO_VAL}/${{ env.BUILD_NAME }}/${BUILD_INFO_FILE}?allowUnsigned=true"
           HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$SUBJECT_URL" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "Content-Type: application/json" \
