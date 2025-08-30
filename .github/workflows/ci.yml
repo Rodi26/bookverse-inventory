@@ -293,7 +293,7 @@ jobs:
               'MC4CAQAwBQYDK2VwBCIEIK8Gq/rmMwV/QLP2IiIVa0puXs6YrSC25XTZq1SYBMce' \
               '-----END PRIVATE KEY-----' > evidence_private.pem
           fi
-          if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
+          if ! grep -q "^-----BEGIN PRIVATE KEY-----$" evidence_private.pem 2>/dev/null; then
             echo "❌ EVIDENCE_PRIVATE_KEY is missing or not a valid PEM. Please set an ED25519 private key matching alias 'bookverse_key'." >&2
             exit 1
           fi
@@ -307,6 +307,7 @@ jobs:
             echo "❌ Unable to inspect private key algorithm. Ensure OpenSSL supports ED25519 and key is valid." >&2
             exit 1
           fi
+          echo "🔎 evidence_private.pem info:"; ls -l evidence_private.pem || true; head -3 evidence_private.pem || true
           if [[ -s evidence_public.pem ]]; then
             echo "HAVE_EVIDENCE_PUB=true" >> $GITHUB_ENV
           else
@@ -998,10 +999,11 @@ jobs:
               'MC4CAQAwBQYDK2VwBCIEIK8Gq/rmMwV/QLP2IiIVa0puXs6YrSC25XTZq1SYBMce' \
               '-----END PRIVATE KEY-----' > evidence_private.pem
           fi
-          if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
+          if ! grep -q "^-----BEGIN PRIVATE KEY-----$" evidence_private.pem 2>/dev/null; then
             echo "❌ EVIDENCE_PRIVATE_KEY is missing or not a valid PEM. Please set an ED25519 private key matching alias 'bookverse_key'." >&2
             exit 1
           fi
+          echo "🔎 evidence_private.pem info:"; ls -l evidence_private.pem || true; head -3 evidence_private.pem || true
           if ALG_LINE=$(openssl pkey -in evidence_private.pem -text_pub -noout 2>/dev/null | head -n1); then
             if ! echo "$ALG_LINE" | grep -qi 'ed25519'; then
               echo "❌ Provided private key is not ED25519 (got: $ALG_LINE). Please provide ED25519 key matching alias 'bookverse_key'." >&2
