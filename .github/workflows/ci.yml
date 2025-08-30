@@ -532,7 +532,8 @@ jobs:
 
       - name: Deploy evidence via REST API (unsigned DSSE) - Package subject
         run: |
-          set -euo pipefail
+          set +e
+          set -o pipefail
           echo "📡 Deploying evidence via REST API (Package)"
           NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           # Create predicate: lightweight generic marker
@@ -641,7 +642,8 @@ jobs:
 
       - name: Deploy evidence via REST API (unsigned DSSE) - Build subject
         run: |
-          set -euo pipefail
+          set +e
+          set -o pipefail
           echo "📡 Deploying evidence via REST API (Build)"
           NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           cat > predicate.json <<JSON
@@ -729,7 +731,8 @@ jobs:
 
       - name: Deploy evidence via REST API (unsigned DSSE) - Application Version subject
         run: |
-          set -euo pipefail
+          set +e
+          set -o pipefail
           echo "📡 Deploying evidence via REST API (App Version)"
           NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           cat > predicate.json <<JSON
