@@ -52,6 +52,8 @@ jobs:
           IMAGE_NAME="${REGISTRY_URL}/${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-docker-internal-local/${SERVICE_NAME}:${IMAGE_TAG}"
 
           echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
+          APPLICATION_KEY="bookverse-$SERVICE_NAME"
+          echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "REGISTRY_URL=$REGISTRY_URL" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
@@ -141,6 +143,7 @@ jobs:
           IMAGE_NAME="$REGISTRY_URL/${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local/$SERVICE_NAME:$IMAGE_TAG"
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
 
       - name: Finalize Build Info (repo_workflow_job / runNumber)
         id: finalize-build-info
@@ -413,13 +416,23 @@ jobs:
           }
           JSON
 
-          curl -fsS -X POST \
-            "${{ vars.JFROG_URL }}/evidence/api/v1/deploy-evidence?allowUnsigned=true" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-            --data-binary @request.json || echo "⚠️ REST (Package) evidence deploy failed"
-          echo "✅ REST (Package) evidence deployed"
+          RESP=$(mktemp)
+          URL1="${{ vars.JFROG_URL }}/evidence/api/v1/deploy-evidence?allowUnsigned=true"
+          URL2="${{ vars.JFROG_URL }}/apptrust/api/v1/deploy-evidence?allowUnsigned=true"
+          SUCCESS=0
+          for URL in "$URL1" "$URL2"; do
+            HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$URL" \
+              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+              --data-binary @request.json || echo "000")
+            echo "POST $URL -> HTTP $HTTP_STATUS"
+            if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then SUCCESS=1; break; fi
+          done
+          if [[ "$SUCCESS" -eq 1 ]]; then echo "✅ REST (Package) evidence deployed"; else echo "⚠️ REST (Package) evidence deploy failed"; cat "$RESP" || true; fi
+          rm -f "$RESP"
+          
 
       - name: Deploy evidence via REST API (unsigned DSSE) - Build subject
         run: |
@@ -465,13 +478,23 @@ jobs:
           }
           JSON
 
-          curl -fsS -X POST \
-            "${{ vars.JFROG_URL }}/evidence/api/v1/deploy-evidence?allowUnsigned=true" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-            --data-binary @request.json || echo "⚠️ REST (Build) evidence deploy failed"
-          echo "✅ REST (Build) evidence deployed"
+          RESP=$(mktemp)
+          URL1="${{ vars.JFROG_URL }}/evidence/api/v1/deploy-evidence?allowUnsigned=true"
+          URL2="${{ vars.JFROG_URL }}/apptrust/api/v1/deploy-evidence?allowUnsigned=true"
+          SUCCESS=0
+          for URL in "$URL1" "$URL2"; do
+            HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$URL" \
+              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+              --data-binary @request.json || echo "000")
+            echo "POST $URL -> HTTP $HTTP_STATUS"
+            if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then SUCCESS=1; break; fi
+          done
+          if [[ "$SUCCESS" -eq 1 ]]; then echo "✅ REST (Build) evidence deployed"; else echo "⚠️ REST (Build) evidence deploy failed"; cat "$RESP" || true; fi
+          rm -f "$RESP"
+          
 
       - name: Deploy evidence via REST API (unsigned DSSE) - Application Version subject
         run: |
@@ -517,13 +540,23 @@ jobs:
           }
           JSON
 
-          curl -fsS -X POST \
-            "${{ vars.JFROG_URL }}/evidence/api/v1/deploy-evidence?allowUnsigned=true" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-            --data-binary @request.json || echo "⚠️ REST (App Version) evidence deploy failed"
-          echo "✅ REST (App Version) evidence deployed"
+          RESP=$(mktemp)
+          URL1="${{ vars.JFROG_URL }}/evidence/api/v1/deploy-evidence?allowUnsigned=true"
+          URL2="${{ vars.JFROG_URL }}/apptrust/api/v1/deploy-evidence?allowUnsigned=true"
+          SUCCESS=0
+          for URL in "$URL1" "$URL2"; do
+            HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$URL" \
+              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+              --data-binary @request.json || echo "000")
+            echo "POST $URL -> HTTP $HTTP_STATUS"
+            if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then SUCCESS=1; break; fi
+          done
+          if [[ "$SUCCESS" -eq 1 ]]; then echo "✅ REST (App Version) evidence deployed"; else echo "⚠️ REST (App Version) evidence deploy failed"; cat "$RESP" || true; fi
+          rm -f "$RESP"
+          
 
       - name: Attach unit/coverage evidence to Docker image (PyTest)
         env:
@@ -984,8 +1017,8 @@ jobs:
             --release-bundle "${{ env.APPLICATION_KEY }}" \
             --release-bundle-version "${{ env.APP_VERSION }}" \
             --project "${{ vars.PROJECT_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" \
-            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" || echo "⚠️ Jira tickets evidence attachment failed"
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" \
+            --key evidence_private.pem || echo "⚠️ Jira tickets evidence attachment failed"
 
           echo "✅ Jira tickets attached"
 
