@@ -524,14 +524,38 @@ jobs:
             fi
           fi
 
-          PAYLOAD_B64=$(cat statement.json | openssl base64 -A)
-          cat > envelope.json <<JSON
-          {
-            "payloadType": "application/vnd.in-toto+json",
-            "payload": "${PAYLOAD_B64}",
-            "signatures": []
-          }
-          JSON
+          # Create signed DSSE envelope (ED25519)
+          python -m pip install --quiet cryptography || true
+          python - <<'PY'
+import base64, json, os, sys
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+payload_type = 'application/vnd.in-toto+json'
+with open('statement.json','rb') as f:
+    payload = f.read()
+
+def pae(pt: str, p: bytes) -> bytes:
+    return b'DSSEv1 ' + str(len(pt)).encode() + b' ' + pt.encode() + b' ' + str(len(p)).encode() + b' ' + p
+
+with open('evidence_private.pem','rb') as f:
+    key_data = f.read()
+priv = serialization.load_pem_private_key(key_data, password=None)
+if not isinstance(priv, Ed25519PrivateKey):
+    print('Private key is not ED25519', file=sys.stderr)
+
+sig = priv.sign(pae(payload_type, payload))
+envelope = {
+    'payloadType': payload_type,
+    'payload': base64.b64encode(payload).decode(),
+    'signatures': [{
+        'keyid': os.environ.get('EVIDENCE_KID','1736c3'),
+        'sig': base64.b64encode(sig).decode()
+    }]
+}
+with open('envelope.json','w') as f:
+    json.dump(envelope, f)
+PY
 
           # First, try the subject endpoint (preferred)
           RESP=$(mktemp)
@@ -608,14 +632,38 @@ jobs:
           JSON
           STMT=$(cat statement.json | sed "s#BUILD/NAME#${{ env.BUILD_NAME }}#" | sed "s#NUMBER#${{ env.BUILD_NUMBER }}#")
           printf '%s' "$STMT" | jq --argjson pred "$(cat predicate.json)" '.predicate = $pred' > statement.json
-          PAYLOAD_B64=$(cat statement.json | openssl base64 -A)
-          cat > envelope.json <<JSON
-          {
-            "payloadType": "application/vnd.in-toto+json",
-            "payload": "${PAYLOAD_B64}",
-            "signatures": []
-          }
-          JSON
+          # Create signed DSSE envelope (ED25519)
+          python -m pip install --quiet cryptography || true
+          python - <<'PY'
+import base64, json, os, sys
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+payload_type = 'application/vnd.in-toto+json'
+with open('statement.json','rb') as f:
+    payload = f.read()
+
+def pae(pt: str, p: bytes) -> bytes:
+    return b'DSSEv1 ' + str(len(pt)).encode() + b' ' + pt.encode() + b' ' + str(len(p)).encode() + b' ' + p
+
+with open('evidence_private.pem','rb') as f:
+    key_data = f.read()
+priv = serialization.load_pem_private_key(key_data, password=None)
+if not isinstance(priv, Ed25519PrivateKey):
+    print('Private key is not ED25519', file=sys.stderr)
+
+sig = priv.sign(pae(payload_type, payload))
+envelope = {
+    'payloadType': payload_type,
+    'payload': base64.b64encode(payload).decode(),
+    'signatures': [{
+        'keyid': os.environ.get('EVIDENCE_KID','1736c3'),
+        'sig': base64.b64encode(sig).decode()
+    }]
+}
+with open('envelope.json','w') as f:
+    json.dump(envelope, f)
+PY
 
           RESP=$(mktemp)
           # Resolve build-info file path in ${BUILD_INFO_REPO}/${BUILD_NAME}/<BUILD_NUMBER>-<ts>.json
@@ -699,14 +747,38 @@ jobs:
           JSON
           STMT=$(cat statement.json | sed "s#RB/NAME@VERSION#${{ env.APPLICATION_KEY }}@${{ env.APP_VERSION }}#")
           printf '%s' "$STMT" | jq --argjson pred "$(cat predicate.json)" '.predicate = $pred' > statement.json
-          PAYLOAD_B64=$(cat statement.json | openssl base64 -A)
-          cat > envelope.json <<JSON
-          {
-            "payloadType": "application/vnd.in-toto+json",
-            "payload": "${PAYLOAD_B64}",
-            "signatures": []
-          }
-          JSON
+          # Create signed DSSE envelope (ED25519)
+          python -m pip install --quiet cryptography || true
+          python - <<'PY'
+import base64, json, os, sys
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+payload_type = 'application/vnd.in-toto+json'
+with open('statement.json','rb') as f:
+    payload = f.read()
+
+def pae(pt: str, p: bytes) -> bytes:
+    return b'DSSEv1 ' + str(len(pt)).encode() + b' ' + pt.encode() + b' ' + str(len(p)).encode() + b' ' + p
+
+with open('evidence_private.pem','rb') as f:
+    key_data = f.read()
+priv = serialization.load_pem_private_key(key_data, password=None)
+if not isinstance(priv, Ed25519PrivateKey):
+    print('Private key is not ED25519', file=sys.stderr)
+
+sig = priv.sign(pae(payload_type, payload))
+envelope = {
+    'payloadType': payload_type,
+    'payload': base64.b64encode(payload).decode(),
+    'signatures': [{
+        'keyid': os.environ.get('EVIDENCE_KID','1736c3'),
+        'sig': base64.b64encode(sig).decode()
+    }]
+}
+with open('envelope.json','w') as f:
+    json.dump(envelope, f)
+PY
 
           RESP=$(mktemp)
           SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${{ env.APPLICATION_KEY }}/@/${{ env.APP_VERSION }}?allowUnsigned=true&project=${{ vars.PROJECT_KEY }}"
