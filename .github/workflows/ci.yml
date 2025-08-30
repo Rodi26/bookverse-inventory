@@ -305,9 +305,22 @@ jobs:
       - name: "Debug: list trusted keys (project scope)"
         run: |
           echo "🔎 Listing trusted keys for project ${{ vars.PROJECT_KEY }}"
+          KEYS_FILE=$(mktemp)
           curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
                -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" | jq '.[] | {alias, kid, created, expires_at}' || true
+               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" | tee "$KEYS_FILE" | jq '.[] | {alias, kid, type, issued_on}' || true
+          # Prefer ED25519 keys matching our alias patterns; fallback to any ED25519 key
+          KID=$(jq -r '[.[] | select((.type|test("ed25519";"i")) and (.alias|test("bookverse|evidence|bookverse_key";"i")))] | .[0].kid // empty' "$KEYS_FILE")
+          if [ -z "$KID" ] || [ "$KID" = "null" ]; then
+            KID=$(jq -r '[.[] | select(.type|test("ed25519";"i"))] | .[0].kid // empty' "$KEYS_FILE")
+          fi
+          rm -f "$KEYS_FILE"
+          if [ -n "$KID" ] && [ "$KID" != "null" ]; then
+            echo "EVIDENCE_KID=$KID" >> $GITHUB_ENV
+            echo "✅ Resolved EVIDENCE_KID=$KID"
+          else
+            echo "⚠️ Could not resolve ED25519 key id; using default"
+          fi
 
       - name: Attach SonarQube quality gate to Build (Build Evidence)
         env:
@@ -1126,9 +1139,21 @@ jobs:
       - name: "Debug: list trusted keys (project scope)"
         run: |
           echo "🔎 Listing trusted keys for project ${{ vars.PROJECT_KEY }}"
+          KEYS_FILE=$(mktemp)
           curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
                -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" | jq '.[] | {alias, kid, created, expires_at}' || true
+               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" | tee "$KEYS_FILE" | jq '.[] | {alias, kid, type, issued_on}' || true
+          KID=$(jq -r '[.[] | select((.type|test("ed25519";"i")) and (.alias|test("bookverse|evidence|bookverse_key";"i")))] | .[0].kid // empty' "$KEYS_FILE")
+          if [ -z "$KID" ] || [ "$KID" = "null" ]; then
+            KID=$(jq -r '[.[] | select(.type|test("ed25519";"i"))] | .[0].kid // empty' "$KEYS_FILE")
+          fi
+          rm -f "$KEYS_FILE"
+          if [ -n "$KID" ] && [ "$KID" != "null" ]; then
+            echo "EVIDENCE_KID=$KID" >> $GITHUB_ENV
+            echo "✅ Resolved EVIDENCE_KID=$KID"
+          else
+            echo "⚠️ Could not resolve ED25519 key id; using default"
+          fi
 
       - name: Attach SLSA provenance (gate to DEV)
         run: |
