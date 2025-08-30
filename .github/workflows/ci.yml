@@ -247,14 +247,14 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          # Default effective alias from repo vars; overridden if fallback key is generated
-          echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" >> $GITHUB_ENV
+          # Default effective alias from repo vars (ED25519 key expected on platform)
+          echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=${{ vars.EVIDENCE_KEY_ALIAS || 'bookverse_key' }}" >> $GITHUB_ENV
           # Write private key to file for jf evd --key (robust handling: quotes, CR, \n, base64)
           if [[ -n "${EVIDENCE_PK:-}" ]]; then
             KEY_TMP=$(mktemp)
             printf '%s' "$EVIDENCE_PK" > "$KEY_TMP"
             # strip surrounding quotes if present and CRs
-            sed -e 's/^"//' -e 's/"$//' -e 's/\r//g' "$KEY_TMP" > "$KEY_TMP.1"
+            sed -e 's/^\"//' -e 's/\"$//' -e 's/\r//g' "$KEY_TMP" > "$KEY_TMP.1"
             if grep -q "BEGIN .*PRIVATE KEY" "$KEY_TMP.1"; then
               # convert any literal \n into real newlines
               sed -e $'s/\\n/\n/g' "$KEY_TMP.1" > evidence_private.pem
@@ -268,22 +268,20 @@ jobs:
             fi
             rm -f "$KEY_TMP" "$KEY_TMP.1"
           fi
-          # Fallback: generate ephemeral RSA key and upload public key if PEM still invalid
+          # Fail fast if private key missing/invalid
           if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
-            echo "⚠️ Provided private key invalid. Generating ephemeral RSA-2048 key for demo signing."
-            openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out evidence_private.pem
-            openssl rsa -in evidence_private.pem -pubout -out evidence_public.pem
-            ALIAS="BookVerse-RSA-${GITHUB_RUN_ID}"
-            PUB_B64=$(grep -v "BEGIN\|END" evidence_public.pem | tr -d '\n\r')
-            PAYLOAD=$(jq -n --arg alias "$ALIAS" --arg public_key "$PUB_B64" '{alias:$alias, public_key:$public_key}')
-            curl -s -w "%{http_code}" -X POST \
-              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-              -H "Content-Type: application/json" \
-              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-              -d "$PAYLOAD" \
-              "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" >/dev/null || true
-            sleep 3
-            echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=$ALIAS" >> $GITHUB_ENV
+            echo "❌ EVIDENCE_PRIVATE_KEY is missing or not a valid PEM. Please set an ED25519 private key matching alias 'bookverse_key'." >&2
+            exit 1
+          fi
+          # Validate algorithm is ED25519
+          if ALG_LINE=$(openssl pkey -in evidence_private.pem -text_pub -noout 2>/dev/null | head -n1); then
+            if ! echo "$ALG_LINE" | grep -qi 'ed25519'; then
+              echo "❌ Provided private key is not ED25519 (got: $ALG_LINE). Please provide ED25519 key matching alias 'bookverse_key'." >&2
+              exit 1
+            fi
+          else
+            echo "❌ Unable to inspect private key algorithm. Ensure OpenSSL supports ED25519 and key is valid." >&2
+            exit 1
           fi
           if [[ -s evidence_public.pem ]]; then
             echo "HAVE_EVIDENCE_PUB=true" >> $GITHUB_ENV
@@ -936,7 +934,7 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" >> $GITHUB_ENV
+          echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=${{ vars.EVIDENCE_KEY_ALIAS || 'bookverse_key' }}" >> $GITHUB_ENV
           if [[ -n "${EVIDENCE_PK:-}" ]]; then
             KEY_TMP=$(mktemp)
             printf '%s' "$EVIDENCE_PK" > "$KEY_TMP"
@@ -952,20 +950,17 @@ jobs:
             rm -f "$KEY_TMP" "$KEY_TMP.1"
           fi
           if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
-            echo "⚠️ Provided private key invalid. Generating ephemeral RSA-2048 key for demo signing."
-            openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out evidence_private.pem
-            openssl rsa -in evidence_private.pem -pubout -out evidence_public.pem
-            ALIAS="BookVerse-RSA-${GITHUB_RUN_ID}"
-            PUB_B64=$(grep -v "BEGIN\|END" evidence_public.pem | tr -d '\n\r')
-            PAYLOAD=$(jq -n --arg alias "$ALIAS" --arg public_key "$PUB_B64" '{alias:$alias, public_key:$public_key}')
-            curl -s -w "%{http_code}" -X POST \
-              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-              -H "Content-Type: application/json" \
-              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-              -d "$PAYLOAD" \
-              "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" >/dev/null || true
-            sleep 3
-            echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=$ALIAS" >> $GITHUB_ENV
+            echo "❌ EVIDENCE_PRIVATE_KEY is missing or not a valid PEM. Please set an ED25519 private key matching alias 'bookverse_key'." >&2
+            exit 1
+          fi
+          if ALG_LINE=$(openssl pkey -in evidence_private.pem -text_pub -noout 2>/dev/null | head -n1); then
+            if ! echo "$ALG_LINE" | grep -qi 'ed25519'; then
+              echo "❌ Provided private key is not ED25519 (got: $ALG_LINE). Please provide ED25519 key matching alias 'bookverse_key'." >&2
+              exit 1
+            fi
+          else
+            echo "❌ Unable to inspect private key algorithm. Ensure OpenSSL supports ED25519 and key is valid." >&2
+            exit 1
           fi
           if [[ -s evidence_public.pem ]]; then
             echo "HAVE_EVIDENCE_PUB=true" >> $GITHUB_ENV
