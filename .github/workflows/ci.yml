@@ -650,8 +650,8 @@ jobs:
             --release-bundle "${{ env.APPLICATION_KEY }}" \
             --release-bundle-version "${{ env.APP_VERSION }}" \
             --project "${{ vars.PROJECT_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" \
-            --key evidence_private.pem || echo "⚠️ Jira tickets evidence attachment failed"
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" \
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" || echo "⚠️ Jira tickets evidence attachment failed"
 
           echo "✅ Jira tickets attached"
 
