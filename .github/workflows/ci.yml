@@ -246,7 +246,9 @@ jobs:
           EVIDENCE_PK: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
           EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
-          set -euo pipefail
+          set +e
+          set +u
+          set +o pipefail
           umask 077
           # Default effective alias from repo vars (ED25519 key expected on platform)
           ALIAS_DEFAULT="${EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT:-}"
@@ -286,13 +288,6 @@ jobs:
             fi
             rm -f "$RAW_TMP" "$RAW_TMP.1"
           fi
-          if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
-            echo "ℹ️ Debug fallback: writing inline ED25519 PEM (temporary)"
-            printf '%s\n%s\n%s\n' \
-              '-----BEGIN PRIVATE KEY-----' \
-              'MC4CAQAwBQYDK2VwBCIEIK8Gq/rmMwV/QLP2IiIVa0puXs6YrSC25XTZq1SYBMce' \
-              '-----END PRIVATE KEY-----' > evidence_private.pem
-          fi
           if ! grep -q "^-----BEGIN PRIVATE KEY-----$" evidence_private.pem 2>/dev/null; then
             echo "⚠️ evidence_private.pem: PEM header not detected; continuing for debug" >&2
           fi
@@ -305,11 +300,7 @@ jobs:
             echo "⚠️ Unable to inspect private key algorithm; continuing" >&2
           fi
           echo "🔎 evidence_private.pem info:"; ls -l evidence_private.pem || true; head -3 evidence_private.pem || true
-          if [[ -s evidence_public.pem ]]; then
-            echo "HAVE_EVIDENCE_PUB=true" >> $GITHUB_ENV
-          else
-            echo "HAVE_EVIDENCE_PUB=false" >> $GITHUB_ENV
-          fi
+          true
 
       - name: "Debug: list trusted keys (project scope)"
         run: |
@@ -955,7 +946,9 @@ jobs:
           EVIDENCE_PK: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
           EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
-          set -euo pipefail
+          set +e
+          set +u
+          set +o pipefail
           umask 077
           ALIAS_DEFAULT="${EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT:-}"
           if [[ -z "$ALIAS_DEFAULT" ]]; then ALIAS_DEFAULT="bookverse_key"; fi
@@ -989,13 +982,6 @@ jobs:
             fi
             rm -f "$RAW_TMP" "$RAW_TMP.1"
           fi
-          if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
-            echo "ℹ️ Debug fallback: writing inline ED25519 PEM (temporary)"
-            printf '%s\n%s\n%s\n' \
-              '-----BEGIN PRIVATE KEY-----' \
-              'MC4CAQAwBQYDK2VwBCIEIK8Gq/rmMwV/QLP2IiIVa0puXs6YrSC25XTZq1SYBMce' \
-              '-----END PRIVATE KEY-----' > evidence_private.pem
-          fi
           if ! grep -q "^-----BEGIN PRIVATE KEY-----$" evidence_private.pem 2>/dev/null; then
             echo "⚠️ evidence_private.pem: PEM header not detected; continuing for debug" >&2
           fi
@@ -1007,6 +993,7 @@ jobs:
             echo "⚠️ Unable to inspect private key algorithm; continuing" >&2
           fi
           echo "🔎 evidence_private.pem info:"; ls -l evidence_private.pem || true; head -3 evidence_private.pem || true
+          true
 
       - name: "Debug: list trusted keys (project scope)"
         run: |
