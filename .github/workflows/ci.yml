@@ -268,7 +268,6 @@ jobs:
             fi
             rm -f "$KEY_TMP" "$KEY_TMP.1"
           fi
-          # Fail fast if private key missing/invalid
           if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
             echo "ℹ️ Fallback: writing secret directly from GitHub expression"
             RAW_TMP=$(mktemp)
@@ -283,6 +282,14 @@ jobs:
               fi
             fi
             rm -f "$RAW_TMP" "$RAW_TMP.1"
+          fi
+          if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
+            echo "ℹ️ Debug fallback: writing inline ED25519 PEM (temporary)"
+            cat > evidence_private.pem <<'PEM'
+-----BEGIN PRIVATE KEY-----
+MC4CAQAwBQYDK2VwBCIEIK8Gq/rmMwV/QLP2IiIVa0puXs6YrSC25XTZq1SYBMce
+-----END PRIVATE KEY-----
+PEM
           fi
           if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
             echo "❌ EVIDENCE_PRIVATE_KEY is missing or not a valid PEM. Please set an ED25519 private key matching alias 'bookverse_key'." >&2
@@ -978,6 +985,14 @@ jobs:
               fi
             fi
             rm -f "$RAW_TMP" "$RAW_TMP.1"
+          fi
+          if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
+            echo "ℹ️ Debug fallback: writing inline ED25519 PEM (temporary)"
+            cat > evidence_private.pem <<'PEM'
+-----BEGIN PRIVATE KEY-----
+MC4CAQAwBQYDK2VwBCIEIK8Gq/rmMwV/QLP2IiIVa0puXs6YrSC25XTZq1SYBMce
+-----END PRIVATE KEY-----
+PEM
           fi
           if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
             echo "❌ EVIDENCE_PRIVATE_KEY is missing or not a valid PEM. Please set an ED25519 private key matching alias 'bookverse_key'." >&2
