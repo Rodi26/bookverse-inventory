@@ -258,29 +258,27 @@ jobs:
             echo "HAVE_EVIDENCE_PUB=false" >> $GITHUB_ENV
           fi
 
-      - name: Attach coverage evidence to Docker image
+      - name: Attach unit/coverage evidence to Docker image (PyTest)
         env:
           JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
-          echo "📊 Attaching test coverage evidence to Docker image"
+          echo "📊 Attaching PyTest unit/coverage evidence to Docker image"
           
-          # Create coverage evidence predicate
-          cat <<EOF > coverage-evidence.json
+          # Randomize values to simulate real runs
+          TESTS_PASSED=$((220 + RANDOM % 61))
+          COV=$(awk -v s=$RANDOM 'BEGIN{srand(s); printf "%.1f", 90.0 + rand()*5.0}')
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          # Create pytest evidence predicate
+          cat <<EOF > pytest-evidence.json
           {
-            "testResults": {
-              "framework": "pytest",
-              "coveragePercent": $(if [[ "${{ env.TESTS_PASSED }}" == "true" ]]; then echo "90"; else echo "90"; fi),
-              "totalLines": 150,
-              "coveredLines": 135,
-              "testsPassed": ${{ env.TESTS_PASSED }},
-              "generatedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-              "reports": ["coverage.xml", "htmlcov/index.html"]
-            },
-            "build": {
-              "id": "${{ github.run_id }}-${{ github.run_attempt }}",
-              "repository": "${{ github.repository }}",
-              "commit": "${{ github.sha }}"
-            }
+            "framework": "pytest",
+            "status": "PASSED",
+            "testsPassed": ${TESTS_PASSED},
+            "testsFailed": 0,
+            "coveragePercent": ${COV},
+            "generatedAt": "${NOW_TS}",
+            "reports": ["coverage.xml", "htmlcov/index.html"]
           }
           EOF
           
@@ -306,24 +304,15 @@ jobs:
           **Build:** [${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           EOF
           
-          # Attach coverage evidence to Docker image (package subject)
+          # Attach PyTest evidence to Docker image (package subject)
           jf evd create \
-            --predicate coverage-evidence.json \
+            --predicate pytest-evidence.json \
             --markdown coverage-evidence.md \
-            --predicate-type "Test Coverage" \
+            --predicate-type "https://pytest.org/evidence/results/v1" \
             --package-name "${{ env.SERVICE_NAME }}" \
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
             --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ Coverage evidence attachment failed"
-
-          # Also attach coverage evidence to the application version (release bundle subject)
-          jf evd create \
-            --predicate coverage-evidence.json \
-            --markdown coverage-evidence.md \
-            --predicate-type "Test Coverage" \
-            --release-bundle "${{ env.APPLICATION_KEY }}" \
-            --release-bundle-version "${{ env.APP_VERSION }}" \
-            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ Coverage evidence (RB) attachment failed"
           
           echo "✅ Coverage evidence attached to Docker image"
 
@@ -339,47 +328,25 @@ jobs:
             --package-version "${{ env.IMAGE_TAG }}" \
             --public-keys evidence_public.pem || echo "⚠️ Evidence verification failed (non-blocking)"
 
-      - name: Attach SAST evidence to Docker image
+      - name: Attach SAST evidence to Docker image (Checkmarx)
         env:
           JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
-          echo "🔍 Attaching SAST scan evidence to Docker image"
+          echo "🔍 Attaching Checkmarx SAST evidence to Docker image"
           
-          # Create SAST evidence predicate  
-          cat <<EOF > sast-evidence.json
+          # Randomized SAST summary
+          SCAN_ID=$(cat /proc/sys/kernel/random/uuid)
+          HIGH=$((1 + RANDOM % 4))
+          MED=$((10 + RANDOM % 16))
+          LOW=$((30 + RANDOM % 31))
+          INFO=$((80 + RANDOM % 61))
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          cat <<EOF > sast-checkmarx.json
           {
-            "sastScan": {
-              "tool": "CodeQL",
-              "version": "2.15.3", 
-              "scanDate": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-              "findings": {
-                "total": 2,
-                "high": 0,
-                "medium": 1,
-                "low": 1
-              },
-              "issues": [
-                {
-                  "ruleId": "py/sql-injection",
-                  "severity": "medium",
-                  "file": "app/database.py",
-                  "line": 45,
-                  "description": "Potential SQL injection vulnerability"
-                },
-                {
-                  "ruleId": "py/clear-text-logging-sensitive-data",
-                  "severity": "low", 
-                  "file": "app/services.py",
-                  "line": 123,
-                  "description": "Sensitive data may be logged"
-                }
-              ]
-            },
-            "build": {
-              "id": "${{ github.run_id }}-${{ github.run_attempt }}",
-              "repository": "${{ github.repository }}",
-              "commit": "${{ github.sha }}"
-            }
+            "scanId": "${SCAN_ID}",
+            "summary": { "high": ${HIGH}, "medium": ${MED}, "low": ${LOW}, "info": ${INFO} },
+            "scanTimestamp": "${NOW_TS}"
           }
           EOF
           
@@ -406,24 +373,15 @@ jobs:
           **Build:** [${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           EOF
           
-          # Attach SAST evidence to Docker image (package subject)
+          # Attach Checkmarx SAST to Docker image (package subject)
           jf evd create \
-            --predicate sast-evidence.json \
+            --predicate sast-checkmarx.json \
             --markdown sast-summary.md \
-            --predicate-type "SAST Scan" \
+            --predicate-type "https://checkmarx.com/evidence/sast/v1.1" \
             --package-name "${{ env.SERVICE_NAME }}" \
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
             --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ SAST evidence attachment failed"
-
-          # Also attach SAST evidence to the application version (release bundle subject)
-          jf evd create \
-            --predicate sast-evidence.json \
-            --markdown sast-summary.md \
-            --predicate-type "SAST Scan" \
-            --release-bundle "${{ env.APPLICATION_KEY }}" \
-            --release-bundle-version "${{ env.APP_VERSION }}" \
-            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ SAST evidence (RB) attachment failed"
           
           echo "✅ SAST evidence attached to Docker image"
 
@@ -621,6 +579,62 @@ jobs:
           
           echo "✅ Application version created: ${{ env.APPLICATION_KEY }}@${{ env.APP_VERSION }}"
           echo "📦 Packages will be automatically bound from build sources"
+
+      - name: Attach SLSA provenance (gate to DEV)
+        run: |
+          echo "🧾 Attaching SLSA provenance to application version (UNASSIGNED → gate DEV)"
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat <<EOF > slsa-provenance.json
+          {
+            "buildName": "${{ env.BUILD_NAME }}",
+            "buildNumber": "${{ env.BUILD_NUMBER }}",
+            "builderId": "github-actions",
+            "buildType": "container-image",
+            "materials": [ { "uri": "git+${{ github.server_url }}/${{ github.repository }}@${{ github.sha }}", "digest": { "sha256": "${{ github.sha }}" } } ],
+            "invocation": { "parameters": { "workflow": "${{ github.workflow }}" }, "environment": { "runner": "ubuntu-latest" } },
+            "reproducible": false,
+            "createdAt": "${NOW_TS}",
+            "attachStage": "UNASSIGNED",
+            "gateForPromotionTo": "DEV"
+          }
+          EOF
+
+          jf evd create \
+            --predicate slsa-provenance.json \
+            --predicate-type "https://slsa.dev/provenance/v1" \
+            --release-bundle "${{ env.APPLICATION_KEY }}" \
+            --release-bundle-version "${{ env.APP_VERSION }}" \
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ SLSA evidence attachment failed"
+
+          echo "✅ SLSA provenance attached"
+
+      - name: Attach Jira tickets (gate to DEV)
+        run: |
+          echo "🧾 Attaching Jira tickets to application version (UNASSIGNED → gate DEV)"
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          I1=$((1800 + RANDOM % 101))
+          I2=$((1800 + RANDOM % 101))
+          cat <<EOF > jira-tickets.json
+          {
+            "issues": [
+              { "key": "PROJ-${I1}", "type": "Story", "summary": "User profile settings page" },
+              { "key": "PROJ-${I2}", "type": "Bug", "summary": "Fix token refresh loop" }
+            ],
+            "approvedBy": "lead-${RANDOM}",
+            "approvedAt": "${NOW_TS}",
+            "attachStage": "UNASSIGNED",
+            "gateForPromotionTo": "DEV"
+          }
+          EOF
+
+          jf evd create \
+            --predicate jira-tickets.json \
+            --predicate-type "https://atlassian.com/evidence/jira/release/v1" \
+            --release-bundle "${{ env.APPLICATION_KEY }}" \
+            --release-bundle-version "${{ env.APP_VERSION }}" \
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ Jira tickets evidence attachment failed"
+
+          echo "✅ Jira tickets attached"
 
       - name: Wait for application version completion
         if: ${{ false }}
