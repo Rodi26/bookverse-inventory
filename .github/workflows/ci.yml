@@ -505,43 +505,80 @@ jobs:
             "predicate": {}
           }
           JSON
-          STMT=$(cat statement.json | sed "s#REPO/PKG:TAG#${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}:${{ env.IMAGE_TAG }}#")
+          REPO="${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local"
+          IMAGE="${{ env.SERVICE_NAME }}"
+          TAG="${{ env.IMAGE_TAG }}"
+          STMT=$(cat statement.json | sed "s#REPO/PKG:TAG#${REPO}/${IMAGE}:${TAG}#")
           printf '%s' "$STMT" | jq --argjson pred "$(cat predicate.json)" '.predicate = $pred' > statement.json
-          PAYLOAD_B64=$(cat statement.json | openssl base64 -A)
 
-          # Package subject request
-          cat > request.json <<JSON
+          # Try to enrich Statement subject with image digest (sha256)
+          DIGEST_HEADER=$(curl -sSI \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+            -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+            "${{ vars.JFROG_URL }}/artifactory/api/docker/${REPO}/v2/${IMAGE}/manifests/${TAG}" | tr -d '\r' | grep -i '^Docker-Content-Digest:' | awk '{print $2}' | tr -d '[:space:]' || true)
+          if [[ -n "$DIGEST_HEADER" ]]; then
+            DIGEST_VAL="${DIGEST_HEADER#sha256:}"
+            if [[ -n "$DIGEST_VAL" ]]; then
+              jq --arg d "$DIGEST_VAL" '.subject[0].digest = {"sha256": $d}' statement.json > statement.tmp && mv statement.tmp statement.json
+              echo "🔎 Added subject digest sha256:$DIGEST_VAL to Statement"
+            fi
+          fi
+
+          PAYLOAD_B64=$(cat statement.json | openssl base64 -A)
+          cat > envelope.json <<JSON
           {
-            "subject": {
-              "type": "PACKAGE",
-              "repoName": "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local",
-              "packageName": "${{ env.SERVICE_NAME }}",
-              "packageVersion": "${{ env.IMAGE_TAG }}",
-              "project": "${{ vars.PROJECT_KEY }}"
-            },
-            "envelope": {
-              "payloadType": "application/vnd.in-toto+json",
-              "payload": "${PAYLOAD_B64}",
-              "signatures": []
-            }
+            "payloadType": "application/vnd.in-toto+json",
+            "payload": "${PAYLOAD_B64}",
+            "signatures": []
           }
           JSON
 
+          # First, try the subject endpoint (preferred)
           RESP=$(mktemp)
-          URL1="${{ vars.JFROG_URL }}/evidence/api/v1/deploy-evidence?allowUnsigned=true"
-          URL2="${{ vars.JFROG_URL }}/apptrust/api/v1/deploy-evidence?allowUnsigned=true"
-          SUCCESS=0
-          for URL in "$URL1" "$URL2"; do
-            HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$URL" \
-              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
-              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-              --data-binary @request.json || echo "000")
-            echo "POST $URL -> HTTP $HTTP_STATUS"
-            if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then SUCCESS=1; break; fi
-          done
-          if [[ "$SUCCESS" -eq 1 ]]; then echo "✅ REST (Package) evidence deployed"; else echo "⚠️ REST (Package) evidence deploy failed"; cat "$RESP" || true; fi
+          SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${REPO}/${IMAGE}/${TAG}?allowUnsigned=true"
+          HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$SUBJECT_URL" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+            --data-binary @envelope.json || echo "000")
+          echo "POST $SUBJECT_URL -> HTTP $HTTP_STATUS"
+          if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
+            echo "✅ REST (Package subject) evidence deployed"
+          else
+            echo "ℹ️ Subject endpoint failed; falling back to deploy-evidence"
+            # Fallback to deploy-evidence wrapper
+            cat > request.json <<JSON
+            {
+              "subject": {
+                "type": "PACKAGE",
+                "repoName": "${REPO}",
+                "packageName": "${IMAGE}",
+                "packageVersion": "${TAG}",
+                "project": "${{ vars.PROJECT_KEY }}"
+              },
+              "envelope": {
+                "payloadType": "application/vnd.in-toto+json",
+                "payload": "${PAYLOAD_B64}",
+                "signatures": []
+              }
+            }
+            JSON
+            URL1="${{ vars.JFROG_URL }}/evidence/api/v1/deploy-evidence?allowUnsigned=true"
+            URL2="${{ vars.JFROG_URL }}/apptrust/api/v1/deploy-evidence?allowUnsigned=true"
+            SUCCESS=0
+            for URL in "$URL1" "$URL2"; do
+              HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$URL" \
+                -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+                -H "Content-Type: application/json" \
+                -H "Accept: application/json" \
+                -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+                --data-binary @request.json || echo "000")
+              echo "POST $URL -> HTTP $HTTP_STATUS"
+              if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then SUCCESS=1; break; fi
+            done
+            if [[ "$SUCCESS" -eq 1 ]]; then echo "✅ REST (Package) evidence deployed"; else echo "⚠️ REST (Package) evidence deploy failed"; cat "$RESP" || true; fi
+          fi
           rm -f "$RESP"
           
 
@@ -572,38 +609,56 @@ jobs:
           STMT=$(cat statement.json | sed "s#BUILD/NAME#${{ env.BUILD_NAME }}#" | sed "s#NUMBER#${{ env.BUILD_NUMBER }}#")
           printf '%s' "$STMT" | jq --argjson pred "$(cat predicate.json)" '.predicate = $pred' > statement.json
           PAYLOAD_B64=$(cat statement.json | openssl base64 -A)
-
-          cat > request.json <<JSON
+          cat > envelope.json <<JSON
           {
-            "subject": {
-              "type": "BUILD",
-              "buildName": "${{ env.BUILD_NAME }}",
-              "buildNumber": "${{ env.BUILD_NUMBER }}",
-              "project": "${{ vars.PROJECT_KEY }}"
-            },
-            "envelope": {
-              "payloadType": "application/vnd.in-toto+json",
-              "payload": "${PAYLOAD_B64}",
-              "signatures": []
-            }
+            "payloadType": "application/vnd.in-toto+json",
+            "payload": "${PAYLOAD_B64}",
+            "signatures": []
           }
           JSON
 
           RESP=$(mktemp)
-          URL1="${{ vars.JFROG_URL }}/evidence/api/v1/deploy-evidence?allowUnsigned=true"
-          URL2="${{ vars.JFROG_URL }}/apptrust/api/v1/deploy-evidence?allowUnsigned=true"
-          SUCCESS=0
-          for URL in "$URL1" "$URL2"; do
-            HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$URL" \
-              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
-              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-              --data-binary @request.json || echo "000")
-            echo "POST $URL -> HTTP $HTTP_STATUS"
-            if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then SUCCESS=1; break; fi
-          done
-          if [[ "$SUCCESS" -eq 1 ]]; then echo "✅ REST (Build) evidence deployed"; else echo "⚠️ REST (Build) evidence deploy failed"; cat "$RESP" || true; fi
+          SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${{ env.BUILD_NAME }}/${{ env.BUILD_NUMBER }}?allowUnsigned=true&project=${{ vars.PROJECT_KEY }}"
+          HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$SUBJECT_URL" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data-binary @envelope.json || echo "000")
+          echo "POST $SUBJECT_URL -> HTTP $HTTP_STATUS"
+          if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
+            echo "✅ REST (Build subject) evidence deployed"
+          else
+            echo "ℹ️ Subject endpoint failed; falling back to deploy-evidence"
+            cat > request.json <<JSON
+            {
+              "subject": {
+                "type": "BUILD",
+                "buildName": "${{ env.BUILD_NAME }}",
+                "buildNumber": "${{ env.BUILD_NUMBER }}",
+                "project": "${{ vars.PROJECT_KEY }}"
+              },
+              "envelope": {
+                "payloadType": "application/vnd.in-toto+json",
+                "payload": "${PAYLOAD_B64}",
+                "signatures": []
+              }
+            }
+            JSON
+            URL1="${{ vars.JFROG_URL }}/evidence/api/v1/deploy-evidence?allowUnsigned=true"
+            URL2="${{ vars.JFROG_URL }}/apptrust/api/v1/deploy-evidence?allowUnsigned=true"
+            SUCCESS=0
+            for URL in "$URL1" "$URL2"; do
+              HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$URL" \
+                -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+                -H "Content-Type: application/json" \
+                -H "Accept: application/json" \
+                -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+                --data-binary @request.json || echo "000")
+              echo "POST $URL -> HTTP $HTTP_STATUS"
+              if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then SUCCESS=1; break; fi
+            done
+            if [[ "$SUCCESS" -eq 1 ]]; then echo "✅ REST (Build) evidence deployed"; else echo "⚠️ REST (Build) evidence deploy failed"; cat "$RESP" || true; fi
+          fi
           rm -f "$RESP"
           
 
@@ -634,38 +689,56 @@ jobs:
           STMT=$(cat statement.json | sed "s#RB/NAME@VERSION#${{ env.APPLICATION_KEY }}@${{ env.APP_VERSION }}#")
           printf '%s' "$STMT" | jq --argjson pred "$(cat predicate.json)" '.predicate = $pred' > statement.json
           PAYLOAD_B64=$(cat statement.json | openssl base64 -A)
-
-          cat > request.json <<JSON
+          cat > envelope.json <<JSON
           {
-            "subject": {
-              "type": "RELEASE_BUNDLE",
-              "releaseBundleName": "${{ env.APPLICATION_KEY }}",
-              "releaseBundleVersion": "${{ env.APP_VERSION }}",
-              "project": "${{ vars.PROJECT_KEY }}"
-            },
-            "envelope": {
-              "payloadType": "application/vnd.in-toto+json",
-              "payload": "${PAYLOAD_B64}",
-              "signatures": []
-            }
+            "payloadType": "application/vnd.in-toto+json",
+            "payload": "${PAYLOAD_B64}",
+            "signatures": []
           }
           JSON
 
           RESP=$(mktemp)
-          URL1="${{ vars.JFROG_URL }}/evidence/api/v1/deploy-evidence?allowUnsigned=true"
-          URL2="${{ vars.JFROG_URL }}/apptrust/api/v1/deploy-evidence?allowUnsigned=true"
-          SUCCESS=0
-          for URL in "$URL1" "$URL2"; do
-            HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$URL" \
-              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
-              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-              --data-binary @request.json || echo "000")
-            echo "POST $URL -> HTTP $HTTP_STATUS"
-            if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then SUCCESS=1; break; fi
-          done
-          if [[ "$SUCCESS" -eq 1 ]]; then echo "✅ REST (App Version) evidence deployed"; else echo "⚠️ REST (App Version) evidence deploy failed"; cat "$RESP" || true; fi
+          SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${{ env.APPLICATION_KEY }}/@/${{ env.APP_VERSION }}?allowUnsigned=true&project=${{ vars.PROJECT_KEY }}"
+          HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$SUBJECT_URL" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data-binary @envelope.json || echo "000")
+          echo "POST $SUBJECT_URL -> HTTP $HTTP_STATUS"
+          if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
+            echo "✅ REST (App Version subject) evidence deployed"
+          else
+            echo "ℹ️ Subject endpoint failed; falling back to deploy-evidence"
+            cat > request.json <<JSON
+            {
+              "subject": {
+                "type": "RELEASE_BUNDLE",
+                "releaseBundleName": "${{ env.APPLICATION_KEY }}",
+                "releaseBundleVersion": "${{ env.APP_VERSION }}",
+                "project": "${{ vars.PROJECT_KEY }}"
+              },
+              "envelope": {
+                "payloadType": "application/vnd.in-toto+json",
+                "payload": "${PAYLOAD_B64}",
+                "signatures": []
+              }
+            }
+            JSON
+            URL1="${{ vars.JFROG_URL }}/evidence/api/v1/deploy-evidence?allowUnsigned=true"
+            URL2="${{ vars.JFROG_URL }}/apptrust/api/v1/deploy-evidence?allowUnsigned=true"
+            SUCCESS=0
+            for URL in "$URL1" "$URL2"; do
+              HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$URL" \
+                -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+                -H "Content-Type: application/json" \
+                -H "Accept: application/json" \
+                -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+                --data-binary @request.json || echo "000")
+              echo "POST $URL -> HTTP $HTTP_STATUS"
+              if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then SUCCESS=1; break; fi
+            done
+            if [[ "$SUCCESS" -eq 1 ]]; then echo "✅ REST (App Version) evidence deployed"; else echo "⚠️ REST (App Version) evidence deploy failed"; cat "$RESP" || true; fi
+          fi
           rm -f "$RESP"
           
 
