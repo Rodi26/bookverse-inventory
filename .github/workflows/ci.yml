@@ -285,10 +285,10 @@ jobs:
           fi
           if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
             echo "ℹ️ Debug fallback: writing inline ED25519 PEM (temporary)"
-            cat > evidence_private.pem <<'PEM'
------BEGIN PRIVATE KEY-----
-MC4CAQAwBQYDK2VwBCIEIK8Gq/rmMwV/QLP2IiIVa0puXs6YrSC25XTZq1SYBMce
------END PRIVATE KEY-----
+            cat > evidence_private.pem <<-'PEM'
+	-----BEGIN PRIVATE KEY-----
+	MC4CAQAwBQYDK2VwBCIEIK8Gq/rmMwV/QLP2IiIVa0puXs6YrSC25XTZq1SYBMce
+	-----END PRIVATE KEY-----
 PEM
           fi
           if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
@@ -988,10 +988,10 @@ PEM
           fi
           if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
             echo "ℹ️ Debug fallback: writing inline ED25519 PEM (temporary)"
-            cat > evidence_private.pem <<'PEM'
------BEGIN PRIVATE KEY-----
-MC4CAQAwBQYDK2VwBCIEIK8Gq/rmMwV/QLP2IiIVa0puXs6YrSC25XTZq1SYBMce
------END PRIVATE KEY-----
+            cat > evidence_private.pem <<-'PEM'
+	-----BEGIN PRIVATE KEY-----
+	MC4CAQAwBQYDK2VwBCIEIK8Gq/rmMwV/QLP2IiIVa0puXs6YrSC25XTZq1SYBMce
+	-----END PRIVATE KEY-----
 PEM
           fi
           if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
