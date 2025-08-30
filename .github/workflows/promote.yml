@@ -106,61 +106,74 @@ jobs:
           echo "CURRENT_STAGE_BEFORE=${CURRENT_STAGE:-UNASSIGNED}" >> $GITHUB_ENV
           echo "RELEASE_STATUS_BEFORE=${RELEASE_STATUS:-UNKNOWN}" >> $GITHUB_ENV
           
-          # Plan remaining chain
-          STAGES=(DEV QA STAGING)
-          CHAIN=()
-          case "$CS_UPPER" in
-            ""|"UNASSIGNED") CHAIN=(DEV QA STAGING) ;;
-            "DEV")            CHAIN=(QA STAGING) ;;
-            "QA")             CHAIN=(STAGING) ;;
-            "STAGING")        CHAIN=() ;;
-            "PROD")           CHAIN=() ;;
-            *)                 CHAIN=(DEV QA STAGING) ;;
-          esac
+          # Build lifecycle and compute chain from current -> target (default: PROD)
+          STAGES=(DEV QA STAGING PROD)
+          # Map stage to index
+          stage_index() {
+            case "${1:-}" in
+              DEV) echo 0 ;;
+              QA) echo 1 ;;
+              STAGING) echo 2 ;;
+              PROD) echo 3 ;;
+              *) echo -1 ;;
+            esac
+          }
+          CURRENT_INDEX=$(stage_index "$CS_UPPER")
+          TS_UPPER=$(echo "${{ inputs.target_stage }}" | tr '[:lower:]' '[:upper:]')
+          TARGET_INDEX=$(stage_index "$TS_UPPER")
+          if [[ "$TARGET_INDEX" -lt 0 || "$TARGET_INDEX" -gt 3 ]]; then TARGET_INDEX=3; fi
+          # If current unknown/unassigned, start before DEV
+          if [[ "$CURRENT_INDEX" -lt 0 ]]; then CURRENT_INDEX=-1; fi
+          if [[ "$CURRENT_INDEX" -ge "$TARGET_INDEX" ]]; then
+            echo "ℹ️ Current stage ($CS_UPPER) is at or beyond target ($TS_UPPER). Nothing to promote."
+            echo "PROMOTED_STAGES=" >> $GITHUB_ENV
+            echo "DID_RELEASE=false" >> $GITHUB_ENV
+            exit 0
+          fi
           
           PROMOTED_STAGES=""
-          for STG in "${CHAIN[@]}"; do
-            echo "🚀 Promoting to $STG via AppTrust"
-            RESP_BODY=$(mktemp)
-            HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
-              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/promote?async=false" \
-              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
-              -d "{\"target_stage\": \"$STG\", \"promotion_type\": \"copy\"}")
-            echo "HTTP $HTTP_STATUS"; cat "$RESP_BODY" || true; echo
-            rm -f "$RESP_BODY"
-            if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then
-              echo "❌ Promotion to $STG failed" >&2
-              exit 1
+          DID_RELEASE=false
+          # Chain from next stage after current to the target stage inclusive
+          for (( i=CURRENT_INDEX+1; i<=TARGET_INDEX; i++ )); do
+            STG="${STAGES[$i]}"
+            if [[ "$STG" == "PROD" ]]; then
+              echo "🚀 Releasing to PROD via AppTrust Release API"
+              RESP_BODY=$(mktemp)
+              HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
+                "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/release?async=false" \
+                -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+                -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+                -H "Content-Type: application/json" \
+                -H "Accept: application/json" \
+                -d '{"promotion_type":"copy"}')
+              echo "HTTP $HTTP_STATUS"; cat "$RESP_BODY" || true; echo
+              rm -f "$RESP_BODY"
+              if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then
+                echo "❌ Release to PROD failed" >&2
+                exit 1
+              fi
+              DID_RELEASE=true
+              PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }PROD"
+            else
+              echo "🚀 Promoting to $STG via AppTrust"
+              RESP_BODY=$(mktemp)
+              HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
+                "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/promote?async=false" \
+                -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+                -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+                -H "Content-Type: application/json" \
+                -H "Accept: application/json" \
+                -d "{\"target_stage\": \"$STG\", \"promotion_type\": \"copy\"}")
+              echo "HTTP $HTTP_STATUS"; cat "$RESP_BODY" || true; echo
+              rm -f "$RESP_BODY"
+              if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then
+                echo "❌ Promotion to $STG failed" >&2
+                exit 1
+              fi
+              PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$STG"
             fi
-            PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$STG"
           done
           echo "PROMOTED_STAGES=$PROMOTED_STAGES" >> $GITHUB_ENV
-          
-          # Release to PROD if not already released
-          DID_RELEASE=false
-          if [[ "$RELEASE_STATUS" != "RELEASED" && "$RELEASE_STATUS" != "TRUSTED_RELEASE" ]]; then
-            echo "🚀 Releasing to PROD via AppTrust Release API"
-            RESP_BODY=$(mktemp)
-            HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
-              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/release?async=false" \
-              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
-              -d '{"promotion_type":"copy"}')
-            echo "HTTP $HTTP_STATUS"; cat "$RESP_BODY" || true; echo
-            rm -f "$RESP_BODY"
-            if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then
-              echo "❌ Release to PROD failed" >&2
-              exit 1
-            fi
-            DID_RELEASE=true
-          else
-            echo "ℹ️ Version already released (status=$RELEASE_STATUS). Skipping release call."
-          fi
           echo "DID_RELEASE=$DID_RELEASE" >> $GITHUB_ENV
 
       - name: Attach QA gate evidence (Invicti DAST, Postman API) if in QA
