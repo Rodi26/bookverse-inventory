@@ -530,7 +530,7 @@ jobs:
 
           # First, try the subject endpoint (preferred)
           RESP=$(mktemp)
-          SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${REPO}/${IMAGE}/${TAG}/manifest.json?allowUnsigned=true"
+          SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${REPO}/${IMAGE}/${TAG}/manifest.json?project=${{ vars.PROJECT_KEY }}"
           HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$SUBJECT_URL" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "Content-Type: application/json" \
@@ -619,7 +619,7 @@ jobs:
           if [[ -z "$BUILD_INFO_FILE" ]]; then
             echo "⚠️ Could not resolve build-info file for ${{ env.BUILD_NAME }}#${{ env.BUILD_NUMBER }}; subject POST likely to fail"
           fi
-          SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${BUILD_INFO_REPO_VAL}/${{ env.BUILD_NAME }}/${BUILD_INFO_FILE}?allowUnsigned=true"
+          SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${BUILD_INFO_REPO_VAL}/${{ env.BUILD_NAME }}/${BUILD_INFO_FILE}?project=${{ vars.PROJECT_KEY }}"
           HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$SUBJECT_URL" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "Content-Type: application/json" \
@@ -694,7 +694,7 @@ jobs:
           python -c "import base64,json,os,sys; from cryptography.hazmat.primitives import serialization; from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey; payload_type='application/vnd.in-toto+json'; payload=open('statement.json','rb').read(); pae=lambda pt,p:(b'DSSEv1 '+str(len(pt)).encode()+b' '+pt.encode()+b' '+str(len(p)).encode()+b' '+p); key_data=open('evidence_private.pem','rb').read(); priv=serialization.load_pem_private_key(key_data,password=None); sig=priv.sign(pae(payload_type,payload)); envelope={'payloadType':payload_type,'payload':base64.b64encode(payload).decode(),'signatures':[{'keyid':os.environ.get('EVIDENCE_KID','1736c3'),'sig':base64.b64encode(sig).decode()}]}; open('envelope.json','w').write(json.dumps(envelope))"
 
           RESP=$(mktemp)
-          SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${{ env.APPLICATION_KEY }}/@/${{ env.APP_VERSION }}?allowUnsigned=true&project=${{ vars.PROJECT_KEY }}"
+          SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${{ env.APPLICATION_KEY }}/@/${{ env.APP_VERSION }}?project=${{ vars.PROJECT_KEY }}"
           HTTP_STATUS=$(curl -sS -L -o "$RESP" -w "%{http_code}" -X POST "$SUBJECT_URL" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "Content-Type: application/json" \
