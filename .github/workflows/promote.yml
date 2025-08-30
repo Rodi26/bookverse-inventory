@@ -85,13 +85,38 @@ jobs:
           echo "📦 Application: $APPLICATION_KEY"
           echo "🏷️ Version: $APP_VERSION"
           
-          # Discover current stage and release status
+          # Discover current stage and release status (robust fetch)
           SUMMARY_BODY=$(mktemp)
           SUMMARY_CODE=$(curl -sS -L -o "$SUMMARY_BODY" -w "%{http_code}" \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION" \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION?project=${{ vars.PROJECT_KEY }}" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             -H "Accept: application/json")
+          if [[ "$SUMMARY_CODE" -lt 200 || "$SUMMARY_CODE" -ge 300 ]]; then
+            # Try with trailing slash
+            SUMMARY_CODE=$(curl -sS -L -o "$SUMMARY_BODY" -w "%{http_code}" \
+              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/?project=${{ vars.PROJECT_KEY }}" \
+              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+              -H "Accept: application/json")
+          fi
+          if [[ "$SUMMARY_CODE" -lt 200 || "$SUMMARY_CODE" -ge 300 ]]; then
+            # Fallback: list versions and pick the matching one
+            LIST_BODY=$(mktemp)
+            LIST_CODE=$(curl -sS -L -o "$LIST_BODY" -w "%{http_code}" \
+              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?project=${{ vars.PROJECT_KEY }}&limit=100&order_by=created&order_asc=false" \
+              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+              -H "Accept: application/json")
+            if [[ "$LIST_CODE" -ge 200 && "$LIST_CODE" -lt 300 ]]; then
+              MATCH=$(jq -c --arg v "$APP_VERSION" '.versions[]? | select(.version == $v)' "$LIST_BODY" 2>/dev/null || echo '')
+              if [[ -n "$MATCH" ]]; then
+                printf '%s' "$MATCH" > "$SUMMARY_BODY"
+                SUMMARY_CODE=200
+              fi
+            fi
+            rm -f "$LIST_BODY"
+          fi
           if [[ "$SUMMARY_CODE" -lt 200 || "$SUMMARY_CODE" -ge 300 ]]; then
             echo "❌ Failed to fetch version summary (HTTP $SUMMARY_CODE)" >&2
             cat "$SUMMARY_BODY" || true
