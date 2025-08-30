@@ -243,8 +243,8 @@ jobs:
 
       - name: Prepare evidence signing configuration
         env:
-          EVIDENCE_PK: "${{ secrets.EVIDENCE_PRIVATE_KEY }}"
-          EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT: "${{ vars.EVIDENCE_KEY_ALIAS }}"
+          EVIDENCE_PK: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           set -euo pipefail
           umask 077
@@ -955,8 +955,8 @@ PEM
 
       - name: Prepare evidence signing key
         env:
-          EVIDENCE_PK: "${{ secrets.EVIDENCE_PRIVATE_KEY }}"
-          EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT: "${{ vars.EVIDENCE_KEY_ALIAS }}"
+          EVIDENCE_PK: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           set -euo pipefail
           umask 077
