@@ -639,6 +639,20 @@ jobs:
           echo "❌ Timed out waiting for application version to complete" >&2
           exit 1
 
+      - name: Prepare evidence signing keys (optional)
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ secrets.EVIDENCE_PRIVATE_KEY }}" ]]; then
+            echo "Writing signing keys to workspace"
+            umask 077
+            printf "%s" "${{ secrets.EVIDENCE_PRIVATE_KEY }}" > evidence_private.pem
+            KEY_ALIAS="${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}"
+            echo "EVIDENCE_SIGN_ARGS=--key evidence_private.pem --key-alias ${KEY_ALIAS} --provider-id github-actions" >> $GITHUB_ENV
+          else
+            echo "No EVIDENCE_PRIVATE_KEY secret set; proceeding without signing"
+            echo "EVIDENCE_SIGN_ARGS=" >> $GITHUB_ENV
+          fi
+
       - name: Attach SDLC evidence to application version
         run: |
           echo "📋 Attaching SDLC evidence to application version"
