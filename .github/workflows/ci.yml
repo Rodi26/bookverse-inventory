@@ -540,7 +540,7 @@ jobs:
 
           # Create signed DSSE envelope (ED25519)
           python -m pip install --quiet cryptography || true
-          python -c "import base64,json,os,sys; from cryptography.hazmat.primitives import serialization; from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey; payload_type='application/vnd.in-toto+json'; payload=open('statement.json','rb').read(); pae=lambda pt,p:(b'DSSEv1 '+str(len(pt)).encode()+b' '+pt.encode()+b' '+str(len(p)).encode()+b' '+p); key_data=open('evidence_private.pem','rb').read(); priv=serialization.load_pem_private_key(key_data,password=None); sig=priv.sign(pae(payload_type,payload)); envelope={'payloadType':payload_type,'payload':base64.b64encode(payload).decode(),'signatures':[{'keyid':os.environ.get('EVIDENCE_KID','1736c3'),'sig':base64.b64encode(sig).decode()}]}; open('envelope.json','w').write(json.dumps(envelope))"
+          python -c "import base64,json,os,sys; from cryptography.hazmat.primitives import serialization; from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey; payload_type='application/vnd.in-toto+json'; payload=open('statement.json','rb').read(); pae=lambda pt,p:(b'DSSEv1 '+str(len(pt)).encode()+b' '+pt.encode()+b' '+str(len(p)).encode()+b' '+p); key_data=open('evidence_private.pem','rb').read(); priv=serialization.load_pem_private_key(key_data,password=None); sig=priv.sign(pae(payload_type,payload)); keyid=os.environ.get('EVIDENCE_KID') or os.environ.get('EVIDENCE_EFFECTIVE_KEY_ALIAS') or 'bookverse_key'; envelope={'payloadType':payload_type,'payload':base64.b64encode(payload).decode(),'signatures':[{'keyid':keyid,'sig':base64.b64encode(sig).decode()}]}; open('envelope.json','w').write(json.dumps(envelope))"
 
           # First, try the subject endpoint (preferred)
           RESP=$(mktemp)
@@ -555,6 +555,16 @@ jobs:
           if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
             echo "✅ REST (Package subject) evidence deployed"
           else
+            # Try tag root (without manifest.json)
+            ALT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${REPO}/${IMAGE}/${TAG}?project=${{ vars.PROJECT_KEY }}"
+            HTTP_STATUS=$(curl -sS -L -D headers.txt -o "$RESP" -w "%{http_code}" -X POST "$ALT_URL" \
+              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+              --data-binary @envelope.json || echo "000")
+            echo "POST $ALT_URL -> HTTP $HTTP_STATUS"; echo "Headers:"; sed -n '1,200p' headers.txt || true; echo "Body:"; cat "$RESP" || true
+            rm -f headers.txt
             echo "ℹ️ Subject endpoint failed; falling back to deploy-evidence"
             # Fallback to deploy-evidence wrapper
             cat > request.json <<JSON
@@ -619,7 +629,7 @@ jobs:
           printf '%s' "$STMT" | jq --argjson pred "$(cat predicate.json)" '.predicate = $pred' > statement.json
           # Create signed DSSE envelope (ED25519)
           python -m pip install --quiet cryptography || true
-          python -c "import base64,json,os,sys; from cryptography.hazmat.primitives import serialization; from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey; payload_type='application/vnd.in-toto+json'; payload=open('statement.json','rb').read(); pae=lambda pt,p:(b'DSSEv1 '+str(len(pt)).encode()+b' '+pt.encode()+b' '+str(len(p)).encode()+b' '+p); key_data=open('evidence_private.pem','rb').read(); priv=serialization.load_pem_private_key(key_data,password=None); sig=priv.sign(pae(payload_type,payload)); envelope={'payloadType':payload_type,'payload':base64.b64encode(payload).decode(),'signatures':[{'keyid':os.environ.get('EVIDENCE_KID','1736c3'),'sig':base64.b64encode(sig).decode()}]}; open('envelope.json','w').write(json.dumps(envelope))"
+          python -c "import base64,json,os,sys; from cryptography.hazmat.primitives import serialization; from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey; payload_type='application/vnd.in-toto+json'; payload=open('statement.json','rb').read(); pae=lambda pt,p:(b'DSSEv1 '+str(len(pt)).encode()+b' '+pt.encode()+b' '+str(len(p)).encode()+b' '+p); key_data=open('evidence_private.pem','rb').read(); priv=serialization.load_pem_private_key(key_data,password=None); sig=priv.sign(pae(payload_type,payload)); keyid=os.environ.get('EVIDENCE_KID') or os.environ.get('EVIDENCE_EFFECTIVE_KEY_ALIAS') or 'bookverse_key'; envelope={'payloadType':payload_type,'payload':base64.b64encode(payload).decode(),'signatures':[{'keyid':keyid,'sig':base64.b64encode(sig).decode()}]}; open('envelope.json','w').write(json.dumps(envelope))"
 
           RESP=$(mktemp)
           # Resolve build-info file path in ${BUILD_INFO_REPO}/${BUILD_NAME}/<BUILD_NUMBER>-<ts>.json
@@ -705,7 +715,7 @@ jobs:
           printf '%s' "$STMT" | jq --argjson pred "$(cat predicate.json)" '.predicate = $pred' > statement.json
           # Create signed DSSE envelope (ED25519)
           python -m pip install --quiet cryptography || true
-          python -c "import base64,json,os,sys; from cryptography.hazmat.primitives import serialization; from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey; payload_type='application/vnd.in-toto+json'; payload=open('statement.json','rb').read(); pae=lambda pt,p:(b'DSSEv1 '+str(len(pt)).encode()+b' '+pt.encode()+b' '+str(len(p)).encode()+b' '+p); key_data=open('evidence_private.pem','rb').read(); priv=serialization.load_pem_private_key(key_data,password=None); sig=priv.sign(pae(payload_type,payload)); envelope={'payloadType':payload_type,'payload':base64.b64encode(payload).decode(),'signatures':[{'keyid':os.environ.get('EVIDENCE_KID','1736c3'),'sig':base64.b64encode(sig).decode()}]}; open('envelope.json','w').write(json.dumps(envelope))"
+          python -c "import base64,json,os,sys; from cryptography.hazmat.primitives import serialization; from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey; payload_type='application/vnd.in-toto+json'; payload=open('statement.json','rb').read(); pae=lambda pt,p:(b'DSSEv1 '+str(len(pt)).encode()+b' '+pt.encode()+b' '+str(len(p)).encode()+b' '+p); key_data=open('evidence_private.pem','rb').read(); priv=serialization.load_pem_private_key(key_data,password=None); sig=priv.sign(pae(payload_type,payload)); keyid=os.environ.get('EVIDENCE_KID') or os.environ.get('EVIDENCE_EFFECTIVE_KEY_ALIAS') or 'bookverse_key'; envelope={'payloadType':payload_type,'payload':base64.b64encode(payload).decode(),'signatures':[{'keyid':keyid,'sig':base64.b64encode(sig).decode()}]}; open('envelope.json','w').write(json.dumps(envelope))"
 
           RESP=$(mktemp)
           SUBJECT_URL="${{ vars.JFROG_URL }}/evidence/api/v1/subject/${{ env.APPLICATION_KEY }}/@/${{ env.APP_VERSION }}?project=${{ vars.PROJECT_KEY }}"
