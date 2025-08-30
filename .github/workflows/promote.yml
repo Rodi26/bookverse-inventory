@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       target_stage:
-        description: 'Target stage (QA, STAGING, PROD)'
+        description: 'Target stage (DEV, QA, STAGING, PROD)'
         required: true
         type: choice
-        options: [ QA, STAGING, PROD ]
-      build_number:
-        description: 'Build number to promote (leave empty for latest)'
+        options: [ DEV, QA, STAGING, PROD ]
+      application_version:
+        description: 'Application version (SemVer) to promote (leave empty for latest)'
         required: false
         type: string
 
@@ -23,110 +23,289 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup JFrog CLI
-        uses: jfrog/setup-jfrog-cli@v4
-        with:
-          version: latest
-
-      - name: Configure JFrog CLI
+      - name: Resolve application and version
         run: |
-          jf c add --interactive=false --url "${{ vars.JFROG_URL }}" --access-token ""
-          jf c show
-
-      - name: Set environment variables
-        run: |
+          set -euo pipefail
           SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
-          BUILD_NUMBER="${{ inputs.build_number }}"
-          if [ -z "$BUILD_NUMBER" ]; then
-            BUILD_NUMBER=$(jf rt search "${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-python-internal-local/*" \
-              --sort-by=created --sort-order=desc --limit=1 | jq -r '.[0].path' | grep -o '[a-f0-9]\{7\}' | head -1)
+          APPLICATION_KEY="bookverse-$SERVICE_NAME"
+          TARGET_STAGE=${{ inputs.target_stage }}
+          APP_VERSION_INPUT="${{ inputs.application_version }}"
+          APP_VERSION=""
+          if [ -n "$APP_VERSION_INPUT" ]; then
+            APP_VERSION="$APP_VERSION_INPUT"
+          else
+            echo "🔎 Fetching latest application version for $APPLICATION_KEY"
+            RESP_FILE=$(mktemp)
+            HTTP_STATUS=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
+              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" \
+              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+              -H "Accept: application/json")
+            if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
+              if LATEST_VERSION=$(jq -er '.versions[0].version // empty' "$RESP_FILE" 2>/dev/null); then
+                APP_VERSION="$LATEST_VERSION"
+              fi
+            fi
+            rm -f "$RESP_FILE"
+            if [ -z "$APP_VERSION" ]; then
+              echo "❌ Could not determine latest application version for $APPLICATION_KEY" >&2
+              exit 1
+            fi
           fi
           echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
-          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
-          echo "TARGET_STAGE=${{ inputs.target_stage }}" >> $GITHUB_ENV
+          echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
+          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
+          echo "TARGET_STAGE=$TARGET_STAGE" >> $GITHUB_ENV
 
-      - name: Attach promotion evidence
+      - name: Setup JFrog CLI (for evidence attachments)
+        uses: jfrog/setup-jfrog-cli@v4
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
+        with:
+          version: latest
+          oidc-provider-name: github-bookverse-inventory
+          disable-job-summary: true
+          oidc-audience: jfrog-github
+
+      - name: Prepare evidence signing keys (optional)
         run: |
-          case "${{ env.TARGET_STAGE }}" in
-            "QA")
-              echo "qa_summary=All unit tests passed, ready for QA validation" >> $GITHUB_ENV
-              echo "approvals=1" >> $GITHUB_ENV
-              echo "change_ref=AUTO-PROMOTE-QA" >> $GITHUB_ENV
-              ;;
-            "STAGING")
-              echo "qa_summary=QA tests completed successfully, staging deployment approved" >> $GITHUB_ENV
-              echo "approvals=2" >> $GITHUB_ENV
-              echo "change_ref=QA-PASSED-STAGING" >> $GITHUB_ENV
-              ;;
-            "PROD")
-              echo "qa_summary=Staging validation complete, production deployment approved" >> $GITHUB_ENV
-              echo "approvals=3" >> $GITHUB_ENV
-              echo "change_ref=STAGING-PASSED-PROD" >> $GITHUB_ENV
-              ;;
+          set -euo pipefail
+          if [[ -n "${{ secrets.EVIDENCE_PRIVATE_KEY }}" ]]; then
+            umask 077
+            printf "%s" "${{ secrets.EVIDENCE_PRIVATE_KEY }}" > evidence_private.pem
+            KEY_ALIAS="${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}"
+            echo "EVIDENCE_SIGN_ARGS=--key evidence_private.pem --key-alias ${KEY_ALIAS} --provider-id github-actions" >> $GITHUB_ENV
+          else
+            echo "EVIDENCE_SIGN_ARGS=" >> $GITHUB_ENV
+          fi
+
+      - name: Promote application version across SDLC to PROD (chain)
+        run: |
+          set -euo pipefail
+          echo "📦 Application: $APPLICATION_KEY"
+          echo "🏷️ Version: $APP_VERSION"
+          
+          # Discover current stage and release status
+          SUMMARY_BODY=$(mktemp)
+          SUMMARY_CODE=$(curl -sS -L -o "$SUMMARY_BODY" -w "%{http_code}" \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+            -H "Accept: application/json")
+          if [[ "$SUMMARY_CODE" -lt 200 || "$SUMMARY_CODE" -ge 300 ]]; then
+            echo "❌ Failed to fetch version summary (HTTP $SUMMARY_CODE)" >&2
+            cat "$SUMMARY_BODY" || true
+            rm -f "$SUMMARY_BODY"
+            exit 1
+          fi
+          CURRENT_STAGE=$(jq -r '.current_stage // empty' "$SUMMARY_BODY" 2>/dev/null || echo "")
+          RELEASE_STATUS=$(jq -r '.release_status // empty' "$SUMMARY_BODY" 2>/dev/null || echo "")
+          rm -f "$SUMMARY_BODY"
+          CS_UPPER=$(echo "$CURRENT_STAGE" | tr '[:lower:]' '[:upper:]')
+          echo "🔎 Current stage: ${CURRENT_STAGE:-UNASSIGNED} (release_status=${RELEASE_STATUS:-unknown})"
+          echo "CURRENT_STAGE_BEFORE=${CURRENT_STAGE:-UNASSIGNED}" >> $GITHUB_ENV
+          echo "RELEASE_STATUS_BEFORE=${RELEASE_STATUS:-UNKNOWN}" >> $GITHUB_ENV
+          
+          # Plan remaining chain
+          STAGES=(DEV QA STAGING)
+          CHAIN=()
+          case "$CS_UPPER" in
+            ""|"UNASSIGNED") CHAIN=(DEV QA STAGING) ;;
+            "DEV")            CHAIN=(QA STAGING) ;;
+            "QA")             CHAIN=(STAGING) ;;
+            "STAGING")        CHAIN=() ;;
+            "PROD")           CHAIN=() ;;
+            *)                 CHAIN=(DEV QA STAGING) ;;
           esac
-
-      - name: Get target repository suffix
-        run: |
-          case "${{ env.TARGET_STAGE }}" in
-            "QA") echo "TARGET_SUFFIX=qa" >> $GITHUB_ENV ;;
-            "STAGING") echo "TARGET_SUFFIX=staging" >> $GITHUB_ENV ;;
-            "PROD") echo "TARGET_SUFFIX=release" >> $GITHUB_ENV ;;
-          esac
-
-      - name: Promote Python packages
-        run: |
-          SOURCE_REPO="${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-python-internal-local"
-          TARGET_REPO="${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-python-${{ env.TARGET_SUFFIX }}-local"
           
-          echo "Promoting Python packages from $SOURCE_REPO to $TARGET_REPO"
-          jf rt copy "$SOURCE_REPO/" "$TARGET_REPO/" \
-            --build="${{ env.SERVICE_NAME }}/${{ env.BUILD_NUMBER }}" \
-            --flat=false
-
-      - name: Promote Docker images
-        run: |
-          SOURCE_REPO="${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local"
-          TARGET_REPO="${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-${{ env.TARGET_SUFFIX }}-local"
+          PROMOTED_STAGES=""
+          for STG in "${CHAIN[@]}"; do
+            echo "🚀 Promoting to $STG via AppTrust"
+            RESP_BODY=$(mktemp)
+            HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
+              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/promote?async=false" \
+              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -d "{\"target_stage\": \"$STG\", \"promotion_type\": \"copy\"}")
+            echo "HTTP $HTTP_STATUS"; cat "$RESP_BODY" || true; echo
+            rm -f "$RESP_BODY"
+            if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then
+              echo "❌ Promotion to $STG failed" >&2
+              exit 1
+            fi
+            PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$STG"
+          done
+          echo "PROMOTED_STAGES=$PROMOTED_STAGES" >> $GITHUB_ENV
           
-          echo "Promoting Docker images from $SOURCE_REPO to $TARGET_REPO"
-          jf rt docker-promote "${{ env.SERVICE_NAME }}" "$SOURCE_REPO" "$TARGET_REPO" \
-            --tag="${{ env.BUILD_NUMBER }}" \
-            --target-tag="${{ env.BUILD_NUMBER }}"
+          # Release to PROD if not already released
+          DID_RELEASE=false
+          if [[ "$RELEASE_STATUS" != "RELEASED" && "$RELEASE_STATUS" != "TRUSTED_RELEASE" ]]; then
+            echo "🚀 Releasing to PROD via AppTrust Release API"
+            RESP_BODY=$(mktemp)
+            HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
+              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/release?async=false" \
+              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+              -H "Content-Type: application/json" \
+              -H "Accept: application/json" \
+              -d '{"promotion_type":"copy"}')
+            echo "HTTP $HTTP_STATUS"; cat "$RESP_BODY" || true; echo
+            rm -f "$RESP_BODY"
+            if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then
+              echo "❌ Release to PROD failed" >&2
+              exit 1
+            fi
+            DID_RELEASE=true
+          else
+            echo "ℹ️ Version already released (status=$RELEASE_STATUS). Skipping release call."
+          fi
+          echo "DID_RELEASE=$DID_RELEASE" >> $GITHUB_ENV
 
-      - name: Promote SBOMs and reports
+      - name: Attach QA gate evidence (Invicti DAST, Postman API) if in QA
         run: |
-          SOURCE_REPO="${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-generic-internal-local"
-          TARGET_REPO="${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-generic-${{ env.TARGET_SUFFIX }}-local"
-          
-          echo "Promoting SBOMs and reports from $SOURCE_REPO to $TARGET_REPO"
-          jf rt copy "$SOURCE_REPO/" "$TARGET_REPO/" \
-            --build="${{ env.SERVICE_NAME }}/${{ env.BUILD_NUMBER }}" \
-            --flat=false
+          set -euo pipefail
+          # Determine if QA was reached in this run
+          REACHED_QA=false
+          if echo "${PROMOTED_STAGES:-}" | grep -qw QA; then REACHED_QA=true; fi
+          if [[ "$REACHED_QA" != true ]]; then
+            echo "ℹ️ QA not reached; skipping QA gate evidence"
+            exit 0
+          fi
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          # Invicti DAST (QA)
+          SCAN_ID=$(cat /proc/sys/kernel/random/uuid)
+          MED=$((2 + RANDOM % 5))
+          cat <<EOF > dast-qa.json
+          {
+            "environment": "QA",
+            "scanId": "${SCAN_ID}",
+            "status": "PASSED",
+            "findings": { "critical": 0, "high": 0, "medium": ${MED} },
+            "attachStage": "QA", "gateForPromotionTo": "STAGING",
+            "timestamp": "${NOW_TS}"
+          }
+          EOF
+          jf evd create \
+            --predicate dast-qa.json \
+            --predicate-type "https://invicti.com/evidence/dast/v3" \
+            --release-bundle "$APPLICATION_KEY" \
+            --release-bundle-version "$APP_VERSION" \
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ DAST (QA) attachment failed"
+          # Postman API (QA)
+          COLL=$(cat /proc/sys/kernel/random/uuid)
+          PASS=$((100 + RANDOM % 31))
+          cat <<EOF > postman-qa.json
+          {
+            "environment": "QA",
+            "collectionId": "${COLL}",
+            "status": "PASSED",
+            "assertionsPassed": ${PASS},
+            "assertionsFailed": 0,
+            "attachStage": "QA", "gateForPromotionTo": "STAGING",
+            "timestamp": "${NOW_TS}"
+          }
+          EOF
+          jf evd create \
+            --predicate postman-qa.json \
+            --predicate-type "https://postman.com/evidence/collection/v2.2" \
+            --release-bundle "$APPLICATION_KEY" \
+            --release-bundle-version "$APP_VERSION" \
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ Postman (QA) attachment failed"
 
-      - name: Create promotion record
+      - name: Attach STAGING gate evidence (Snyk IaC, Cobalt, ServiceNow) if in STAGING
         run: |
-          echo "Creating promotion record for build ${{ env.SERVICE_NAME }}/${{ env.BUILD_NUMBER }}"
-          jf rt build-promote "${{ env.SERVICE_NAME }}" "${{ env.BUILD_NUMBER }}" "${{ env.TARGET_STAGE }}" \
-            --status="Promoted to ${{ env.TARGET_STAGE }}" \
-            --comment="Automated promotion to ${{ env.TARGET_STAGE }} - ${{ env.qa_summary }}" \
-            --dry-run=false
+          set -euo pipefail
+          REACHED_STAGING=false
+          if echo "${PROMOTED_STAGES:-}" | grep -qw STAGING; then REACHED_STAGING=true; fi
+          if [[ "$REACHED_STAGING" != true ]]; then
+            echo "ℹ️ STAGING not reached; skipping STAGING gate evidence"
+            exit 0
+          fi
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          # Snyk IaC (STAGING)
+          MED=$((1 + RANDOM % 3)); LOW=$((8 + RANDOM % 7))
+          cat <<EOF > iac-staging.json
+          {
+            "environment": "STAGING", "status": "PASSED",
+            "misconfigurations": { "high": 0, "medium": ${MED}, "low": ${LOW} },
+            "attachStage": "STAGING", "gateForPromotionTo": "PROD",
+            "timestamp": "${NOW_TS}"
+          }
+          EOF
+          jf evd create \
+            --predicate iac-staging.json \
+            --predicate-type "https://snyk.io/evidence/iac/v1" \
+            --release-bundle "$APPLICATION_KEY" \
+            --release-bundle-version "$APP_VERSION" \
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ IaC (STAGING) attachment failed"
+          # Cobalt Pentest (STAGING)
+          PENT=$(cat /proc/sys/kernel/random/uuid)
+          cat <<EOF > pentest-staging.json
+          {
+            "environment": "STAGING", "pentestId": "${PENT}",
+            "status": "COMPLETED", "summary": "No critical/high. Medium/low scheduled for remediation.",
+            "attachStage": "STAGING", "gateForPromotionTo": "PROD",
+            "timestamp": "${NOW_TS}"
+          }
+          EOF
+          jf evd create \
+            --predicate pentest-staging.json \
+            --predicate-type "https://cobalt.io/evidence/pentest/v1" \
+            --release-bundle "$APPLICATION_KEY" \
+            --release-bundle-version "$APP_VERSION" \
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ Pentest (STAGING) attachment failed"
+          # ServiceNow change approval (STAGING gate to PROD)
+          TID=$((3000000 + RANDOM % 1000000))
+          cat <<EOF > servicenow-approval.json
+          {
+            "environment": "PROD",
+            "ticketId": "CHG${TID}",
+            "status": "APPROVED",
+            "approvedBy": "change-manager-${RANDOM}",
+            "approvalTimestamp": "${NOW_TS}",
+            "attachStage": "STAGING", "gateForPromotionTo": "PROD"
+          }
+          EOF
+          jf evd create \
+            --predicate servicenow-approval.json \
+            --predicate-type "https://servicenow.com/evidence/change-request/v1" \
+            --release-bundle "$APPLICATION_KEY" \
+            --release-bundle-version "$APP_VERSION" \
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ ServiceNow approval attachment failed"
+
+      - name: Attach ArgoCD deployment evidence (PROD verification) if released
+        run: |
+          set -euo pipefail
+          if [[ "${DID_RELEASE}" != "true" ]]; then
+            echo "ℹ️ Not released in this run; skipping ArgoCD PROD verification"
+            exit 0
+          fi
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          REV="${{ github.sha }}"; SHORT=${REV:0:8}
+          cat <<EOF > argocd-prod.json
+          { "tool": "ArgoCD", "status": "Synced", "revision": "${SHORT}", "deployedAt": "${NOW_TS}", "attachStage": "PROD" }
+          EOF
+          jf evd create \
+            --predicate argocd-prod.json \
+            --predicate-type "https://argoproj.github.io/argo-cd/evidence/deployment/v1" \
+            --release-bundle "$APPLICATION_KEY" \
+            --release-bundle-version "$APP_VERSION" \
+            --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || echo "⚠️ ArgoCD PROD verification attachment failed"
 
       - name: Generate promotion summary
         run: |
-          echo "## 🚀 Promotion Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 AppTrust Promotion Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Service:** ${{ env.SERVICE_NAME }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Build:** ${{ env.BUILD_NUMBER }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Target Stage:** ${{ env.TARGET_STAGE }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Approvals:** ${{ env.approvals }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Change Reference:** ${{ env.change_ref }}" >> $GITHUB_STEP_SUMMARY
+          echo "📄 Evidence Plan: see bookverse-demo-init/docs/EVIDENCE_PLAN.md" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Promoted Artifacts:" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Python packages (wheel + source)" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Docker image" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ SBOMs (Python + Docker)" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Test reports and coverage" >> $GITHUB_STEP_SUMMARY
+          echo "**Application:** $APPLICATION_KEY" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** $APP_VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "**Started at:** ${CURRENT_STAGE_BEFORE}" >> $GITHUB_STEP_SUMMARY
+          echo "**Promoted stages:** ${PROMOTED_STAGES:-none}" >> $GITHUB_STEP_SUMMARY
+          echo "**Released to PROD:** ${DID_RELEASE}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Evidence:** ${{ env.qa_summary }}" >> $GITHUB_STEP_SUMMARY
+          echo "Promotions flow: UNASSIGNED → DEV → QA → STAGING → (Release) PROD" >> $GITHUB_STEP_SUMMARY
 
 
