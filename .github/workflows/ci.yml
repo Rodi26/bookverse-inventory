@@ -247,6 +247,8 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
+          # Default effective alias from repo vars; overridden if fallback key is generated
+          echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" >> $GITHUB_ENV
           # Write private key to file for jf evd --key (robust handling: quotes, CR, \n, base64)
           if [[ -n "${EVIDENCE_PK:-}" ]]; then
             KEY_TMP=$(mktemp)
@@ -271,7 +273,7 @@ jobs:
             echo "⚠️ Provided private key invalid. Generating ephemeral ED25519 key for demo signing."
             openssl genpkey -algorithm ED25519 -out evidence_private.pem
             openssl pkey -in evidence_private.pem -pubout -out evidence_public.pem
-            ALIAS="${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}"
+            ALIAS="BookVerse-ED25519-${GITHUB_RUN_ID}"
             PUB_B64=$(grep -v "BEGIN\|END" evidence_public.pem | tr -d '\n\r')
             PAYLOAD=$(jq -n --arg alias "$ALIAS" --arg public_key "$PUB_B64" '{alias:$alias, public_key:$public_key}')
             curl -s -w "%{http_code}" -X POST \
@@ -280,6 +282,7 @@ jobs:
               -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
               -d "$PAYLOAD" \
               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" >/dev/null || true
+            echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=$ALIAS" >> $GITHUB_ENV
           fi
           if [[ -s evidence_public.pem ]]; then
             echo "HAVE_EVIDENCE_PUB=true" >> $GITHUB_ENV
@@ -340,6 +343,7 @@ jobs:
           - Duplication: ${DUPLICATION}%
           EOF
 
+          EVIDENCE_ALIAS=${EVIDENCE_EFFECTIVE_KEY_ALIAS:-${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}}
           jf evd create \
             --predicate sonar-quality-gate.json \
             --markdown sonar-quality-gate.md \
@@ -347,7 +351,7 @@ jobs:
             --build-name "${{ env.BUILD_NAME }}" \
             --build-number "${{ env.BUILD_NUMBER }}" \
             --project "${{ vars.PROJECT_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" \
+            --key-alias "$EVIDENCE_ALIAS" \
             --key evidence_private.pem || echo "⚠️ SonarQube evidence attachment failed"
 
           echo "✅ SonarQube evidence attached to Build"
@@ -391,6 +395,7 @@ jobs:
           - Block: ${BLOCK}
           EOF
 
+          EVIDENCE_ALIAS=${EVIDENCE_EFFECTIVE_KEY_ALIAS:-${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}}
           jf evd create \
             --predicate fossa-license-scan.json \
             --markdown fossa-license-scan.md \
@@ -398,7 +403,7 @@ jobs:
             --build-name "${{ env.BUILD_NAME }}" \
             --build-number "${{ env.BUILD_NUMBER }}" \
             --project "${{ vars.PROJECT_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" \
+            --key-alias "$EVIDENCE_ALIAS" \
             --key evidence_private.pem || echo "⚠️ FOSSA evidence attachment failed"
 
           echo "✅ FOSSA evidence attached to Build"
@@ -640,6 +645,7 @@ jobs:
           EOF
           
           # Attach PyTest evidence to Docker image (package subject)
+          EVIDENCE_ALIAS=${EVIDENCE_EFFECTIVE_KEY_ALIAS:-${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}}
           jf evd create \
             --predicate pytest-evidence.json \
             --markdown coverage-evidence.md \
@@ -648,7 +654,7 @@ jobs:
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
             --project "${{ vars.PROJECT_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" \
+            --key-alias "$EVIDENCE_ALIAS" \
             --key evidence_private.pem || echo "⚠️ Coverage evidence attachment failed"
           
           echo "✅ Coverage evidence attached to Docker image"
@@ -711,6 +717,7 @@ jobs:
           EOF
           
           # Attach Checkmarx SAST to Docker image (package subject)
+          EVIDENCE_ALIAS=${EVIDENCE_EFFECTIVE_KEY_ALIAS:-${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}}
           jf evd create \
             --predicate sast-checkmarx.json \
             --markdown sast-summary.md \
@@ -719,7 +726,7 @@ jobs:
             --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
             --package-version "${{ env.IMAGE_TAG }}" \
             --project "${{ vars.PROJECT_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" \
+            --key-alias "$EVIDENCE_ALIAS" \
             --key evidence_private.pem || echo "⚠️ SAST evidence attachment failed"
           
           echo "✅ SAST evidence attached to Docker image"
@@ -928,10 +935,11 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
+          echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" >> $GITHUB_ENV
           if [[ -n "${EVIDENCE_PK:-}" ]]; then
             KEY_TMP=$(mktemp)
             printf '%s' "$EVIDENCE_PK" > "$KEY_TMP"
-            sed -e 's/^"//' -e 's/"$//' -e 's/\r//g' "$KEY_TMP" > "$KEY_TMP.1"
+            sed -e 's/^\"//' -e 's/\"$//' -e 's/\r//g' "$KEY_TMP" > "$KEY_TMP.1"
             if grep -q "BEGIN .*PRIVATE KEY" "$KEY_TMP.1"; then
               sed -e $'s/\\n/\n/g' "$KEY_TMP.1" > evidence_private.pem
             else
@@ -946,7 +954,7 @@ jobs:
             echo "⚠️ Provided private key invalid. Generating ephemeral ED25519 key for demo signing."
             openssl genpkey -algorithm ED25519 -out evidence_private.pem
             openssl pkey -in evidence_private.pem -pubout -out evidence_public.pem
-            ALIAS="${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}"
+            ALIAS="BookVerse-ED25519-${GITHUB_RUN_ID}"
             PUB_B64=$(grep -v "BEGIN\|END" evidence_public.pem | tr -d '\n\r')
             PAYLOAD=$(jq -n --arg alias "$ALIAS" --arg public_key "$PUB_B64" '{alias:$alias, public_key:$public_key}')
             curl -s -w "%{http_code}" -X POST \
@@ -955,6 +963,7 @@ jobs:
               -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
               -d "$PAYLOAD" \
               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" >/dev/null || true
+            echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=$ALIAS" >> $GITHUB_ENV
           fi
           if [[ -s evidence_public.pem ]]; then
             echo "HAVE_EVIDENCE_PUB=true" >> $GITHUB_ENV
@@ -988,13 +997,14 @@ jobs:
           }
           EOF
 
+          EVIDENCE_ALIAS=${EVIDENCE_EFFECTIVE_KEY_ALIAS:-${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}}
           jf evd create \
             --predicate slsa-provenance.json \
             --predicate-type "https://slsa.dev/provenance/v1" \
             --release-bundle "${{ env.APPLICATION_KEY }}" \
             --release-bundle-version "${{ env.APP_VERSION }}" \
             --project "${{ vars.PROJECT_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" \
+            --key-alias "$EVIDENCE_ALIAS" \
             --key evidence_private.pem || echo "⚠️ SLSA evidence attachment failed"
 
           echo "✅ SLSA provenance attached"
@@ -1018,13 +1028,14 @@ jobs:
           }
           EOF
 
+          EVIDENCE_ALIAS=${EVIDENCE_EFFECTIVE_KEY_ALIAS:-${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}}
           jf evd create \
             --predicate jira-tickets.json \
             --predicate-type "https://atlassian.com/evidence/jira/release/v1" \
             --release-bundle "${{ env.APPLICATION_KEY }}" \
             --release-bundle-version "${{ env.APP_VERSION }}" \
             --project "${{ vars.PROJECT_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" \
+            --key-alias "$EVIDENCE_ALIAS" \
             --key evidence_private.pem || echo "⚠️ Jira tickets evidence attachment failed"
 
           echo "✅ Jira tickets attached"
