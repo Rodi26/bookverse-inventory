@@ -364,7 +364,7 @@ jobs:
             --build-number "${{ env.BUILD_NUMBER }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key evidence_private.pem || echo "⚠️ SonarQube evidence attachment failed"
+            --key "$(cat evidence_private.pem)" || echo "⚠️ SonarQube evidence attachment failed"
 
           echo "✅ SonarQube evidence attached to Build"
 
@@ -416,7 +416,7 @@ jobs:
             --build-number "${{ env.BUILD_NUMBER }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key evidence_private.pem || echo "⚠️ FOSSA evidence attachment failed"
+            --key "$(cat evidence_private.pem)" || echo "⚠️ FOSSA evidence attachment failed"
 
           echo "✅ FOSSA evidence attached to Build"
 
@@ -726,7 +726,7 @@ jobs:
             --package-version "${{ env.IMAGE_TAG }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key evidence_private.pem || echo "⚠️ Coverage evidence attachment failed"
+            --key "$(cat evidence_private.pem)" || echo "⚠️ Coverage evidence attachment failed"
           
           echo "✅ Coverage evidence attached to Docker image"
 
@@ -798,7 +798,7 @@ jobs:
             --package-version "${{ env.IMAGE_TAG }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key evidence_private.pem || echo "⚠️ SAST evidence attachment failed"
+            --key "$(cat evidence_private.pem)" || echo "⚠️ SAST evidence attachment failed"
           
           echo "✅ SAST evidence attached to Docker image"
 
@@ -1088,7 +1088,7 @@ jobs:
             --release-bundle-version "${{ env.APP_VERSION }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key evidence_private.pem || echo "⚠️ SLSA evidence attachment failed"
+            --key "$(cat evidence_private.pem)" || echo "⚠️ SLSA evidence attachment failed"
 
           echo "✅ SLSA provenance attached"
 
@@ -1119,7 +1119,7 @@ jobs:
             --release-bundle-version "${{ env.APP_VERSION }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key evidence_private.pem || echo "⚠️ Jira tickets evidence attachment failed"
+            --key "$(cat evidence_private.pem)" || echo "⚠️ Jira tickets evidence attachment failed"
 
           echo "✅ Jira tickets attached"
 
