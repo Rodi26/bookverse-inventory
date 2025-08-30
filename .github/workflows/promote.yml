@@ -106,26 +106,48 @@ jobs:
           echo "CURRENT_STAGE_BEFORE=${CURRENT_STAGE:-UNASSIGNED}" >> $GITHUB_ENV
           echo "RELEASE_STATUS_BEFORE=${RELEASE_STATUS:-UNKNOWN}" >> $GITHUB_ENV
           
-          # Build lifecycle and compute chain from current -> target (default: PROD)
-          STAGES=(DEV QA STAGING PROD)
-          # Map stage to index
-          stage_index() {
-            case "${1:-}" in
-              DEV) echo 0 ;;
-              QA) echo 1 ;;
-              STAGING) echo 2 ;;
-              PROD) echo 3 ;;
-              *) echo -1 ;;
-            esac
-          }
-          CURRENT_INDEX=$(stage_index "$CS_UPPER")
-          TS_UPPER=$(echo "${{ inputs.target_stage }}" | tr '[:lower:]' '[:upper:]')
-          TARGET_INDEX=$(stage_index "$TS_UPPER")
-          if [[ "$TARGET_INDEX" -lt 0 || "$TARGET_INDEX" -gt 3 ]]; then TARGET_INDEX=3; fi
-          # If current unknown/unassigned, start before DEV
+          # Resolve lifecycle order dynamically (bookverse-lifecycle by default)
+          LIFECYCLE_NAME="${{ vars.LIFECYCLE_NAME || 'bookverse-lifecycle' }}"
+          LC_FILE=$(mktemp)
+          # Try multiple endpoints to resolve lifecycle stages
+          PROBED=false
+          for URL in \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/lifecycles/$LIFECYCLE_NAME" \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/projects/${{ vars.PROJECT_KEY }}/lifecycles/$LIFECYCLE_NAME" \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/lifecycle"; do
+            CODE=$(curl -sS -L -o "$LC_FILE" -w "%{http_code}" "$URL" \
+              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+              -H "Accept: application/json" || echo 000)
+            if [[ "$CODE" -ge 200 && "$CODE" -lt 300 ]]; then PROBED=true; break; fi
+          done
+          # Extract stage names in order, robust to schema differences
+          NAMES=$(jq -r '
+            if .stages then (.stages[] | if type=="object" then .name else . end)
+            elif .lifecycle and .lifecycle.stages then (.lifecycle.stages[] | if type=="object" then .name else . end)
+            elif type=="array" then (.[] | if type=="object" then .name else . end)
+            else empty end' "$LC_FILE" 2>/dev/null || true)
+          rm -f "$LC_FILE"
+          STAGES=()
+          while IFS= read -r line; do [[ -n "$line" ]] && STAGES+=("$line"); done < <(printf "%s\n" "$NAMES")
+          if [[ ${#STAGES[@]} -eq 0 ]]; then
+            # Fallback lifecycle
+            STAGES=(DEV QA STAGING PROD)
+          fi
+          # Compute indices
+          CURRENT_INDEX=-1
+          for i in "${!STAGES[@]}"; do if [[ "${STAGES[$i]^^}" == "$CS_UPPER" ]]; then CURRENT_INDEX=$i; break; fi; done
+          TS_INPUT="${{ inputs.target_stage }}"
+          TARGET_NAME="$TS_INPUT"
+          if [[ -z "$TARGET_NAME" ]]; then TARGET_NAME="${STAGES[-1]}"; fi
+          TARGET_UPPER=$(echo "$TARGET_NAME" | tr '[:lower:]' '[:upper:]')
+          TARGET_INDEX=-1
+          for i in "${!STAGES[@]}"; do if [[ "${STAGES[$i]^^}" == "$TARGET_UPPER" ]]; then TARGET_INDEX=$i; break; fi; done
+          if [[ "$TARGET_INDEX" -lt 0 ]]; then TARGET_INDEX=$((${#STAGES[@]}-1)); fi
+          # If current unknown/unassigned, start before first stage
           if [[ "$CURRENT_INDEX" -lt 0 ]]; then CURRENT_INDEX=-1; fi
           if [[ "$CURRENT_INDEX" -ge "$TARGET_INDEX" ]]; then
-            echo "ℹ️ Current stage ($CS_UPPER) is at or beyond target ($TS_UPPER). Nothing to promote."
+            echo "ℹ️ Current stage ($CS_UPPER) is at or beyond target ($TARGET_UPPER). Nothing to promote."
             echo "PROMOTED_STAGES=" >> $GITHUB_ENV
             echo "DID_RELEASE=false" >> $GITHUB_ENV
             exit 0
@@ -136,7 +158,8 @@ jobs:
           # Chain from next stage after current to the target stage inclusive
           for (( i=CURRENT_INDEX+1; i<=TARGET_INDEX; i++ )); do
             STG="${STAGES[$i]}"
-            if [[ "$STG" == "PROD" ]]; then
+            # Use Release API if stage likely represents Production, else Promote API
+            if [[ "${STG^^}" =~ ^PROD ]]; then
               echo "🚀 Releasing to PROD via AppTrust Release API"
               RESP_BODY=$(mktemp)
               HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
