@@ -1142,5 +1142,27 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**🎯 AppTrust application version ready for promotion and governance!**" >> $GITHUB_STEP_SUMMARY
 
+      - name: "Discover Evidence API endpoints"
+        run: |
+          set -e
+          echo "🔎 Discovering Evidence API endpoints"
+          for BASE in \
+            "${{ vars.JFROG_URL }}/evidence/api/v1" \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1"; do
+            echo "-- Probing $BASE/openapi.json"
+            RESP=$(mktemp)
+            CODE=$(curl -sS -L -o "$RESP" -w "%{http_code}" "$BASE/openapi.json" \
+              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+              -H "Accept: application/json" || echo 000)
+            echo "HTTP $CODE"
+            if [[ "$CODE" -ge 200 && "$CODE" -lt 300 ]]; then
+              echo "paths with 'deploy' under $BASE:"; \
+              jq -r '.paths | to_entries[] | select(.key|test("deploy"; "i")) | .key' "$RESP" || cat "$RESP"
+            else
+              echo "Body:"; cat "$RESP" || true
+            fi
+            rm -f "$RESP"
+          done
+
 
 
