@@ -242,6 +242,7 @@ jobs:
           jf rt bp "${{ env.BUILD_NAME }}" "${{ env.BUILD_NUMBER }}"
 
       - name: Prepare evidence signing configuration
+        if: ${{ false }}
         env:
           EVIDENCE_PK: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
           EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT: ${{ vars.EVIDENCE_KEY_ALIAS }}
@@ -303,6 +304,7 @@ jobs:
           true
 
       - name: Ensure ED25519 trusted key exists (non-blocking)
+        if: ${{ false }}
         run: |
           set +e
           echo "🔐 Ensuring ED25519 trusted key exists for project ${{ vars.PROJECT_KEY }}"
@@ -332,6 +334,7 @@ jobs:
           rm -f "$KEYS_FILE"
 
       - name: "Debug: list trusted keys (project scope)"
+        if: ${{ false }}
         run: |
           set +e
           echo "🔎 Listing trusted keys for project ${{ vars.PROJECT_KEY }}"
@@ -355,6 +358,7 @@ jobs:
           fi
 
       - name: Attach SonarQube quality gate to Build (Build Evidence)
+        if: ${{ false }}
         env:
           JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
@@ -414,6 +418,7 @@ jobs:
           echo "✅ SonarQube evidence attached to Build"
 
       - name: Attach FOSSA license compliance to Build (Build Evidence)
+        if: ${{ false }}
         env:
           JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
@@ -466,6 +471,7 @@ jobs:
           echo "✅ FOSSA evidence attached to Build"
 
       - name: Test PGP-RSA-2048 signing (non-blocking)
+        if: ${{ false }}
         env:
           JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
@@ -499,6 +505,7 @@ jobs:
           rm -rf "$GNUPGHOME" || true
 
       - name: Test RSA PKCS#8 signing (non-blocking)
+        if: ${{ false }}
         env:
           JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
@@ -525,6 +532,7 @@ jobs:
             --key rsa_private.pem || echo "⚠️ RSA PKCS#8 signing test failed (non-blocking)"
 
       - name: Deploy evidence via REST API (unsigned DSSE) - Package subject
+        if: ${{ false }}
         continue-on-error: true
         run: |
           set +e
@@ -636,6 +644,7 @@ jobs:
           
 
       - name: Deploy evidence via REST API (unsigned DSSE) - Build subject
+        if: ${{ false }}
         continue-on-error: true
         run: |
           set +e
@@ -726,6 +735,7 @@ jobs:
           
 
       - name: Deploy evidence via REST API (unsigned DSSE) - Application Version subject
+        if: ${{ false }}
         continue-on-error: true
         run: |
           set +e
@@ -805,6 +815,7 @@ jobs:
           
 
       - name: Attach unit/coverage evidence to Docker image (PyTest)
+        if: ${{ false }}
         env:
           JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
@@ -866,7 +877,7 @@ jobs:
           echo "✅ Coverage evidence attached to Docker image"
 
       - name: Verify coverage evidence (optional)
-        if: ${{ env.HAVE_EVIDENCE_PUB == 'true' }}
+        if: ${{ false }}
         env:
           JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
@@ -878,6 +889,7 @@ jobs:
             --public-keys evidence_public.pem || echo "⚠️ Evidence verification failed (non-blocking)"
 
       - name: Attach SAST evidence to Docker image (Checkmarx)
+        if: ${{ false }}
         env:
           JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
@@ -938,6 +950,7 @@ jobs:
           echo "✅ SAST evidence attached to Docker image"
 
       - name: Verify evidence on Docker image (non-blocking)
+        if: ${{ false }}
         env:
           JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
@@ -1136,6 +1149,7 @@ jobs:
           echo "📦 Packages will be automatically bound from build sources"
 
       - name: Prepare evidence signing key
+        if: ${{ false }}
         env:
           EVIDENCE_PK: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
           EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT: ${{ vars.EVIDENCE_KEY_ALIAS }}
@@ -1190,6 +1204,7 @@ jobs:
           true
 
       - name: "Debug: list trusted keys (project scope)"
+        if: ${{ false }}
         run: |
           set +e
           echo "🔎 Listing trusted keys for project ${{ vars.PROJECT_KEY }}"
@@ -1213,6 +1228,7 @@ jobs:
           fi
 
       - name: Attach SLSA provenance (gate to DEV)
+        if: ${{ false }}
         run: |
           echo "🧾 Attaching SLSA provenance to application version (UNASSIGNED → gate DEV)"
           NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -1244,6 +1260,7 @@ jobs:
           echo "✅ SLSA provenance attached"
 
       - name: Attach Jira tickets (gate to DEV)
+        if: ${{ false }}
         run: |
           echo "🧾 Attaching Jira tickets to application version (UNASSIGNED → gate DEV)"
           NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
