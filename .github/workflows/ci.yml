@@ -289,7 +289,7 @@ jobs:
             echo "HAVE_EVIDENCE_PUB=false" >> $GITHUB_ENV
           fi
 
-      - name: Debug: list trusted keys (project scope)
+      - name: "Debug: list trusted keys (project scope)"
         run: |
           echo "🔎 Listing trusted keys for project ${{ vars.PROJECT_KEY }}"
           curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
@@ -968,7 +968,7 @@ jobs:
             echo "HAVE_EVIDENCE_PUB=false" >> $GITHUB_ENV
           fi
 
-      - name: Debug: list trusted keys (project scope)
+      - name: "Debug: list trusted keys (project scope)"
         run: |
           echo "🔎 Listing trusted keys for project ${{ vars.PROJECT_KEY }}"
           curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
