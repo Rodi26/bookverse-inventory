@@ -302,6 +302,37 @@ jobs:
           echo "🔎 evidence_private.pem info:"; ls -l evidence_private.pem || true; head -3 evidence_private.pem || true; wc -c evidence_private.pem || true
           true
 
+      - name: Ensure ED25519 trusted key exists (non-blocking)
+        run: |
+          set +e
+          echo "🔐 Ensuring ED25519 trusted key exists for project ${{ vars.PROJECT_KEY }}"
+          PUB_PEM=$(openssl pkey -in evidence_private.pem -pubout 2>/dev/null || true)
+          if [ -z "$PUB_PEM" ]; then echo "⚠️ Could not derive public key from evidence_private.pem"; exit 0; fi
+          # Extract base64 body
+          PUB_B64=$(printf "%s\n" "$PUB_PEM" | sed -n '/BEGIN PUBLIC KEY/,$p' | sed '/BEGIN PUBLIC KEY/d;/END PUBLIC KEY/d;s/\r//g' | tr -d '\n')
+          KEYS_FILE=$(mktemp)
+          curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+               -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" > "$KEYS_FILE" || true
+          HAS_ED=$(jq -r '[.[] | select(.type|test("ed25519";"i"))] | length' "$KEYS_FILE" 2>/dev/null || echo 0)
+          if [ "$HAS_ED" = "0" ] || [ -z "$HAS_ED" ]; then
+            echo "ℹ️ No ED25519 trusted key found; attempting to upload"
+            cat > create_key.json <<JSON
+            {"alias":"bookverse_evidence_key","type":"ED25519","key":"$PUB_B64"}
+            JSON
+            HTTP=$(curl -sS -L -o resp.json -w "%{http_code}" -X POST \
+              "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" \
+              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+              --data-binary @create_key.json || echo 000)
+            echo "POST trusted key -> HTTP $HTTP"; cat resp.json || true
+            rm -f resp.json create_key.json || true
+          else
+            echo "✅ ED25519 trusted key already present"
+          fi
+          rm -f "$KEYS_FILE"
+
       - name: "Debug: list trusted keys (project scope)"
         run: |
           set +e
