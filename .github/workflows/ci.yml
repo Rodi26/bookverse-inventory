@@ -178,10 +178,18 @@ jobs:
           echo "🔎 Checking Artifactory connectivity and PyPI virtual repo"
           jf rt ping || true
           jf rt curl -XGET "/api/repositories/${{ vars.PROJECT_KEY }}-pypi-virtual" || true
+          # Configure pip to use the virtual repo and disable prompts/version check
+          jf pipc --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
+          export PIP_DISABLE_PIP_VERSION_CHECK=1
+          export PIP_NO_INPUT=1
           python -m pip --version
           python -m pip debug -v || true
           echo "🔎 Checking fastapi availability via virtual index"
-          pip index versions fastapi -i "${{ vars.JFROG_URL }}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple" || true
+          PIP_INDEX_URL="${{ vars.JFROG_URL }}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple"
+          # Avoid interactive pip; probe with authenticated curl instead
+          curl -fsSL -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" "$PIP_INDEX_URL/fastapi/" >/dev/null \
+            && echo "✅ fastapi index accessible via virtual repo" \
+            || echo "⚠️ Unable to access $PIP_INDEX_URL/fastapi/ (check repo and permissions)"
 
       - name: Collect Python dependencies for Build Info
         run: |
