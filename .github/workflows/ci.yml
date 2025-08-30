@@ -268,12 +268,12 @@ jobs:
           fi
           # Fallback: generate ephemeral RSA key and upload public key if PEM still invalid
           if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
-            echo "⚠️ Provided private key invalid. Generating ephemeral RSA key for demo signing."
-            openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out evidence_private.pem
-            openssl rsa -in evidence_private.pem -pubout -out evidence_public.pem
+            echo "⚠️ Provided private key invalid. Generating ephemeral ED25519 key for demo signing."
+            openssl genpkey -algorithm ED25519 -out evidence_private.pem
+            openssl pkey -in evidence_private.pem -pubout -out evidence_public.pem
             ALIAS="${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}"
-            PUB=$(cat evidence_public.pem)
-            PAYLOAD=$(jq -n --arg alias "$ALIAS" --arg public_key "$PUB" '{alias:$alias, public_key:$public_key}')
+            PUB_B64=$(grep -v "BEGIN\|END" evidence_public.pem | tr -d '\n\r')
+            PAYLOAD=$(jq -n --arg alias "$ALIAS" --arg public_key "$PUB_B64" '{alias:$alias, public_key:$public_key}')
             curl -s -w "%{http_code}" -X POST \
               -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
               -H "Content-Type: application/json" \
@@ -935,12 +935,12 @@ jobs:
             rm -f "$KEY_TMP" "$KEY_TMP.1"
           fi
           if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
-            echo "⚠️ Provided private key invalid. Generating ephemeral RSA key for demo signing."
-            openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out evidence_private.pem
-            openssl rsa -in evidence_private.pem -pubout -out evidence_public.pem
+            echo "⚠️ Provided private key invalid. Generating ephemeral ED25519 key for demo signing."
+            openssl genpkey -algorithm ED25519 -out evidence_private.pem
+            openssl pkey -in evidence_private.pem -pubout -out evidence_public.pem
             ALIAS="${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}"
-            PUB=$(cat evidence_public.pem)
-            PAYLOAD=$(jq -n --arg alias "$ALIAS" --arg public_key "$PUB" '{alias:$alias, public_key:$public_key}')
+            PUB_B64=$(grep -v "BEGIN\|END" evidence_public.pem | tr -d '\n\r')
+            PAYLOAD=$(jq -n --arg alias "$ALIAS" --arg public_key "$PUB_B64" '{alias:$alias, public_key:$public_key}')
             curl -s -w "%{http_code}" -X POST \
               -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
               -H "Content-Type: application/json" \
