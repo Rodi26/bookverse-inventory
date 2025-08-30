@@ -244,9 +244,9 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          # Write private key to file for jf evd --key
+          # Write private key to file for jf evd --key (support both multiline and \n encoded)
           if [[ -n "${EVIDENCE_PK:-}" ]]; then
-            printf "%s" "$EVIDENCE_PK" > evidence_private.pem
+            printf '%b' "$EVIDENCE_PK" > evidence_private.pem
           fi
           # Write public key if provided for verification steps
           if [[ -n "${{ vars.EVIDENCE_PUBLIC_KEY || '' }}" ]]; then
@@ -592,7 +592,7 @@ jobs:
           set -euo pipefail
           umask 077
           if [[ -n "${EVIDENCE_PK:-}" ]]; then
-            printf "%s" "$EVIDENCE_PK" > evidence_private.pem
+            printf '%b' "$EVIDENCE_PK" > evidence_private.pem
           fi
 
       - name: Attach SLSA provenance (gate to DEV)
