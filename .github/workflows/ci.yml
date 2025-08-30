@@ -542,7 +542,7 @@ jobs:
             -H "Accept: application/json" \
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             --data-binary @envelope.json || echo "000")
-          echo "POST $SUBJECT_URL -> HTTP $HTTP_STATUS"
+          echo "POST $SUBJECT_URL -> HTTP $HTTP_STATUS"; echo "Body:"; cat "$RESP" || true
           if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
             echo "✅ REST (Package subject) evidence deployed"
           else
@@ -635,7 +635,7 @@ jobs:
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
             --data-binary @envelope.json || echo "000")
-          echo "POST $SUBJECT_URL -> HTTP $HTTP_STATUS"
+          echo "POST $SUBJECT_URL -> HTTP $HTTP_STATUS"; echo "Body:"; cat "$RESP" || true
           if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
             echo "✅ REST (Build subject) evidence deployed"
           else
@@ -715,7 +715,7 @@ jobs:
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
             --data-binary @envelope.json || echo "000")
-          echo "POST $SUBJECT_URL -> HTTP $HTTP_STATUS"
+          echo "POST $SUBJECT_URL -> HTTP $HTTP_STATUS"; echo "Body:"; cat "$RESP" || true
           if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
             echo "✅ REST (App Version subject) evidence deployed"
           else
