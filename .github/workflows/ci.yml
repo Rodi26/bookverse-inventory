@@ -364,7 +364,7 @@ jobs:
             --build-number "${{ env.BUILD_NUMBER }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key evidence_private.pem || echo "⚠️ SonarQube evidence attachment failed"
+            --key "$(cat evidence_private.pem)" || echo "⚠️ SonarQube evidence attachment failed"
 
           echo "✅ SonarQube evidence attached to Build"
 
@@ -416,9 +416,42 @@ jobs:
             --build-number "${{ env.BUILD_NUMBER }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key evidence_private.pem || echo "⚠️ FOSSA evidence attachment failed"
+            --key "$(cat evidence_private.pem)" || echo "⚠️ FOSSA evidence attachment failed"
 
           echo "✅ FOSSA evidence attached to Build"
+
+      - name: Test PGP-RSA-2048 signing (non-blocking)
+        env:
+          JFROG_CLI_LOG_LEVEL: DEBUG
+        run: |
+          set +e
+          set -o pipefail
+          echo "🔐 Generating ephemeral PGP RSA-2048 key and testing jf evd create"
+          export GNUPGHOME=$(mktemp -d)
+          gpg --version || true
+          gpg --batch --passphrase '' --quick-generate-key "BookVerse CI Test <ci@example.com>" rsa2048 sign 0
+          FPR=$(gpg --list-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')
+          echo "🔎 Generated PGP key fingerprint: ${FPR:-unknown}"
+          gpg --batch --pinentry-mode loopback --passphrase '' --export-secret-keys --armor "$FPR" > pgp_private.asc
+          gpg --export --armor "$FPR" > pgp_public.asc
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat > pgp-test.json <<JSON
+          {
+            "note": "PGP RSA test signature",
+            "generatedAt": "${NOW_TS}"
+          }
+          JSON
+          EVIDENCE_ALIAS="ci-pgp-rsa-2048"
+          jf evd create \
+            --predicate pgp-test.json \
+            --predicate-type "https://bookverse.dev/evidence/pgp-test/v1" \
+            --build-name "${{ env.BUILD_NAME }}" \
+            --build-number "${{ env.BUILD_NUMBER }}" \
+            --project "${{ vars.PROJECT_KEY }}" \
+            --key-alias "$EVIDENCE_ALIAS" \
+            --key "$(cat pgp_private.asc)" || echo "⚠️ PGP RSA signing test failed (non-blocking)"
+          echo "🧹 Cleaning up GnuPG home"
+          rm -rf "$GNUPGHOME" || true
 
       - name: Deploy evidence via REST API (unsigned DSSE) - Package subject
         run: |
@@ -667,7 +700,7 @@ jobs:
             --package-version "${{ env.IMAGE_TAG }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key evidence_private.pem || echo "⚠️ Coverage evidence attachment failed"
+            --key "$(cat evidence_private.pem)" || echo "⚠️ Coverage evidence attachment failed"
           
           echo "✅ Coverage evidence attached to Docker image"
 
@@ -739,7 +772,7 @@ jobs:
             --package-version "${{ env.IMAGE_TAG }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key evidence_private.pem || echo "⚠️ SAST evidence attachment failed"
+            --key "$(cat evidence_private.pem)" || echo "⚠️ SAST evidence attachment failed"
           
           echo "✅ SAST evidence attached to Docker image"
 
@@ -1029,7 +1062,7 @@ jobs:
             --release-bundle-version "${{ env.APP_VERSION }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key evidence_private.pem || echo "⚠️ SLSA evidence attachment failed"
+            --key "$(cat evidence_private.pem)" || echo "⚠️ SLSA evidence attachment failed"
 
           echo "✅ SLSA provenance attached"
 
@@ -1060,7 +1093,7 @@ jobs:
             --release-bundle-version "${{ env.APP_VERSION }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key evidence_private.pem || echo "⚠️ Jira tickets evidence attachment failed"
+            --key "$(cat evidence_private.pem)" || echo "⚠️ Jira tickets evidence attachment failed"
 
           echo "✅ Jira tickets attached"
 
