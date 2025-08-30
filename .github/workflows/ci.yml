@@ -254,15 +254,15 @@ jobs:
           ALIAS_DEFAULT="${EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT:-}"
           if [[ -z "$ALIAS_DEFAULT" ]]; then ALIAS_DEFAULT="bookverse_key"; fi
           echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=$ALIAS_DEFAULT" >> $GITHUB_ENV
-          # Write private key to file for jf evd --key (robust handling: quotes, CR, \n, base64)
+          # Write private key to file for jf evd --key (robust handling: quotes, CR, base64)
           if [[ -n "${EVIDENCE_PK:-}" ]]; then
             KEY_TMP=$(mktemp)
             printf '%s' "$EVIDENCE_PK" > "$KEY_TMP"
             # strip surrounding quotes if present and CRs
             sed -e 's/^\"//' -e 's/\"$//' -e 's/\r//g' "$KEY_TMP" > "$KEY_TMP.1"
             if grep -q "BEGIN .*PRIVATE KEY" "$KEY_TMP.1"; then
-              # convert any literal \n into real newlines
-              sed -e $'s/\\n/\n/g' "$KEY_TMP.1" > evidence_private.pem
+              # Already a PEM - copy as is
+              cp "$KEY_TMP.1" evidence_private.pem
             else
               # try printf-decoding escapes first
               printf '%b' "$(cat "$KEY_TMP.1")" > evidence_private.pem 2>/dev/null || true
@@ -279,7 +279,7 @@ jobs:
             printf '%s' "${{ secrets.EVIDENCE_PRIVATE_KEY }}" > "$RAW_TMP"
             sed -e 's/^\"//' -e 's/\"$//' -e 's/\r//g' "$RAW_TMP" > "$RAW_TMP.1"
             if grep -q "BEGIN .*PRIVATE KEY" "$RAW_TMP.1"; then
-              sed -e $'s/\\n/\n/g' "$RAW_TMP.1" > evidence_private.pem
+              cp "$RAW_TMP.1" evidence_private.pem
             else
               printf '%b' "$(cat "$RAW_TMP.1")" > evidence_private.pem 2>/dev/null || true
               if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
@@ -288,7 +288,7 @@ jobs:
             fi
             rm -f "$RAW_TMP" "$RAW_TMP.1"
           fi
-          if ! grep -q "^-----BEGIN PRIVATE KEY-----$" evidence_private.pem 2>/dev/null; then
+          if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
             echo "⚠️ evidence_private.pem: PEM header not detected; continuing for debug" >&2
           fi
           # Validate algorithm is ED25519
@@ -299,7 +299,7 @@ jobs:
           else
             echo "⚠️ Unable to inspect private key algorithm; continuing" >&2
           fi
-          echo "🔎 evidence_private.pem info:"; ls -l evidence_private.pem || true; head -3 evidence_private.pem || true
+          echo "🔎 evidence_private.pem info:"; ls -l evidence_private.pem || true; head -3 evidence_private.pem || true; wc -c evidence_private.pem || true
           true
 
       - name: "Debug: list trusted keys (project scope)"
@@ -1017,7 +1017,7 @@ jobs:
             printf '%s' "$EVIDENCE_PK" > "$KEY_TMP"
             sed -e 's/^\"//' -e 's/\"$//' -e 's/\r//g' "$KEY_TMP" > "$KEY_TMP.1"
             if grep -q "BEGIN .*PRIVATE KEY" "$KEY_TMP.1"; then
-              sed -e $'s/\\n/\n/g' "$KEY_TMP.1" > evidence_private.pem
+              cp "$KEY_TMP.1" evidence_private.pem
             else
               printf '%b' "$(cat "$KEY_TMP.1")" > evidence_private.pem 2>/dev/null || true
               if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
@@ -1032,7 +1032,7 @@ jobs:
             printf '%s' "${{ secrets.EVIDENCE_PRIVATE_KEY }}" > "$RAW_TMP"
             sed -e 's/^\"//' -e 's/\"$//' -e 's/\r//g' "$RAW_TMP" > "$RAW_TMP.1"
             if grep -q "BEGIN .*PRIVATE KEY" "$RAW_TMP.1"; then
-              sed -e $'s/\\n/\n/g' "$RAW_TMP.1" > evidence_private.pem
+              cp "$RAW_TMP.1" evidence_private.pem
             else
               printf '%b' "$(cat "$RAW_TMP.1")" > evidence_private.pem 2>/dev/null || true
               if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
@@ -1041,7 +1041,7 @@ jobs:
             fi
             rm -f "$RAW_TMP" "$RAW_TMP.1"
           fi
-          if ! grep -q "^-----BEGIN PRIVATE KEY-----$" evidence_private.pem 2>/dev/null; then
+          if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
             echo "⚠️ evidence_private.pem: PEM header not detected; continuing for debug" >&2
           fi
           if ALG_LINE=$(openssl pkey -in evidence_private.pem -text_pub -noout 2>/dev/null | head -n1); then
@@ -1051,7 +1051,7 @@ jobs:
           else
             echo "⚠️ Unable to inspect private key algorithm; continuing" >&2
           fi
-          echo "🔎 evidence_private.pem info:"; ls -l evidence_private.pem || true; head -3 evidence_private.pem || true
+          echo "🔎 evidence_private.pem info:"; ls -l evidence_private.pem || true; head -3 evidence_private.pem || true; wc -c evidence_private.pem || true
           true
 
       - name: "Debug: list trusted keys (project scope)"
