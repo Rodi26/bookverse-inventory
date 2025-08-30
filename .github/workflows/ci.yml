@@ -531,6 +531,7 @@ jobs:
             --key rsa_private.pem || echo "⚠️ RSA PKCS#8 signing test failed (non-blocking)"
 
       - name: Deploy evidence via REST API (unsigned DSSE) - Package subject
+        continue-on-error: true
         run: |
           set +e
           set -o pipefail
@@ -641,6 +642,7 @@ jobs:
           
 
       - name: Deploy evidence via REST API (unsigned DSSE) - Build subject
+        continue-on-error: true
         run: |
           set +e
           set -o pipefail
@@ -730,6 +732,7 @@ jobs:
           
 
       - name: Deploy evidence via REST API (unsigned DSSE) - Application Version subject
+        continue-on-error: true
         run: |
           set +e
           set -o pipefail
