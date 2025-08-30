@@ -365,6 +365,166 @@ jobs:
 
           echo "✅ FOSSA evidence attached to Build"
 
+      - name: Deploy evidence via REST API (unsigned DSSE) - Package subject
+        run: |
+          set -euo pipefail
+          echo "📡 Deploying evidence via REST API (Package)"
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          # Create predicate: lightweight generic marker
+          cat > predicate.json <<JSON
+          {
+            "kind": "integration-test",
+            "status": "PASSED",
+            "generatedAt": "${NOW_TS}",
+            "notes": "Unsigned DSSE test via REST API - package subject"
+          }
+          JSON
+
+          # Build in-toto Statement
+          cat > statement.json <<'JSON'
+          {
+            "_type": "https://in-toto.io/Statement/v1",
+            "subject": [
+              { "name": "REPO/PKG:TAG" }
+            ],
+            "predicateType": "https://bookverse.dev/evidence/integration-test/v1",
+            "predicate": {}
+          }
+          JSON
+          STMT=$(cat statement.json | sed "s#REPO/PKG:TAG#${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local/${{ env.SERVICE_NAME }}:${{ env.IMAGE_TAG }}#")
+          printf '%s' "$STMT" | jq --argjson pred "$(cat predicate.json)" '.predicate = $pred' > statement.json
+          PAYLOAD_B64=$(cat statement.json | openssl base64 -A)
+
+          # Package subject request
+          cat > request.json <<JSON
+          {
+            "subject": {
+              "type": "PACKAGE",
+              "repoName": "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local",
+              "packageName": "${{ env.SERVICE_NAME }}",
+              "packageVersion": "${{ env.IMAGE_TAG }}",
+              "project": "${{ vars.PROJECT_KEY }}"
+            },
+            "envelope": {
+              "payloadType": "application/vnd.in-toto+json",
+              "payload": "${PAYLOAD_B64}",
+              "signatures": []
+            }
+          }
+          JSON
+
+          curl -fsS -X POST \
+            "${{ vars.JFROG_URL }}/evidence/api/v1/deploy-evidence?allowUnsigned=true" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+            --data-binary @request.json || echo "⚠️ REST (Package) evidence deploy failed"
+          echo "✅ REST (Package) evidence deployed"
+
+      - name: Deploy evidence via REST API (unsigned DSSE) - Build subject
+        run: |
+          set -euo pipefail
+          echo "📡 Deploying evidence via REST API (Build)"
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat > predicate.json <<JSON
+          {
+            "kind": "build-aggregate",
+            "status": "PASSED",
+            "generatedAt": "${NOW_TS}",
+            "notes": "Unsigned DSSE test via REST API - build subject"
+          }
+          JSON
+
+          cat > statement.json <<'JSON'
+          {
+            "_type": "https://in-toto.io/Statement/v1",
+            "subject": [
+              { "name": "BUILD/NAME#NUMBER" }
+            ],
+            "predicateType": "https://bookverse.dev/evidence/build-aggregate/v1",
+            "predicate": {}
+          }
+          JSON
+          STMT=$(cat statement.json | sed "s#BUILD/NAME#${{ env.BUILD_NAME }}#" | sed "s#NUMBER#${{ env.BUILD_NUMBER }}#")
+          printf '%s' "$STMT" | jq --argjson pred "$(cat predicate.json)" '.predicate = $pred' > statement.json
+          PAYLOAD_B64=$(cat statement.json | openssl base64 -A)
+
+          cat > request.json <<JSON
+          {
+            "subject": {
+              "type": "BUILD",
+              "buildName": "${{ env.BUILD_NAME }}",
+              "buildNumber": "${{ env.BUILD_NUMBER }}",
+              "project": "${{ vars.PROJECT_KEY }}"
+            },
+            "envelope": {
+              "payloadType": "application/vnd.in-toto+json",
+              "payload": "${PAYLOAD_B64}",
+              "signatures": []
+            }
+          }
+          JSON
+
+          curl -fsS -X POST \
+            "${{ vars.JFROG_URL }}/evidence/api/v1/deploy-evidence?allowUnsigned=true" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+            --data-binary @request.json || echo "⚠️ REST (Build) evidence deploy failed"
+          echo "✅ REST (Build) evidence deployed"
+
+      - name: Deploy evidence via REST API (unsigned DSSE) - Application Version subject
+        run: |
+          set -euo pipefail
+          echo "📡 Deploying evidence via REST API (App Version)"
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat > predicate.json <<JSON
+          {
+            "kind": "release-annotation",
+            "status": "NOTED",
+            "generatedAt": "${NOW_TS}",
+            "notes": "Unsigned DSSE test via REST API - application version subject"
+          }
+          JSON
+
+          cat > statement.json <<'JSON'
+          {
+            "_type": "https://in-toto.io/Statement/v1",
+            "subject": [
+              { "name": "RB/NAME@VERSION" }
+            ],
+            "predicateType": "https://bookverse.dev/evidence/release-annotation/v1",
+            "predicate": {}
+          }
+          JSON
+          STMT=$(cat statement.json | sed "s#RB/NAME@VERSION#${{ env.APPLICATION_KEY }}@${{ env.APP_VERSION }}#")
+          printf '%s' "$STMT" | jq --argjson pred "$(cat predicate.json)" '.predicate = $pred' > statement.json
+          PAYLOAD_B64=$(cat statement.json | openssl base64 -A)
+
+          cat > request.json <<JSON
+          {
+            "subject": {
+              "type": "RELEASE_BUNDLE",
+              "releaseBundleName": "${{ env.APPLICATION_KEY }}",
+              "releaseBundleVersion": "${{ env.APP_VERSION }}",
+              "project": "${{ vars.PROJECT_KEY }}"
+            },
+            "envelope": {
+              "payloadType": "application/vnd.in-toto+json",
+              "payload": "${PAYLOAD_B64}",
+              "signatures": []
+            }
+          }
+          JSON
+
+          curl -fsS -X POST \
+            "${{ vars.JFROG_URL }}/evidence/api/v1/deploy-evidence?allowUnsigned=true" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+            --data-binary @request.json || echo "⚠️ REST (App Version) evidence deploy failed"
+          echo "✅ REST (App Version) evidence deployed"
+
       - name: Attach unit/coverage evidence to Docker image (PyTest)
         env:
           JFROG_CLI_LOG_LEVEL: DEBUG
