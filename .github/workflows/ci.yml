@@ -317,9 +317,7 @@ jobs:
           HAS_ED=$(jq -r '[.[] | select(.type|test("ed25519";"i"))] | length' "$KEYS_FILE" 2>/dev/null || echo 0)
           if [ "$HAS_ED" = "0" ] || [ -z "$HAS_ED" ]; then
             echo "ℹ️ No ED25519 trusted key found; attempting to upload"
-            cat > create_key.json <<JSON
-            {"alias":"bookverse_evidence_key","type":"ED25519","key":"$PUB_B64"}
-            JSON
+            jq -n --arg alias "bookverse_evidence_key" --arg key "$PUB_B64" '{alias:$alias, type:"ED25519", key:$key}' > create_key.json
             HTTP=$(curl -sS -L -o resp.json -w "%{http_code}" -X POST \
               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" \
               -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
