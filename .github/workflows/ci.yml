@@ -243,12 +243,15 @@ jobs:
 
       - name: Prepare evidence signing configuration
         env:
-          EVIDENCE_PK: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_PK: "${{ secrets.EVIDENCE_PRIVATE_KEY }}"
+          EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT: "${{ vars.EVIDENCE_KEY_ALIAS }}"
         run: |
           set -euo pipefail
           umask 077
           # Default effective alias from repo vars (ED25519 key expected on platform)
-          echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=${{ vars.EVIDENCE_KEY_ALIAS || 'bookverse_key' }}" >> $GITHUB_ENV
+          ALIAS_DEFAULT="${EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT:-}"
+          if [[ -z "$ALIAS_DEFAULT" ]]; then ALIAS_DEFAULT="bookverse_key"; fi
+          echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=$ALIAS_DEFAULT" >> $GITHUB_ENV
           # Write private key to file for jf evd --key (robust handling: quotes, CR, \n, base64)
           if [[ -n "${EVIDENCE_PK:-}" ]]; then
             KEY_TMP=$(mktemp)
@@ -952,11 +955,14 @@ PEM
 
       - name: Prepare evidence signing key
         env:
-          EVIDENCE_PK: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_PK: "${{ secrets.EVIDENCE_PRIVATE_KEY }}"
+          EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT: "${{ vars.EVIDENCE_KEY_ALIAS }}"
         run: |
           set -euo pipefail
           umask 077
-          echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=${{ vars.EVIDENCE_KEY_ALIAS || 'bookverse_key' }}" >> $GITHUB_ENV
+          ALIAS_DEFAULT="${EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT:-}"
+          if [[ -z "$ALIAS_DEFAULT" ]]; then ALIAS_DEFAULT="bookverse_key"; fi
+          echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=$ALIAS_DEFAULT" >> $GITHUB_ENV
           if [[ -n "${EVIDENCE_PK:-}" ]]; then
             KEY_TMP=$(mktemp)
             printf '%s' "$EVIDENCE_PK" > "$KEY_TMP"
