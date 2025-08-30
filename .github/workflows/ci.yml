@@ -364,7 +364,7 @@ jobs:
             --build-number "${{ env.BUILD_NUMBER }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key "$(cat evidence_private.pem)" || echo "⚠️ SonarQube evidence attachment failed"
+            --key evidence_private.pem || echo "⚠️ SonarQube evidence attachment failed"
 
           echo "✅ SonarQube evidence attached to Build"
 
@@ -416,7 +416,7 @@ jobs:
             --build-number "${{ env.BUILD_NUMBER }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key "$(cat evidence_private.pem)" || echo "⚠️ FOSSA evidence attachment failed"
+            --key evidence_private.pem || echo "⚠️ FOSSA evidence attachment failed"
 
           echo "✅ FOSSA evidence attached to Build"
 
@@ -452,6 +452,32 @@ jobs:
             --key "$(cat pgp_private.asc)" || echo "⚠️ PGP RSA signing test failed (non-blocking)"
           echo "🧹 Cleaning up GnuPG home"
           rm -rf "$GNUPGHOME" || true
+
+      - name: Test RSA PKCS#8 signing (non-blocking)
+        env:
+          JFROG_CLI_LOG_LEVEL: DEBUG
+        run: |
+          set +e
+          set -o pipefail
+          echo "🔐 Generating ephemeral RSA PKCS#8 key and testing jf evd create"
+          umask 077
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out rsa_private.pem
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat > rsa-test.json <<JSON
+          {
+            "note": "RSA PKCS#8 test signature",
+            "generatedAt": "${NOW_TS}"
+          }
+          JSON
+          EVIDENCE_ALIAS="ci-rsa-pkcs8"
+          jf evd create \
+            --predicate rsa-test.json \
+            --predicate-type "https://bookverse.dev/evidence/rsa-test/v1" \
+            --build-name "${{ env.BUILD_NAME }}" \
+            --build-number "${{ env.BUILD_NUMBER }}" \
+            --project "${{ vars.PROJECT_KEY }}" \
+            --key-alias "$EVIDENCE_ALIAS" \
+            --key rsa_private.pem || echo "⚠️ RSA PKCS#8 signing test failed (non-blocking)"
 
       - name: Deploy evidence via REST API (unsigned DSSE) - Package subject
         run: |
@@ -700,7 +726,7 @@ jobs:
             --package-version "${{ env.IMAGE_TAG }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key "$(cat evidence_private.pem)" || echo "⚠️ Coverage evidence attachment failed"
+            --key evidence_private.pem || echo "⚠️ Coverage evidence attachment failed"
           
           echo "✅ Coverage evidence attached to Docker image"
 
@@ -772,7 +798,7 @@ jobs:
             --package-version "${{ env.IMAGE_TAG }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key "$(cat evidence_private.pem)" || echo "⚠️ SAST evidence attachment failed"
+            --key evidence_private.pem || echo "⚠️ SAST evidence attachment failed"
           
           echo "✅ SAST evidence attached to Docker image"
 
@@ -1062,7 +1088,7 @@ jobs:
             --release-bundle-version "${{ env.APP_VERSION }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key "$(cat evidence_private.pem)" || echo "⚠️ SLSA evidence attachment failed"
+            --key evidence_private.pem || echo "⚠️ SLSA evidence attachment failed"
 
           echo "✅ SLSA provenance attached"
 
@@ -1093,7 +1119,7 @@ jobs:
             --release-bundle-version "${{ env.APP_VERSION }}" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key-alias "$EVIDENCE_ALIAS" \
-            --key "$(cat evidence_private.pem)" || echo "⚠️ Jira tickets evidence attachment failed"
+            --key evidence_private.pem || echo "⚠️ Jira tickets evidence attachment failed"
 
           echo "✅ Jira tickets attached"
 
