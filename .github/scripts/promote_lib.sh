@@ -115,13 +115,26 @@ release_version() {
   local resp_body http_status
   resp_body=$(mktemp)
   echo "🚀 Releasing to ${FINAL_STAGE} via AppTrust Release API"
+  # Build included repositories list if provided or infer from APPLICATION_KEY and PROJECT_KEY
+  local payload
+  if [[ -n "${RELEASE_INCLUDED_REPO_KEYS:-}" ]]; then
+    payload=$(printf '{"promotion_type":"copy","included_repository_keys":%s}' "${RELEASE_INCLUDED_REPO_KEYS}")
+  else
+    # Derive service name from application key: bookverse-<service>
+    local service_name
+    service_name="${APPLICATION_KEY#${PROJECT_KEY}-}"
+    local repo_docker_release repo_python_release
+    repo_docker_release="${PROJECT_KEY}-${service_name}-docker-release-local"
+    repo_python_release="${PROJECT_KEY}-${service_name}-python-release-local"
+    payload=$(printf '{"promotion_type":"copy","included_repository_keys":["%s","%s"]}' "$repo_docker_release" "$repo_python_release")
+  fi
   http_status=$(curl -sS -L -o "$resp_body" -w "%{http_code}" -X POST \
     "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" \
     -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN}" \
     -H "X-JFrog-Project: ${PROJECT_KEY}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
-    -d '{"promotion_type":"copy"}')
+    -d "$payload")
   echo "HTTP $http_status"; cat "$resp_body" || true; echo
   if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
     echo "❌ Release to ${FINAL_STAGE} failed (HTTP $http_status)" >&2
