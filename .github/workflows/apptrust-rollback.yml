@@ -3,31 +3,23 @@ name: AppTrust Rollback
 on:
   workflow_dispatch:
     inputs:
-      app_key:
-        description: "AppTrust application key"
-        required: true
-        type: string
       version:
-        description: "Version (SemVer) to rollback"
-        required: true
+        description: "Version (SemVer) to rollback (omit to use latest promoted)"
+        required: false
         type: string
       dry_run:
         description: "Dry run (no mutations)"
         required: false
         default: true
         type: boolean
-      base_url:
-        description: "Override AppTrust base URL (defaults to secret)"
-        required: false
-        type: string
 
 concurrency:
-  group: apptrust-rollback-${{ inputs.app_key }}
+  group: apptrust-rollback-${{ github.event.repository.name }}
   cancel-in-progress: false
 
 jobs:
   rollback:
-    name: Rollback ${{ inputs.app_key }} ${{ inputs.version }}
+    name: Rollback ${{ github.event.repository.name }} ${{ inputs.version || 'latest-promoted' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -43,17 +35,13 @@ jobs:
       - name: Execute rollback
         shell: bash
         env:
-          AT_BASE_URL_INPUT: ${{ inputs.base_url }}
           AT_BASE_URL_SECRET: ${{ secrets.APPTRUST_BASE_URL }}
           APPTRUST_ACCESS_TOKEN: ${{ secrets.APPTRUST_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          BASE_URL="${AT_BASE_URL_INPUT}"
+          BASE_URL="${AT_BASE_URL_SECRET}"
           if [ -z "${BASE_URL}" ]; then
-            BASE_URL="${AT_BASE_URL_SECRET}"
-          fi
-          if [ -z "${BASE_URL}" ]; then
-            echo "Base URL is required via input 'base_url' or secret 'APPTRUST_BASE_URL'" >&2
+            echo "Base URL is required via secret 'APPTRUST_BASE_URL'" >&2
             exit 2
           fi
 
@@ -63,12 +51,36 @@ jobs:
             exit 2
           fi
 
+          # Derive application key from repo name (e.g., bookverse-inventory -> bookverse-inventory)
+          SERVICE_NAME=$(echo "${GITHUB_REPOSITORY#*/}" | sed 's/bookverse-//')
+          APP_KEY="bookverse-$SERVICE_NAME"
+
+          # Determine target version: use input if provided, else resolve latest promoted
+          TARGET_VERSION="${{ inputs.version || '' }}"
+          if [ -z "$TARGET_VERSION" ]; then
+            echo "🔎 Resolving latest promoted version for $APP_KEY"
+            RESP_FILE=$(mktemp)
+            HTTP_STATUS=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
+              "$APPTRUST_BASE_URL/applications/$APP_KEY/versions?limit=20&order_by=created&order_asc=false" \
+              -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
+              -H "Accept: application/json")
+            if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
+              TARGET_VERSION=$(jq -r '.versions[] | select(.release_status == "RELEASED" or .release_status == "TRUSTED_RELEASE") | .version' "$RESP_FILE" | head -n1)
+            fi
+            rm -f "$RESP_FILE"
+            if [ -z "${TARGET_VERSION:-}" ] || [ "$TARGET_VERSION" = "null" ]; then
+              echo "❌ Could not resolve latest promoted version for $APP_KEY" >&2
+              exit 1
+            fi
+            echo "🎯 Defaulting to latest promoted version: $TARGET_VERSION"
+          fi
+
           DRY_FLAG=""
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             DRY_FLAG="--dry-run"
           fi
 
           python3 scripts/apptrust_rollback.py \
-            --app "${{ inputs.app_key }}" \
-            --version "${{ inputs.version }}" \
+            --app "$APP_KEY" \
+            --version "$TARGET_VERSION" \
             ${DRY_FLAG}
