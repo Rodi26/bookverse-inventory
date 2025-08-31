@@ -14,6 +14,10 @@ jobs:
     permissions:
       contents: read
       id-token: write
+
+    # Evidence signing configuration:
+    # - secrets.EVIDENCE_PRIVATE_KEY: private key material (sensitive)
+    # - vars.EVIDENCE_KEY_ALIAS: non-secret alias passed to --key-alias
     steps:
       - name: Checkout
         uses: actions/checkout@v4

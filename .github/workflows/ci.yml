@@ -16,6 +16,10 @@ on:
         type: boolean
         default: false
 
+# Evidence signing configuration:
+# - secrets.EVIDENCE_PRIVATE_KEY: private key material (sensitive)
+# - vars.EVIDENCE_KEY_ALIAS: non-secret alias passed to --key-alias
+
 jobs:
   build-test-publish:
     if: ${{ !inputs.verified_only }}
