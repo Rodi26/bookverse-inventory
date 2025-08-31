@@ -105,7 +105,7 @@ jobs:
             body=$(mktemp)
             local code
             code=$(curl -sS -L -o "$body" -w "%{http_code}" \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION" \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             -H "Accept: application/json")
@@ -114,7 +114,7 @@ jobs:
               RELEASE_STATUS=$(jq -r '.release_status // empty' "$body" 2>/dev/null || echo "")
             else
               echo "❌ Failed to fetch version summary (HTTP $code)" >&2
-              print_request_debug "GET" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION"
+              print_request_debug "GET" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content"
               cat "$body" || true
               rm -f "$body"
             exit 1
