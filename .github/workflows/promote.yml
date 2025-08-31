@@ -83,52 +83,32 @@ jobs:
       - name: Promote application version across SDLC to PROD (chain)
         run: |
           set -euo pipefail
+          # HTTP_DEBUG_LEVEL can be set at repo or project vars: none|basic|verbose
+          if [[ -n "${{ vars.HTTP_DEBUG_LEVEL }}" ]]; then export HTTP_DEBUG_LEVEL="${{ vars.HTTP_DEBUG_LEVEL }}"; fi
           echo "📦 Application: $APPLICATION_KEY"
           echo "🏷️ Version: $APP_VERSION"
           
           # Single source of truth for summary – define once and reuse
-          print_request_debug() {
-            # print_request_debug <METHOD> <URL> [BODY]
-            local method="$1"; local url="$2"; local body="${3:-}"
-            echo "---- Request debug ----"
-            echo "Method: ${method}"
-            echo "URL: ${url}"
-            echo "Headers:"
-            echo "  Authorization: Bearer ***REDACTED***"
-            echo "  X-JFrog-Project: ${{ vars.PROJECT_KEY }}"
-            echo "  Accept: application/json"
-            if [[ -n "$body" ]]; then
-              echo "Body:"
-              echo "$body"
-            else
-              echo "Body: (none)"
-            fi
-            echo "Reproduce locally with:"
-            if [[ -n "$body" ]]; then
-              echo "curl -v -X ${method} \"${url}\" \\\\" 
-              echo "  -H \"Authorization: Bearer <TOKEN>\" \\\\" 
-              echo "  -H \"X-JFrog-Project: ${{ vars.PROJECT_KEY }}\" \\\\" 
-              echo "  -H \"Accept: application/json\" \\\\" 
-              echo "  -H \"Content-Type: application/json\" \\\\" 
-              echo "  -d '$body'"
-            else
-              echo "curl -v -X ${method} \"${url}\" \\\\" 
-              echo "  -H \"Authorization: Bearer <TOKEN>\" \\\\" 
-              echo "  -H \"X-JFrog-Project: ${{ vars.PROJECT_KEY }}\" \\\\" 
-              echo "  -H \"Accept: application/json\""
-            fi
-            echo "-----------------------"
-          }
+          # Source shared debug helper (if present)
+          if [ -f .github/scripts/http_debug.sh ]; then source .github/scripts/http_debug.sh; fi
+          # Fallback minimal debug function (respects HTTP_DEBUG_LEVEL)
+          if ! declare -f print_request_debug >/dev/null 2>&1; then
+            print_request_debug() {
+              local method="$1"; local url="$2"; local body="${3:-}"; local level="${HTTP_DEBUG_LEVEL:-basic}"
+              [ "$level" = "none" ] && return 0
+              echo "---- Request debug (${level}) ----"; echo "Method: ${method}"; echo "URL: ${url}"; echo "Headers:"; echo "  Authorization: Bearer ***REDACTED***"; echo "  X-JFrog-Project: ${{ vars.PROJECT_KEY }}"; echo "  Accept: application/json"; echo "-----------------------"
+            }
+          fi
 
           fetch_summary() {
             local body
             body=$(mktemp)
             local code
             code=$(curl -sS -L -o "$body" -w "%{http_code}" \
-              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION" \
-              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-              -H "Accept: application/json")
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+            -H "Accept: application/json")
             if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
               CURRENT_STAGE=$(jq -r '.current_stage // empty' "$body" 2>/dev/null || echo "")
               RELEASE_STATUS=$(jq -r '.release_status // empty' "$body" 2>/dev/null || echo "")
@@ -137,10 +117,10 @@ jobs:
               print_request_debug "GET" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION"
               cat "$body" || true
               rm -f "$body"
-              exit 1
-            fi
+            exit 1
+          fi
             rm -f "$body"
-            echo "🔎 Current stage: ${CURRENT_STAGE:-UNASSIGNED} (release_status=${RELEASE_STATUS:-unknown})"
+          echo "🔎 Current stage: ${CURRENT_STAGE:-UNASSIGNED} (release_status=${RELEASE_STATUS:-unknown})"
           }
           # Initial state snapshot
           fetch_summary
@@ -176,7 +156,7 @@ jobs:
           if [[ -n "$RELEASE_STAGE" ]]; then
             FINAL_STAGE="$RELEASE_STAGE"
           else
-            FINAL_STAGE="${STAGES[$((${#STAGES[@]}-1))]}"
+          FINAL_STAGE="${STAGES[$((${#STAGES[@]}-1))]}"
           fi
           echo "FINAL_STAGE=$FINAL_STAGE" >> $GITHUB_ENV
           # Compute indices (case-sensitive)
@@ -202,7 +182,7 @@ jobs:
           
           PROMOTED_STAGES=""
           DID_RELEASE=false
-
+          
           # HTTP helper for AppTrust POST calls
           apptrust_post() {
             local path="$1"; local data="$2"; local out_file="$3"
@@ -238,7 +218,7 @@ jobs:
           }
 
           release_version() {
-            echo "🚀 Releasing to $FINAL_STAGE via AppTrust Release API"
+              echo "🚀 Releasing to $FINAL_STAGE via AppTrust Release API"
             local resp_body http_status
             resp_body=$(mktemp)
             http_status=$(apptrust_post \
@@ -250,10 +230,10 @@ jobs:
             if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
               echo "❌ Release to $FINAL_STAGE failed (HTTP $http_status)" >&2
               print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/release?async=false" '{"promotion_type":"copy"}'
-              exit 1
-            fi
-            DID_RELEASE=true
-            PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$FINAL_STAGE"
+                exit 1
+              fi
+              DID_RELEASE=true
+              PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$FINAL_STAGE"
             fetch_summary
           }
 

@@ -27,6 +27,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Configure HTTP debug verbosity
+        run: |
+          # HTTP_DEBUG_LEVEL: none|basic|verbose (default basic)
+          if [[ -n "${{ vars.HTTP_DEBUG_LEVEL }}" ]]; then
+            echo "HTTP_DEBUG_LEVEL=${{ vars.HTTP_DEBUG_LEVEL }}" >> $GITHUB_ENV
+          else
+            echo "HTTP_DEBUG_LEVEL=basic" >> $GITHUB_ENV
+          fi
+
       - name: Display manual trigger info
         run: |
           echo "🚀 Manual CI trigger initiated"
@@ -62,6 +71,7 @@ jobs:
       - name: Determine SemVer image version
         run: |
           set -euo pipefail
+          source .github/scripts/http_debug.sh || true
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
@@ -121,6 +131,7 @@ jobs:
               LATEST_VERSION=""
             fi
           else
+            PROJECT_KEY='${{ vars.PROJECT_KEY }}' print_request_debug "GET" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/"
             echo "⚠️ Versions API returned non-2xx. Body:"; cat "$RESP_FILE" || true
             LATEST_VERSION=""
           fi
