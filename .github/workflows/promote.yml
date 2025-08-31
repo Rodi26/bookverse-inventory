@@ -149,14 +149,14 @@ jobs:
           STAGES=()
           while IFS= read -r line; do [[ -n "$line" ]] && STAGES+=("$line"); done < <(printf "%s\n" "$NAMES")
           if [[ ${#STAGES[@]} -eq 0 ]]; then
-            echo "❌ Lifecycle '$LIFECYCLE_NAME' not found or has no stages for project '${{ vars.PROJECT_KEY }}'" >&2
-            exit 1
+            echo "ℹ️ Lifecycle '$LIFECYCLE_NAME' not found; falling back to default stages (DEV → QA → STAGING → PROD)" >&2
+            STAGES=(DEV QA STAGING PROD)
           fi
-          # Prefer lifecycle.releaseStage as the final stage; fallback to last stage for safety
+          # Prefer lifecycle.releaseStage as the final stage; fallback to last stage (or PROD for default)
           if [[ -n "$RELEASE_STAGE" ]]; then
             FINAL_STAGE="$RELEASE_STAGE"
           else
-          FINAL_STAGE="${STAGES[$((${#STAGES[@]}-1))]}"
+            FINAL_STAGE="${STAGES[$((${#STAGES[@]}-1))]}"
           fi
           echo "FINAL_STAGE=$FINAL_STAGE" >> $GITHUB_ENV
           # Compute indices (case-sensitive)
