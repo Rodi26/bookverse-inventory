@@ -1,12 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Promote/Release helper library sourced by the promotion workflow.
+#
+# Flow overview (how release is triggered):
+# - The workflow step "Release to PROD" (in .github/workflows/promote.yml)
+#   sets ALLOW_RELEASE=true and calls advance_one_step.
+# - advance_one_step() computes the next stage. If that next stage equals
+#   FINAL_STAGE (PROD) AND ALLOW_RELEASE=true, it invokes release_version().
+# - release_version() performs the AppTrust Release API call:
+#     POST /apptrust/api/v1/applications/{application_key}/versions/{version}/release
+#   with a JSON payload (promotion_type copy + included_repository_keys)
+#   to move the application version to the global release stage (PROD).
+# - For non-final stages, advance_one_step() calls promote_to_stage() instead.
+
 # Minimal debug printer; controlled by HTTP_DEBUG_LEVEL: none|basic|verbose
 print_request_debug() {
   local method="${1:-}"; local url="${2:-}"; local body="${3:-}"; local level="${HTTP_DEBUG_LEVEL:-basic}"
   [ "$level" = "none" ] && return 0
   local show_project_header=false
   local show_content_type=false
+  # For AppTrust APIs, only include X-JFrog-Project when the endpoint expects
+  # project scoping (e.g., versions listing). Release/Promote endpoints do not
+  # require the project header and may reject it.
   if [[ "$url" == *"/apptrust/api/"* ]]; then
     if [[ "$url" == *"/promote"* || "$url" == *"/release"* ]]; then
       show_project_header=false
@@ -14,6 +30,7 @@ print_request_debug() {
       show_project_header=true
     fi
   fi
+  # Show Content-Type only for POST bodies to reduce noise.
   if [[ "$method" == "POST" ]]; then show_content_type=true; fi
   echo "---- Request debug (${level}) ----"
   echo "Method: ${method}"
@@ -88,6 +105,7 @@ apptrust_post() {
   echo "$status"
 }
 
+# Call the AppTrust Promote API to move the version to a non-final stage
 promote_to_stage() {
   local target_stage_display="${1:-}"
   local resp_body http_status
@@ -111,6 +129,11 @@ promote_to_stage() {
   fetch_summary
 }
 
+# Call the AppTrust Release API to move the version to the final release stage (PROD)
+# NOTE: This function is NOT called directly by the workflow. The workflow
+#       sets ALLOW_RELEASE=true and calls advance_one_step(); only when the
+#       computed next stage equals FINAL_STAGE (PROD) will advance_one_step()
+#       invoke release_version(). See advance_one_step() below.
 release_version() {
   local resp_body http_status
   resp_body=$(mktemp)
@@ -124,8 +147,9 @@ release_version() {
     local service_name
     service_name="${APPLICATION_KEY#${PROJECT_KEY}-}"
     local repo_docker repo_python
-    repo_docker="${PROJECT_KEY}-${service_name}-docker-internal-local"
-    repo_python="${PROJECT_KEY}-${service_name}-python-internal-local"
+    # Use release repositories for final PROD release
+    repo_docker="${PROJECT_KEY}-${service_name}-docker-release-local"
+    repo_python="${PROJECT_KEY}-${service_name}-python-release-local"
     payload=$(printf '{"promotion_type":"copy","included_repository_keys":["%s","%s"]}' "$repo_docker" "$repo_python")
   fi
   http_status=$(curl -sS -L -o "$resp_body" -w "%{http_code}" -X POST \
@@ -232,6 +256,11 @@ attach_evidence_for() {
   esac
 }
 
+# Compute the next stage and perform a single transition:
+# - If next != FINAL_STAGE → promote_to_stage(next) + attach stage evidence
+# - If next == FINAL_STAGE and ALLOW_RELEASE=true → release_version() + PROD evidence
+# - If ALLOW_RELEASE=false, the release step is deferred to the dedicated
+#   "Release to PROD" workflow step.
 advance_one_step() {
   local allow_release="${ALLOW_RELEASE:-false}"
   # Build stages array from STAGES_STR
