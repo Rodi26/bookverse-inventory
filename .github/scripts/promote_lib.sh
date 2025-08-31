@@ -123,10 +123,10 @@ release_version() {
     # Derive service name from application key: bookverse-<service>
     local service_name
     service_name="${APPLICATION_KEY#${PROJECT_KEY}-}"
-    local repo_docker repo_python
-    repo_docker="${PROJECT_KEY}-${service_name}-docker-internal-local"
-    repo_python="${PROJECT_KEY}-${service_name}-python-internal-local"
-    payload=$(printf '{"promotion_type":"copy","included_repository_keys":["%s","%s"]}' "$repo_docker" "$repo_python")
+    local repo_docker_release repo_python_release
+    repo_docker_release="${PROJECT_KEY}-${service_name}-docker-release-local"
+    repo_python_release="${PROJECT_KEY}-${service_name}-python-release-local"
+    payload=$(printf '{"promotion_type":"copy","included_repository_keys":["%s","%s"]}' "$repo_docker_release" "$repo_python_release")
   fi
   http_status=$(curl -sS -L -o "$resp_body" -w "%{http_code}" -X POST \
     "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" \
