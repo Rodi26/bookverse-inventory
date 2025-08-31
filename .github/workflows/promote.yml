@@ -206,7 +206,20 @@ jobs:
             echo "Skipping: current stage is $(display_stage_for "${CURRENT_STAGE:-UNASSIGNED}")"
           fi
 
+      - name: Decide if STAGING evidence should attach
+        id: decide-staging
+        run: |
+          set -euo pipefail
+          # PROMOTED_STAGES is space-separated, CURRENT_STAGE is API form (e.g., bookverse-STAGING)
+          PS="${PROMOTED_STAGES:-}"
+          CS="${CURRENT_STAGE:-}"
+          attach="false"
+          if echo " $PS " | grep -q " STAGING "; then attach="true"; fi
+          if [[ "$CS" == *"-STAGING" || "$CS" == "STAGING" ]]; then attach="true"; fi
+          echo "attach=$attach" >> $GITHUB_OUTPUT
+
       - name: Prepare STAGING evidence templates (IaC, Pentest, Change Approval)
+        if: ${{ steps.decide-staging.outputs.attach == 'true' }}
         run: |
           set -euo pipefail
           # We use quoted here-docs (<<'EOF') to prevent the shell from expanding
@@ -261,6 +274,7 @@ jobs:
           EOF
 
       - name: Populate STAGING templates and attach evidence
+        if: ${{ steps.decide-staging.outputs.attach == 'true' }}
         run: |
           set -euo pipefail
           # Export variables and use envsubst to safely substitute values into templates
