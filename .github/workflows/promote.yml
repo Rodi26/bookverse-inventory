@@ -112,6 +112,10 @@ jobs:
             if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
               CURRENT_STAGE=$(jq -r '.current_stage // empty' "$body" 2>/dev/null || echo "")
               RELEASE_STATUS=$(jq -r '.release_status // empty' "$body" 2>/dev/null || echo "")
+              # Normalize project-prefixed stage names to display form (strip project prefix except PROD)
+              if [[ -n "$CURRENT_STAGE" && "$CURRENT_STAGE" == "${{ vars.PROJECT_KEY }}-"* ]]; then
+                CURRENT_STAGE="${CURRENT_STAGE#${{ vars.PROJECT_KEY }}-}"
+              fi
             else
               echo "❌ Failed to fetch version summary (HTTP $code)" >&2
               print_request_debug "GET" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content"
@@ -155,7 +159,25 @@ jobs:
           NAMES=$(jq -r --arg n "$LIFECYCLE_NAME" 'map(select(.name == $n)) | .[0].stages // [] | map(if type=="object" then .name else . end) | .[]' "$NORM_FILE" 2>/dev/null || true)
           RELEASE_STAGE=$(jq -r --arg n "$LIFECYCLE_NAME" '([ .[] | select(.name == $n) | .releaseStage ] | .[0]) // empty' "$NORM_FILE" 2>/dev/null || true)
           STAGES=()
-          while IFS= read -r line; do [[ -n "$line" ]] && STAGES+=("$line"); done < <(printf "%s\n" "$NAMES")
+          STAGES_PROMOTE=()
+          # Build display stages (without project prefix) and API stages (with project prefix), respecting PROD exception
+          while IFS= read -r orig; do
+            [[ -z "$orig" ]] && continue
+            display="$orig"
+            promote="$orig"
+            if [[ "$orig" == "PROD" || "$orig" == "${{ vars.PROJECT_KEY }}-PROD" ]]; then
+              display="PROD"
+              promote="PROD"
+            elif [[ "$orig" == "${{ vars.PROJECT_KEY }}-"* ]]; then
+              display="${orig#${{ vars.PROJECT_KEY }}-}"
+              promote="$orig"
+            else
+              display="$orig"
+              if [[ "$display" != "PROD" ]]; then promote="${{ vars.PROJECT_KEY }}-$display"; fi
+            fi
+            STAGES+=("$display")
+            STAGES_PROMOTE+=("$promote")
+          done < <(printf "%s\n" "$NAMES")
           rm -f "$NORM_FILE"
           if [[ ${#STAGES[@]} -eq 0 ]]; then
             echo "ℹ️ Lifecycle '$LIFECYCLE_NAME' not found; falling back to default stages (DEV → QA → STAGING → PROD)" >&2
@@ -163,14 +185,22 @@ jobs:
           fi
           # Prefer lifecycle.releaseStage as the final stage; fallback to last stage (or PROD for default)
           if [[ -n "$RELEASE_STAGE" ]]; then
-            FINAL_STAGE="$RELEASE_STAGE"
+            if [[ "$RELEASE_STAGE" == "${{ vars.PROJECT_KEY }}-"* ]]; then
+              FINAL_STAGE="${RELEASE_STAGE#${{ vars.PROJECT_KEY }}-}"
+            elif [[ "$RELEASE_STAGE" == "PROD" ]]; then
+              FINAL_STAGE="PROD"
+            else
+              FINAL_STAGE="$RELEASE_STAGE"
+            fi
           else
             FINAL_STAGE="${STAGES[$((${#STAGES[@]}-1))]}"
           fi
           echo "FINAL_STAGE=$FINAL_STAGE" >> $GITHUB_ENV
           # Compute indices (case-sensitive)
           CURRENT_INDEX=-1
-          for i in "${!STAGES[@]}"; do if [[ "${STAGES[$i]}" == "$CURRENT_STAGE" ]]; then CURRENT_INDEX=$i; break; fi; done
+          # Map display stage to API stage for comparisons (handle PROD exception)
+          API_STAGE_FOR() { local s="$1"; if [[ "$s" == "PROD" ]]; then echo "PROD"; else echo "${{ vars.PROJECT_KEY }}-$s"; fi }
+          for i in "${!STAGES[@]}"; do if [[ "$(API_STAGE_FOR "${STAGES[$i]}")" == "$(API_STAGE_FOR "$CURRENT_STAGE")" ]]; then CURRENT_INDEX=$i; break; fi; done
           TS_INPUT="${{ inputs.target_stage }}"
           TARGET_NAME="$TS_INPUT"
           if [[ -z "$TARGET_NAME" ]]; then TARGET_NAME="$FINAL_STAGE"; fi
@@ -211,15 +241,18 @@ jobs:
             echo "🚀 Promoting to $target_stage via AppTrust"
             local resp_body http_status
             resp_body=$(mktemp)
+            # Translate display stage to API stage (prefix with project except PROD)
+            local api_stage
+            if [[ "$target_stage" == "PROD" ]]; then api_stage="PROD"; else api_stage="${{ vars.PROJECT_KEY }}-$target_stage"; fi
             http_status=$(apptrust_post \
               "/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/promote?async=false" \
-              "{\"target_stage\": \"$target_stage\", \"promotion_type\": \"copy\"}" \
+              "{\"target_stage\": \"$api_stage\", \"promotion_type\": \"copy\"}" \
               "$resp_body")
             echo "HTTP $http_status"; cat "$resp_body" || true; echo
             rm -f "$resp_body"
             if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
               echo "❌ Promotion to $target_stage failed (HTTP $http_status)" >&2
-              print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/promote?async=false" "{\"target_stage\": \"$target_stage\", \"promotion_type\": \"copy\"}"
+              print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/promote?async=false" "{\"target_stage\": \"$api_stage\", \"promotion_type\": \"copy\"}"
               exit 1
             fi
             PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$target_stage"
@@ -230,15 +263,18 @@ jobs:
               echo "🚀 Releasing to $FINAL_STAGE via AppTrust Release API"
             local resp_body http_status
             resp_body=$(mktemp)
+            # Translate final stage to API stage (prefix with project except PROD)
+            local api_stage
+            if [[ "$FINAL_STAGE" == "PROD" ]]; then api_stage="PROD"; else api_stage="${{ vars.PROJECT_KEY }}-$FINAL_STAGE"; fi
             http_status=$(apptrust_post \
               "/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/release?async=false" \
-              '{"promotion_type":"copy"}' \
+              "{\"promotion_type\":\"copy\",\"target_stage\":\"$api_stage\"}" \
               "$resp_body")
             echo "HTTP $http_status"; cat "$resp_body" || true; echo
             rm -f "$resp_body"
             if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
               echo "❌ Release to $FINAL_STAGE failed (HTTP $http_status)" >&2
-              print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/release?async=false" '{"promotion_type":"copy"}'
+              print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/release?async=false" "{\"promotion_type\":\"copy\",\"target_stage\":\"$api_stage\"}"
                 exit 1
               fi
               DID_RELEASE=true
