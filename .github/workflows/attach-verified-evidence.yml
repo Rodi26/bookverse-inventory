@@ -63,19 +63,9 @@ jobs:
           oidc-audience: jfrog-github
 
       - name: Attach verified evidence to latest version
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
-          EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           set -euo pipefail
           NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          KEY_ARGS=()
-          ALIAS="${EVIDENCE_KEY_ALIAS:-${EVIDENCE_KEY_ALIAS_VAR:-}}"
-          if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then
-            KEY_ARGS+=(--key "$EVIDENCE_PRIVATE_KEY")
-            if [[ -n "$ALIAS" ]]; then KEY_ARGS+=(--key-alias "$ALIAS"); fi
-          fi
 
           cat > verified.json <<JSON
           {
@@ -96,8 +86,6 @@ jobs:
           Minimal verification evidence attached to the latest application version for demonstration.
           MD
 
-          echo "🔐 Signing args: ${KEY_ARGS[*]:-<none>}"
-          set +e
           jf evd create-evidence \
             --predicate verified.json \
             --markdown verified.md \
@@ -105,7 +93,8 @@ jobs:
             --release-bundle "$APPLICATION_KEY" \
             --release-bundle-version "$APP_VERSION" \
             --project "${{ vars.PROJECT_KEY }}" \
-            "${KEY_ARGS[@]}"
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}"
           RC=$?
           set -e
           if [[ $RC -eq 0 ]]; then

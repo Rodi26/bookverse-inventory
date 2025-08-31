@@ -201,14 +201,6 @@ emit_json() {
 
 evd_create() {
   local predicate_file="${1:-}"; local predicate_type="${2:-}"; local markdown_file="${3:-}"
-  local key_args=()
-  if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then
-    key_args+=(--key "${EVIDENCE_PRIVATE_KEY}")
-    # Prefer secret alias, then repo/organization variable
-    local alias_val
-    alias_val="${EVIDENCE_KEY_ALIAS:-${EVIDENCE_KEY_ALIAS_VAR:-}}"
-    if [[ -n "$alias_val" ]]; then key_args+=(--key-alias "$alias_val"); fi
-  fi
   local md_args=()
   if [[ -n "$markdown_file" ]]; then md_args+=(--markdown "$markdown_file"); fi
   jf evd create-evidence \
@@ -219,7 +211,8 @@ evd_create() {
     --release-bundle-version "$APP_VERSION" \
     --project "${PROJECT_KEY}" \
     --provider-id github-actions \
-    "${key_args[@]}" || true
+    --key "${EVIDENCE_PRIVATE_KEY:-}" \
+    --key-alias "${EVIDENCE_KEY_ALIAS:-${EVIDENCE_KEY_ALIAS_VAR:-}}" || true
 }
 
 attach_evidence_qa() {

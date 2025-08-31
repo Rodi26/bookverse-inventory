@@ -203,10 +203,6 @@ jobs:
           fi
 
       - name: Attach STAGING gate evidence (IaC, Pentest, Change Approval)
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
-          EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           set -euo pipefail
           export JFROG_URL="${{ vars.JFROG_URL }}"
@@ -221,10 +217,6 @@ jobs:
 
           echo "📎 Attaching STAGING gate evidence with Markdown"
           NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          KEY_ARGS=()
-          if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then KEY_ARGS+=(--key "$EVIDENCE_PRIVATE_KEY"); fi
-          ALIAS="${EVIDENCE_KEY_ALIAS:-${EVIDENCE_KEY_ALIAS_VAR:-}}"
-          if [[ -n "$ALIAS" ]]; then KEY_ARGS+=(--key-alias "$ALIAS"); fi
 
           # --- Snyk IaC Evidence ---
           cat > iac-evidence.json <<JSON
@@ -266,7 +258,8 @@ jobs:
             --release-bundle "$APPLICATION_KEY" \
             --release-bundle-version "$APP_VERSION" \
             --project "${{ vars.PROJECT_KEY }}" \
-            "${KEY_ARGS[@]}" || echo "⚠️ IaC evidence attachment failed"
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ IaC evidence attachment failed"
 
           # --- Cobalt Pentest Evidence ---
           ENG_ID="ENG-$(( (${GITHUB_RUN_NUMBER:-0} + ${GITHUB_RUN_ATTEMPT:-0}) % 9000 + 1000 ))"
@@ -308,7 +301,8 @@ jobs:
             --release-bundle "$APPLICATION_KEY" \
             --release-bundle-version "$APP_VERSION" \
             --project "${{ vars.PROJECT_KEY }}" \
-            "${KEY_ARGS[@]}" || echo "⚠️ Pentest evidence attachment failed"
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Pentest evidence attachment failed"
 
           # --- ServiceNow Change Approval Evidence ---
           CHG_ID="CHG-$(( (${GITHUB_RUN_NUMBER:-0} * 10 + ${GITHUB_RUN_ATTEMPT:-0}) ))"
@@ -340,7 +334,8 @@ jobs:
             --release-bundle "$APPLICATION_KEY" \
             --release-bundle-version "$APP_VERSION" \
             --project "${{ vars.PROJECT_KEY }}" \
-            "${KEY_ARGS[@]}" || echo "⚠️ Change approval evidence attachment failed"
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Change approval evidence attachment failed"
 
       - name: Release to PROD
         env:

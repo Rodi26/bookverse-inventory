@@ -310,31 +310,15 @@ jobs:
           echo "✅ Docker image present in Artifactory"
 
       # Evidence Plan: Package subject – unit-tests (pytest)
-      - name: Attach coverage evidence to Docker image (pytest)
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
-          EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
+      - name: Prepare coverage evidence template (pytest)
         run: |
           set -euo pipefail
-          echo "📊 Attaching pytest coverage evidence to Docker image"
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          cat > coverage-evidence.json <<JSON
-          {
-            "framework": "pytest",
-            "status": "PASSED",
-            "coveragePercent": ${COVERAGE_PERCENT:-0},
-            "generatedAt": "${NOW_TS}",
-            "reports": ["coverage.xml", "htmlcov/index.html"]
-          }
-          JSON
-          STATUS="PASSED"
-          STATUS_EMOJI="✅"
-          ANALYSIS_TEXT="Coverage is ${COVERAGE_PERCENT:-0}% with pytest. Aim to keep above 85%. Add tests for critical paths as needed."
-          cat > coverage-evidence.md <<MD
+          echo "📄 Preparing pytest coverage evidence template"
+          # Create a literal template to avoid shell expansion
+          cat > coverage-evidence.template.md <<'EOF'
           # Code Coverage Report: `pytest`
 
-          > ## ${STATUS_EMOJI} Status: `${STATUS}`
+          > ## ${STATUS_EMOJI} Status: ${STATUS}
           >
           > This report details the results of the automated code coverage checks.
 
@@ -344,7 +328,7 @@ jobs:
 
           | Metric | Result |
           | :------------------ | :-------------------------------- |
-          | **Code Coverage** | `${COVERAGE_PERCENT:-0}%` |
+          | **Code Coverage** | `${COVERAGE_PERCENT}%` |
           | **Testing Framework** | `pytest` |
 
           ---
@@ -352,11 +336,6 @@ jobs:
           ## 📝 Analysis & Recommendations
 
           > ${ANALYSIS_TEXT}
-
-          **
-          **
-          **
-          **
 
           ---
 
@@ -369,11 +348,37 @@ jobs:
 
           ---
           <p align="right">⏰ Report Generated: <code>${NOW_TS}</code> (UTC)</p>
-          MD
-          KEY_ARGS=()
-          if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then KEY_ARGS+=(--key "$EVIDENCE_PRIVATE_KEY"); fi
-          ALIAS="${EVIDENCE_KEY_ALIAS:-${EVIDENCE_KEY_ALIAS_VAR:-}}"
-          if [[ -n "$ALIAS" ]]; then KEY_ARGS+=(--key-alias "$ALIAS"); fi
+          EOF
+
+      - name: Populate coverage evidence and attach (pytest)
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
+          EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          # Ensure envsubst is available
+          if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          # Prepare predicate JSON using the same timestamp used in markdown
+          cat > coverage-evidence.json <<JSON
+          {
+            "framework": "pytest",
+            "status": "PASSED",
+            "coveragePercent": ${COVERAGE_PERCENT:-0},
+            "generatedAt": "${NOW_TS}",
+            "reports": ["coverage.xml", "htmlcov/index.html"]
+          }
+          JSON
+          # Export variables for envsubst
+          export STATUS="PASSED"
+          export STATUS_EMOJI="✅"
+          export COVERAGE_PERCENT="${COVERAGE_PERCENT:-0}"
+          export NOW_TS="${NOW_TS}"
+          export ANALYSIS_TEXT="Coverage is ${COVERAGE_PERCENT:-0}% with pytest. Aim to keep above 85%. Add tests for critical paths as needed."
+          # Render the template
+          envsubst < coverage-evidence.template.md > coverage-evidence.md
+          # Attach evidence
           jf evd create-evidence \
             --predicate coverage-evidence.json \
             --markdown coverage-evidence.md \
@@ -382,7 +387,8 @@ jobs:
             --package-repo-name "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" \
             --package-version "$IMAGE_TAG" \
             --project "${{ vars.PROJECT_KEY }}" \
-            "${KEY_ARGS[@]}" || echo "⚠️ Coverage evidence attachment failed"
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Coverage evidence attachment failed"
 
       # Evidence Plan: Package subject – sast-scan (Checkmarx)
       - name: Attach SAST evidence to Docker image (sast-scan)
@@ -406,11 +412,11 @@ jobs:
           }
           JSON
           cat > sast-evidence.md <<MD
-          # 🛡️ SAST Security Scan Report: Checkmarx
+          ### 🛡️ Checkmarx SAST Scan Summary
 
-          > ## ✅ Review Required
-          >
-          > The Checkmarx scan completed successfully, identifying **1 Medium** and **2 Low** severity findings. No Critical or High severity vulnerabilities were detected.
+          | Status | Findings | Details |
+          | :--- | :--- | :--- |
+          | ✅ **Review Required** | **1** Medium <br> **2** Low | No Critical or High severity issues were found. A manual review is recommended. |
 
           ---
 
@@ -434,10 +440,6 @@ jobs:
           * **Commit SHA**: `${{ github.sha }}`
           * **Scan Date (UTC)**: `${NOW_TS}`
           MD
-          KEY_ARGS=()
-          if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then KEY_ARGS+=(--key "$EVIDENCE_PRIVATE_KEY"); fi
-          ALIAS="${EVIDENCE_KEY_ALIAS:-${EVIDENCE_KEY_ALIAS_VAR:-}}"
-          if [[ -n "$ALIAS" ]]; then KEY_ARGS+=(--key-alias "$ALIAS"); fi
           jf evd create-evidence \
             --predicate sast-evidence.json \
             --markdown sast-evidence.md \
@@ -446,7 +448,8 @@ jobs:
             --package-repo-name "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" \
             --package-version "$IMAGE_TAG" \
             --project "${{ vars.PROJECT_KEY }}" \
-            "${KEY_ARGS[@]}" || echo "⚠️ SAST evidence attachment failed"
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ SAST evidence attachment failed"
 
       - name: Collect Git information for Build Info
         run: |
@@ -495,10 +498,6 @@ jobs:
           * **Result**: `PASSED`
           * **Checked At (UTC)**: `${NOW_TS}`
           MD
-          KEY_ARGS=()
-          if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then KEY_ARGS+=(--key "$EVIDENCE_PRIVATE_KEY"); fi
-          ALIAS="${EVIDENCE_KEY_ALIAS:-${EVIDENCE_KEY_ALIAS_VAR:-}}"
-          if [[ -n "$ALIAS" ]]; then KEY_ARGS+=(--key-alias "$ALIAS"); fi
           jf evd create-evidence \
             --predicate quality-gate.json \
             --markdown quality-gate.md \
@@ -506,7 +505,8 @@ jobs:
             --build-name "$BUILD_NAME" \
             --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}" \
-            "${KEY_ARGS[@]}" || echo "⚠️ Quality gate evidence attachment failed"
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Quality gate evidence attachment failed"
 
       # Evidence Plan: Build subject – license-compliance (FOSSA)
       - name: Attach FOSSA license compliance to Build (license-compliance)
@@ -541,10 +541,6 @@ jobs:
           * **Result**: `PASSED`
           * **Checked At (UTC)**: `${NOW_TS}`
           MD
-          KEY_ARGS=()
-          if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then KEY_ARGS+=(--key "$EVIDENCE_PRIVATE_KEY"); fi
-          ALIAS="${EVIDENCE_KEY_ALIAS:-${EVIDENCE_KEY_ALIAS_VAR:-}}"
-          if [[ -n "$ALIAS" ]]; then KEY_ARGS+=(--key-alias "$ALIAS"); fi
           jf evd create-evidence \
             --predicate license-evidence.json \
             --markdown license-evidence.md \
@@ -552,7 +548,8 @@ jobs:
             --build-name "$BUILD_NAME" \
             --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}" \
-            "${KEY_ARGS[@]}" || echo "⚠️ License compliance evidence attachment failed"
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ License compliance evidence attachment failed"
 
   create-application-version:
     needs: build-test-publish
@@ -769,10 +766,6 @@ jobs:
         run: |
           set -euo pipefail
           NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          KEY_ARGS=()
-          if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then KEY_ARGS+=(--key "$EVIDENCE_PRIVATE_KEY"); fi
-          ALIAS="${EVIDENCE_KEY_ALIAS:-${EVIDENCE_KEY_ALIAS_VAR:-}}"
-          if [[ -n "$ALIAS" ]]; then KEY_ARGS+=(--key-alias "$ALIAS"); fi
 
           # SLSA Provenance
           cat > slsa.json <<JSON
@@ -808,7 +801,8 @@ jobs:
             --release-bundle "$APPLICATION_KEY" \
             --release-bundle-version "$APP_VERSION" \
             --project "${{ vars.PROJECT_KEY }}" \
-            "${KEY_ARGS[@]}" || echo "⚠️ SLSA evidence attach failed"
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ SLSA evidence attach failed"
 
           # Jira Tickets
           cat > jira.json <<JSON
@@ -845,7 +839,8 @@ jobs:
             --release-bundle "$APPLICATION_KEY" \
             --release-bundle-version "$APP_VERSION" \
             --project "${{ vars.PROJECT_KEY }}" \
-            "${KEY_ARGS[@]}" || echo "⚠️ Jira evidence attach failed"
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Jira evidence attach failed"
 
       - name: Add build evidence
         run: |
@@ -939,12 +934,6 @@ jobs:
         run: |
           set -euo pipefail
           NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          KEY_ARGS=()
-          ALIAS="${EVIDENCE_KEY_ALIAS:-${EVIDENCE_KEY_ALIAS_VAR:-}}"
-          if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then
-            KEY_ARGS+=(--key "$EVIDENCE_PRIVATE_KEY")
-            if [[ -n "$ALIAS" ]]; then KEY_ARGS+=(--key-alias "$ALIAS"); fi
-          fi
 
           cat > verified.json <<JSON
           {
@@ -965,8 +954,6 @@ jobs:
           Minimal verification evidence attached to the latest application version for demonstration.
           MD
 
-          echo "🔐 Signing args: ${KEY_ARGS[*]:-<none>}"
-          set +e
           jf evd create-evidence \
             --predicate verified.json \
             --markdown verified.md \
@@ -974,15 +961,5 @@ jobs:
             --release-bundle "$APPLICATION_KEY" \
             --release-bundle-version "$APP_VERSION" \
             --project "${{ vars.PROJECT_KEY }}" \
-            "${KEY_ARGS[@]}"
-          RC=$?
-          set -e
-          if [[ $RC -eq 0 ]]; then
-            echo "✅ Verified evidence attached to $APPLICATION_KEY@$APP_VERSION"
-            echo "   Predicate type: https://bookverse.demo/evidence/verification/v1"
-            echo "   Predicate file: verified.json"
-            echo "   Markdown file: verified.md"
-          else
-            echo "❌ Verified evidence attachment failed for $APPLICATION_KEY@$APP_VERSION (exit $RC)" >&2
-            exit $RC
-          fi
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}"
