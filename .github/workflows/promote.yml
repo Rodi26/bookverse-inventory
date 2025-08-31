@@ -208,7 +208,14 @@ jobs:
 
           # Iteratively promote/release to next stage, refetching state each hop
           fetch_summary
+          LOOP_COUNT=0
+          LOOP_MAX=20
           while true; do
+            LOOP_COUNT=$((LOOP_COUNT + 1))
+            if [[ "$LOOP_COUNT" -gt "$LOOP_MAX" ]]; then
+              echo "❌ Max promotion attempts reached ($LOOP_MAX) – aborting to prevent loop" >&2
+              exit 1
+            fi
             # Compute current and target indices each iteration
             CURRENT_INDEX=-1
             for i in "${!STAGES[@]}"; do if [[ "${STAGES[$i]^^}" == "$CS_UPPER" ]]; then CURRENT_INDEX=$i; break; fi; done
@@ -258,9 +265,24 @@ jobs:
                 fetch_summary
               else
                 if grep -q "same as current stage" "$RESP_BODY" 2>/dev/null; then
-                  echo "ℹ️ Server reports current is already $STG; refetching and continuing"
+                  echo "ℹ️ Server reports current is already $STG; refetching to confirm"
                   rm -f "$RESP_BODY"
-                  fetch_summary
+                  # Retry a few times to confirm server advanced stage, avoid endless loop
+                  SAME_RETRY_MAX=3
+                  CONFIRMED=false
+                  for r in 1 2 3; do
+                    sleep 2
+                    fetch_summary
+                    if [[ "$CS_UPPER" == "${STG^^}" ]]; then
+                      CONFIRMED=true
+                      echo "✅ Current stage confirmed as $STG, continuing"
+                      break
+                    fi
+                  done
+                  if [[ "$CONFIRMED" != true ]]; then
+                    echo "⚠️ Could not confirm current stage=$STG after $SAME_RETRY_MAX retries; aborting to avoid loop" >&2
+                    exit 1
+                  fi
                 else
                   rm -f "$RESP_BODY"
                   echo "❌ Promotion to $STG failed" >&2
