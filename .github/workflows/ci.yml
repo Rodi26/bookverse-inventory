@@ -29,15 +29,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure HTTP debug verbosity
-        env:
-          HTTP_DEBUG_LEVEL_INPUT: ${{ vars.HTTP_DEBUG_LEVEL }}
         run: |
           # HTTP_DEBUG_LEVEL: none|basic|verbose (default basic)
-          if [[ -n "${HTTP_DEBUG_LEVEL_INPUT}" ]]; then
-            echo "HTTP_DEBUG_LEVEL=${HTTP_DEBUG_LEVEL_INPUT}" >> $GITHUB_ENV
-          else
-            echo "HTTP_DEBUG_LEVEL=basic" >> $GITHUB_ENV
-          fi
+          case "${HTTP_DEBUG_LEVEL:-}" in
+            none|basic|verbose)
+              echo "HTTP_DEBUG_LEVEL=${HTTP_DEBUG_LEVEL}" >> $GITHUB_ENV ;;
+            *)
+              echo "HTTP_DEBUG_LEVEL=basic" >> $GITHUB_ENV ;;
+          esac
 
       - name: Display manual trigger info
         run: |
@@ -430,13 +429,13 @@ jobs:
         run: |
           set -euo pipefail
           echo "🔎 Fetching build info to confirm artifacts are present"
-          URL="${{ vars.JFROG_URL }}/artifactory/api/build/${{ env.BUILD_NAME }}/${{ env.BUILD_NUMBER }}?project=${{ vars.PROJECT_KEY }}"
+          URL="${{ vars.JFROG_URL }}/artifactory/api/build/$BUILD_NAME/$BUILD_NUMBER?project=${{ vars.PROJECT_KEY }}"
           echo "GET $URL"
           curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$URL" | jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})'
 
       - name: Create application version
         run: |
-          echo "🚀 Creating AppTrust application version: ${{ env.APP_VERSION }}"
+          echo "🚀 Creating AppTrust application version: $APP_VERSION"
           
           # Determine application version tag - simulate real development environment
           # Array of realistic single tags for demo
@@ -471,14 +470,14 @@ jobs:
           # Create application version with build sources
           APP_VERSION_PAYLOAD=$(cat << EOF
           {
-            "version": "${{ env.APP_VERSION }}",
+            "version": "$APP_VERSION",
             "tag": "$APP_TAG",
             "sources": {
               "builds": [
                 {
-                  "name": "${{ env.BUILD_NAME }}",
-                  "number": "${{ env.BUILD_NUMBER }}",
-                  "repository_key": "${{ env.BUILD_INFO_REPO }}",
+                  "name": "$BUILD_NAME",
+                  "number": "$BUILD_NUMBER",
+                  "repository_key": "$BUILD_INFO_REPO",
                   "include_dependencies": true
                 }
               ]
@@ -488,15 +487,15 @@ jobs:
           )
           
           # Debug: show sanitized curl and payload
-          echo "📦 Application Key: ${{ env.APPLICATION_KEY }}"
+          echo "📦 Application Key: $APPLICATION_KEY"
           echo "📝 Payload:"; echo "$APP_VERSION_PAYLOAD" | jq . || echo "$APP_VERSION_PAYLOAD"
-          echo "🔗 Curl (sanitized): curl -X POST '${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/?async=false' -H 'Authorization: Bearer ***' -H 'X-JFrog-Project: ${{ vars.PROJECT_KEY }}' -H 'Content-Type: application/json' -H 'Accept: application/json' -d '<payload>'"
-          DEBUG_INCLUDE_PROJECT_HEADER=true PROJECT_KEY='${{ vars.PROJECT_KEY }}' HTTP_DEBUG_LEVEL='${{ vars.HTTP_DEBUG_LEVEL || 'basic' }}' print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/?async=false" "<payload>"
+          echo "🔗 Curl (sanitized): curl -X POST '${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/?async=false' -H 'Authorization: Bearer ***' -H 'X-JFrog-Project: ${{ vars.PROJECT_KEY }}' -H 'Content-Type: application/json' -H 'Accept: application/json' -d '<payload>'"
+          DEBUG_INCLUDE_PROJECT_HEADER=true PROJECT_KEY='${{ vars.PROJECT_KEY }}' print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/?async=false" "<payload>"
 
           # Create the application version with status/body capture
           RESP_BODY=$(mktemp)
           HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/?async=false" \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/?async=false" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             -H "Content-Type: application/json" \
@@ -510,7 +509,7 @@ jobs:
             exit 1
           fi
           
-          echo "✅ Application version created: ${{ env.APPLICATION_KEY }}@${{ env.APP_VERSION }}"
+          echo "✅ Application version created: $APPLICATION_KEY@$APP_VERSION"
           echo "📦 Packages will be automatically bound from build sources"
 
       # Evidence signing and ED25519 debug steps removed as no longer necessary
