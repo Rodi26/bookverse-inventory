@@ -121,22 +121,13 @@ release_version() {
     -H "X-JFrog-Project: ${PROJECT_KEY}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
-    -d '{"promotion_type":"move"}')
+    -d '{"promotion_type":"copy"}')
   echo "HTTP $http_status"; cat "$resp_body" || true; echo
   if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
-    if grep -qi "Invalid target environment" "$resp_body"; then
-      echo "⚠️ Release API unsupported for PROD on this instance; falling back to stage promotion"
-      rm -f "$resp_body"
-      promote_to_stage "PROD" || return 1
-      DID_RELEASE=true
-      echo "DID_RELEASE=${DID_RELEASE}" >> "$GITHUB_ENV"
-      return 0
-    else
-      echo "❌ Release to ${FINAL_STAGE} failed (HTTP $http_status)" >&2
-      print_request_debug "POST" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" "{\"promotion_type\":\"move\"}"
-      rm -f "$resp_body"
-      return 1
-    fi
+    echo "❌ Release to ${FINAL_STAGE} failed (HTTP $http_status)" >&2
+    print_request_debug "POST" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" "{\"promotion_type\":\"copy\"}"
+    rm -f "$resp_body"
+    return 1
   fi
   rm -f "$resp_body"
   DID_RELEASE=true
@@ -240,12 +231,7 @@ advance_one_step() {
   local next_stage_display="${STAGES[$next_index]}"
   if [[ "$next_stage_display" == "$FINAL_STAGE" ]]; then
     if [[ "$allow_release" == "true" ]]; then
-      if ! release_version; then
-        echo "⚠️ Release API failed; falling back to promotion to ${FINAL_STAGE}"
-        promote_to_stage "$next_stage_display" || return 1
-        DID_RELEASE=true
-        echo "DID_RELEASE=${DID_RELEASE}" >> "$GITHUB_ENV"
-      fi
+      release_version || return 1
       attach_evidence_prod || true
     else
       echo "⏭️ Skipping release step (deferred to dedicated step)"
