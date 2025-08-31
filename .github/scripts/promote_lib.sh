@@ -123,10 +123,10 @@ release_version() {
     # Derive service name from application key: bookverse-<service>
     local service_name
     service_name="${APPLICATION_KEY#${PROJECT_KEY}-}"
-    local repo_docker_release repo_python_release
-    repo_docker_release="${PROJECT_KEY}-${service_name}-docker-release-local"
-    repo_python_release="${PROJECT_KEY}-${service_name}-python-release-local"
-    payload=$(printf '{"promotion_type":"copy","included_repository_keys":["%s","%s"]}' "$repo_docker_release" "$repo_python_release")
+    local repo_docker repo_python
+    repo_docker="${PROJECT_KEY}-${service_name}-docker-internal-local"
+    repo_python="${PROJECT_KEY}-${service_name}-python-internal-local"
+    payload=$(printf '{"promotion_type":"copy","included_repository_keys":["%s","%s"]}' "$repo_docker" "$repo_python")
   fi
   http_status=$(curl -sS -L -o "$resp_body" -w "%{http_code}" -X POST \
     "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" \
@@ -157,11 +157,14 @@ emit_json() {
 }
 
 evd_create() {
-  local predicate_file="${1:-}"; local predicate_type="${2:-}"
+  local predicate_file="${1:-}"; local predicate_type="${2:-}"; local markdown_file="${3:-}"
   local key_args=()
   if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then key_args+=(--key "${EVIDENCE_PRIVATE_KEY}"); fi
+  local md_args=()
+  if [[ -n "$markdown_file" ]]; then md_args+=(--markdown "$markdown_file"); fi
   jf evd create-evidence \
     --predicate "$predicate_file" \
+    "${md_args[@]}" \
     --predicate-type "$predicate_type" \
     --release-bundle "$APPLICATION_KEY" \
     --release-bundle-version "$APP_VERSION" \
@@ -176,11 +179,13 @@ attach_evidence_qa() {
   scan_id=$(cat /proc/sys/kernel/random/uuid)
   med=$((2 + RANDOM % 5))
   emit_json dast-qa.json "{\n    \"environment\": \"QA\",\n    \"scanId\": \"${scan_id}\",\n    \"status\": \"PASSED\",\n    \"findings\": { \"critical\": 0, \"high\": 0, \"medium\": ${med} },\n    \"attachStage\": \"QA\", \"gateForPromotionTo\": \"STAGING\",\n    \"timestamp\": \"${now_ts}\"\n  }"
-  evd_create dast-qa.json "https://invicti.com/evidence/dast/v3"
+  printf "# dast-scan\n" > dast-scan.md
+  evd_create dast-qa.json "https://invicti.com/evidence/dast/v3" dast-scan.md
   coll=$(cat /proc/sys/kernel/random/uuid)
   pass=$((100 + RANDOM % 31))
   emit_json postman-qa.json "{\n    \"environment\": \"QA\",\n    \"collectionId\": \"${coll}\",\n    \"status\": \"PASSED\",\n    \"assertionsPassed\": ${pass},\n    \"assertionsFailed\": 0,\n    \"attachStage\": \"QA\", \"gateForPromotionTo\": \"STAGING\",\n    \"timestamp\": \"${now_ts}\"\n  }"
-  evd_create postman-qa.json "https://postman.com/evidence/collection/v2.2"
+  printf "# api-tests\n" > api-tests.md
+  evd_create postman-qa.json "https://postman.com/evidence/collection/v2.2" api-tests.md
 }
 
 attach_evidence_staging() {
@@ -188,13 +193,16 @@ attach_evidence_staging() {
   now_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   med_iac=$((1 + RANDOM % 3)); low_iac=$((8 + RANDOM % 7))
   emit_json iac-staging.json "{\n    \"environment\": \"STAGING\", \"status\": \"PASSED\",\n    \"misconfigurations\": { \"high\": 0, \"medium\": ${med_iac}, \"low\": ${low_iac} },\n    \"attachStage\": \"STAGING\", \"gateForPromotionTo\": \"PROD\",\n    \"timestamp\": \"${now_ts}\"\n  }"
-  evd_create iac-staging.json "https://snyk.io/evidence/iac/v1"
+  printf "# iac-scan\n" > iac-scan.md
+  evd_create iac-staging.json "https://snyk.io/evidence/iac/v1" iac-scan.md
   pent=$(cat /proc/sys/kernel/random/uuid)
   emit_json pentest-staging.json "{\n    \"environment\": \"STAGING\", \"pentestId\": \"${pent}\",\n    \"status\": \"COMPLETED\", \"summary\": \"No critical/high. Medium/low scheduled for remediation.\",\n    \"attachStage\": \"STAGING\", \"gateForPromotionTo\": \"PROD\",\n    \"timestamp\": \"${now_ts}\"\n  }"
-  evd_create pentest-staging.json "https://cobalt.io/evidence/pentest/v1"
+  printf "# pentest-summary\n" > pentest-summary.md
+  evd_create pentest-staging.json "https://cobalt.io/evidence/pentest/v1" pentest-summary.md
   tid=$((3000000 + RANDOM % 1000000))
   emit_json servicenow-approval.json "{\n    \"environment\": \"PROD\",\n    \"ticketId\": \"CHG${tid}\",\n    \"status\": \"APPROVED\",\n    \"approvedBy\": \"change-manager-${RANDOM}\",\n    \"approvalTimestamp\": \"${now_ts}\",\n    \"attachStage\": \"STAGING\", \"gateForPromotionTo\": \"PROD\"\n  }"
-  evd_create servicenow-approval.json "https://servicenow.com/evidence/change-request/v1"
+  printf "# change-approval\n" > change-approval.md
+  evd_create servicenow-approval.json "https://servicenow.com/evidence/change-request/v1" change-approval.md
 }
 
 attach_evidence_prod() {
@@ -202,7 +210,8 @@ attach_evidence_prod() {
   now_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   rev="${GITHUB_SHA:-${GITHUB_SHA:-}}"; short=${rev:0:8}
   emit_json argocd-prod.json "{ \"tool\": \"ArgoCD\", \"status\": \"Synced\", \"revision\": \"${short}\", \"deployedAt\": \"${now_ts}\", \"attachStage\": \"PROD\" }"
-  evd_create argocd-prod.json "https://argoproj.github.io/argo-cd/evidence/deployment/v1"
+  printf "# argocd-deploy\n" > argocd-deploy.md
+  evd_create argocd-prod.json "https://argoproj.github.io/argo-cd/evidence/deployment/v1" argocd-deploy.md
 }
 
 attach_evidence_for() {
