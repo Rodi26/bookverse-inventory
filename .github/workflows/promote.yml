@@ -247,6 +247,11 @@ jobs:
               DID_RELEASE=true
               PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }PROD"
               fetch_summary
+              # Verify post-release stage/status
+              if [[ "$CS_UPPER" != "PROD" && "$RELEASE_STATUS" != "RELEASED" && "$RELEASE_STATUS" != "TRUSTED_RELEASE" ]]; then
+                echo "❌ Post-release verification failed: current_stage=$CS_UPPER release_status=${RELEASE_STATUS:-unknown}" >&2
+                exit 1
+              fi
             else
               echo "🚀 Promoting to $STG via AppTrust"
               RESP_BODY=$(mktemp)
@@ -258,36 +263,19 @@ jobs:
                 -H "Accept: application/json" \
                 -d "{\"target_stage\": \"$STG\", \"promotion_type\": \"copy\"}")
               echo "HTTP $HTTP_STATUS"; cat "$RESP_BODY" || true; echo
-              # Handle 400 same-as-current gracefully by refetching and continuing
               if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
                 PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$STG"
                 rm -f "$RESP_BODY"
                 fetch_summary
-              else
-                if grep -q "same as current stage" "$RESP_BODY" 2>/dev/null; then
-                  echo "ℹ️ Server reports current is already $STG; refetching to confirm"
-                  rm -f "$RESP_BODY"
-                  # Retry a few times to confirm server advanced stage, avoid endless loop
-                  SAME_RETRY_MAX=3
-                  CONFIRMED=false
-                  for r in 1 2 3; do
-                    sleep 2
-                    fetch_summary
-                    if [[ "$CS_UPPER" == "${STG^^}" ]]; then
-                      CONFIRMED=true
-                      echo "✅ Current stage confirmed as $STG, continuing"
-                      break
-                    fi
-                  done
-                  if [[ "$CONFIRMED" != true ]]; then
-                    echo "⚠️ Could not confirm current stage=$STG after $SAME_RETRY_MAX retries; aborting to avoid loop" >&2
-                    exit 1
-                  fi
-                else
-                  rm -f "$RESP_BODY"
-                  echo "❌ Promotion to $STG failed" >&2
+                # Verify post-promotion stage
+                if [[ "$CS_UPPER" != "${STG^^}" ]]; then
+                  echo "❌ Post-promotion verification failed: expected $STG, got ${CURRENT_STAGE:-unknown}" >&2
                   exit 1
                 fi
+              else
+                rm -f "$RESP_BODY"
+                echo "❌ Promotion to $STG failed" >&2
+                exit 1
               fi
             fi
           done
