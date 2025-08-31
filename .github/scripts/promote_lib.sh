@@ -115,10 +115,13 @@ release_version() {
   local resp_body http_status
   resp_body=$(mktemp)
   echo "🚀 Releasing to ${FINAL_STAGE} via AppTrust Release API"
-  http_status=$(apptrust_post \
-    "/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" \
-    "{\"promotion_type\":\"move\"}" \
-    "$resp_body")
+  http_status=$(curl -sS -L -o "$resp_body" -w "%{http_code}" -X POST \
+    "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" \
+    -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN}" \
+    -H "X-JFrog-Project: ${PROJECT_KEY}" \
+    -H "Content-Type: application/json" \
+    -H "Accept: application/json" \
+    -d '{"promotion_type":"move"}')
   echo "HTTP $http_status"; cat "$resp_body" || true; echo
   rm -f "$resp_body"
   if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
@@ -136,7 +139,7 @@ release_version() {
 emit_json() {
   local out_file="${1:-}"; shift
   local content="$*"
-  printf "%s\n" "$content" > "$out_file"
+  printf "%b\n" "$content" > "$out_file"
 }
 
 evd_create() {
