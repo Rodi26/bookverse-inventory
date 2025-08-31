@@ -68,14 +68,12 @@ jobs:
           disable-job-summary: true
           oidc-audience: jfrog-github
 
-      - name: Prepare evidence signing keys (optional)
+      - name: Prepare evidence signing keys (use GH secret directly)
         run: |
           set -euo pipefail
           if [[ -n "${{ secrets.EVIDENCE_PRIVATE_KEY }}" ]]; then
             umask 077
-            printf "%s" "${{ secrets.EVIDENCE_PRIVATE_KEY }}" > evidence_private.pem
-            KEY_ALIAS="${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}"
-            echo "EVIDENCE_SIGN_ARGS=--key evidence_private.pem --key-alias ${KEY_ALIAS} --provider-id github-actions" >> $GITHUB_ENV
+            echo "EVIDENCE_SIGN_ARGS=--key \"${{ secrets.EVIDENCE_PRIVATE_KEY }}\" --provider-id github-actions" >> $GITHUB_ENV
           else
             echo "EVIDENCE_SIGN_ARGS=" >> $GITHUB_ENV
           fi
@@ -96,7 +94,30 @@ jobs:
             print_request_debug() {
               local method="$1"; local url="$2"; local body="${3:-}"; local level="${HTTP_DEBUG_LEVEL:-basic}"
               [ "$level" = "none" ] && return 0
-              echo "---- Request debug (${level}) ----"; echo "Method: ${method}"; echo "URL: ${url}"; echo "Headers:"; echo "  Authorization: Bearer ***REDACTED***"; echo "  X-JFrog-Project: ${{ vars.PROJECT_KEY }}"; echo "  Accept: application/json"; echo "-----------------------"
+              local show_project_header=false
+              local show_content_type=false
+              if [[ "$url" == *"/apptrust/api/"* ]]; then
+                if [[ "$url" == *"/promote"* || "$url" == *"/release"* ]]; then
+                  show_project_header=false
+                else
+                  show_project_header=true
+                fi
+              fi
+              if [[ "$method" == "POST" ]]; then
+                show_content_type=true
+              fi
+              echo "---- Request debug (${level}) ----"
+              echo "Method: ${method}"
+              echo "URL: ${url}"
+              echo "Headers:"
+              echo "  Authorization: Bearer ***REDACTED***"
+              if $show_project_header; then echo "  X-JFrog-Project: ${{ vars.PROJECT_KEY }}"; fi
+              if $show_content_type; then echo "  Content-Type: application/json"; fi
+              echo "  Accept: application/json"
+              if [ -n "$body" ] && [ "$level" = "verbose" ]; then
+                echo "Body: ${body}"
+              fi
+              echo "-----------------------"
             }
           fi
 
@@ -255,7 +276,7 @@ jobs:
               print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/promote?async=false" "{\"target_stage\": \"$api_stage\", \"promotion_type\": \"copy\"}"
               exit 1
             fi
-            PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$api_stage"
+            PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$target_stage"
             fetch_summary
           }
 
@@ -263,22 +284,19 @@ jobs:
               echo "🚀 Releasing to $FINAL_STAGE via AppTrust Release API"
             local resp_body http_status
             resp_body=$(mktemp)
-            # Translate final stage to API stage (prefix with project except PROD)
-            local api_stage
-            if [[ "$FINAL_STAGE" == "PROD" ]]; then api_stage="PROD"; else api_stage="${{ vars.PROJECT_KEY }}-$FINAL_STAGE"; fi
             http_status=$(apptrust_post \
               "/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/release?async=false" \
-              "{\"promotion_type\":\"copy\",\"target_stage\":\"$api_stage\"}" \
+              "{\"promotion_type\":\"copy\"}" \
               "$resp_body")
             echo "HTTP $http_status"; cat "$resp_body" || true; echo
             rm -f "$resp_body"
             if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
               echo "❌ Release to $FINAL_STAGE failed (HTTP $http_status)" >&2
-              print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/release?async=false" "{\"promotion_type\":\"copy\",\"target_stage\":\"$api_stage\"}"
+              print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/release?async=false" "{\"promotion_type\":\"copy\"}"
                 exit 1
               fi
               DID_RELEASE=true
-              PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$api_stage"
+              PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$FINAL_STAGE"
             fetch_summary
           }
 
@@ -295,12 +313,14 @@ jobs:
           evd_create() {
             # evd_create <file> <type>
             local predicate_file="$1"; local predicate_type="$2"
-            jf evd create \
+            jf evd create-evidence \
               --predicate "$predicate_file" \
               --predicate-type "$predicate_type" \
               --release-bundle "$APPLICATION_KEY" \
               --release-bundle-version "$APP_VERSION" \
-              --project "${{ vars.PROJECT_KEY }}" $EVIDENCE_SIGN_ARGS || true
+              --project "${{ vars.PROJECT_KEY }}" \
+              # --key-alias "${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}" \
+              $EVIDENCE_SIGN_ARGS || true
           }
 
           attach_evidence_qa() {

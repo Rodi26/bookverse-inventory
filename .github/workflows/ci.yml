@@ -21,6 +21,7 @@ jobs:
       build_name: ${{ steps.finalize-build-info.outputs.build_name }}
       build_number: ${{ steps.finalize-build-info.outputs.build_number }}
       app_version: ${{ steps.set-app-version.outputs.app_version }}
+      coverage_percent: ${{ steps.test-coverage.outputs.coverage_percent }}
 
 
     steps:
@@ -28,10 +29,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure HTTP debug verbosity
+        env:
+          HTTP_DEBUG_LEVEL_INPUT: ${{ vars.HTTP_DEBUG_LEVEL }}
         run: |
           # HTTP_DEBUG_LEVEL: none|basic|verbose (default basic)
-          if [[ -n "${{ vars.HTTP_DEBUG_LEVEL }}" ]]; then
-            echo "HTTP_DEBUG_LEVEL=${{ vars.HTTP_DEBUG_LEVEL }}" >> $GITHUB_ENV
+          if [[ -n "${HTTP_DEBUG_LEVEL_INPUT}" ]]; then
+            echo "HTTP_DEBUG_LEVEL=${HTTP_DEBUG_LEVEL_INPUT}" >> $GITHUB_ENV
           else
             echo "HTTP_DEBUG_LEVEL=basic" >> $GITHUB_ENV
           fi
@@ -71,7 +74,7 @@ jobs:
       - name: Determine SemVer image version
         run: |
           set -euo pipefail
-          source .github/scripts/http_debug.sh || true
+          if [ -f .github/scripts/http_debug.sh ]; then source .github/scripts/http_debug.sh; fi
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
@@ -113,6 +116,7 @@ jobs:
         id: set-app-version
         run: |
           set -euo pipefail
+          if [ -f .github/scripts/http_debug.sh ]; then source .github/scripts/http_debug.sh; fi
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
@@ -122,6 +126,9 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "Accept: application/json")
           echo "🔢 Versions GET status: $HTTP_STATUS"
+          if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then
+            DEBUG_INCLUDE_PROJECT_HEADER=true PROJECT_KEY='${{ vars.PROJECT_KEY }}' print_request_debug "GET" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/"
+          fi
           if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
             # Attempt to parse JSON; if parsing fails, fall back
             if LATEST_VERSION=$(jq -er '.versions[0].version // empty' "$RESP_FILE" 2>/dev/null); then
@@ -173,8 +180,8 @@ jobs:
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
-          JFROG_CLI_BUILD_NAME: ${{ env.BUILD_NAME }}
-          JFROG_CLI_BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
+          JFROG_CLI_BUILD_NAME: ${{ steps.set-build-info.outputs.build_name }}
+          JFROG_CLI_BUILD_NUMBER: ${{ steps.set-build-info.outputs.build_number }}
         with:
           version: latest
           oidc-provider-name: github-bookverse-inventory
@@ -215,21 +222,42 @@ jobs:
             pip install -r requirements.txt -i https://pypi.org/simple
           fi
 
+      - name: Install test dependencies
+        run: |
+          set -euo pipefail
+          jf pipc --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
+          if ! jf pip install pytest pytest-cov httpx; then
+            pip install -U pytest pytest-cov httpx -i https://pypi.org/simple
+          fi
+
+      - name: Run tests with coverage
+        id: test-coverage
+        run: |
+          set -euo pipefail
+          echo "🧪 Running tests with coverage"
+          pytest --maxfail=1 --disable-warnings -q \
+                 --cov=app --cov-report=xml:coverage.xml --cov-report=html:htmlcov
+          echo "TESTS_PASSED=true" >> $GITHUB_ENV
+          # Extract coverage percent from coverage.xml
+          COV=$(python -c "import xml.etree.ElementTree as ET;root=ET.parse('coverage.xml').getroot();rate=float(root.get('line-rate') or 0.0);print(round(rate*100.0,1))")
+          echo "COVERAGE_PERCENT=$COV" >> $GITHUB_ENV
+          echo "coverage_percent=$COV" >> $GITHUB_OUTPUT
+
       - name: Build and push Docker image via JFrog CLI
         run: |
           set -euo pipefail
-          echo ${{ secrets.JFROG_ADMIN_TOKEN }} | docker login ${{ env.REGISTRY_URL }} -u yonatan --password-stdin
-          jf docker build --pull -t ${{ env.IMAGE_NAME }} --build-name "${{ env.BUILD_NAME }}" --build-number "${{ env.BUILD_NUMBER }}" .
-          jf docker push ${{ env.IMAGE_NAME }} --build-name "${{ env.BUILD_NAME }}" --build-number "${{ env.BUILD_NUMBER }}"
-          jf rt dp ${{ env.IMAGE_NAME }} "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" --build-name="${{ env.BUILD_NAME }}" --build-number="${{ env.BUILD_NUMBER }}"
+          echo ${{ secrets.JFROG_ADMIN_TOKEN }} | docker login "$REGISTRY_URL" -u yonatan --password-stdin
+          jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
+          jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf rt dp "$IMAGE_NAME" "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
           echo "✅ Built and pushed Docker image (with build-info)"
 
       - name: Verify Docker image exists in Artifactory
         run: |
           set -euo pipefail
-          REPO="${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local"
-          IMAGE="${{ env.SERVICE_NAME }}"
-          TAG="${{ env.IMAGE_TAG }}"
+          REPO="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local"
+          IMAGE="$SERVICE_NAME"
+          TAG="$IMAGE_TAG"
           URL="${{ vars.JFROG_URL }}/artifactory/api/docker/${REPO}/v2/${IMAGE}/manifests/${TAG}"
           echo "🔎 Verifying image manifest: ${URL}"
           STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/vnd.docker.distribution.manifest.v2+json" "$URL")
@@ -240,444 +268,81 @@ jobs:
           fi
           echo "✅ Docker image present in Artifactory"
 
-      - name: Collect Git information for Build Info
-        run: |
-          jf rt bag "${{ env.BUILD_NAME }}" "${{ env.BUILD_NUMBER }}"
-
-      - name: Collect Environment Variables for Build Info
-        run: |
-          jf rt bce "${{ env.BUILD_NAME }}" "${{ env.BUILD_NUMBER }}"
-
-      - name: Publish Build Info
-        run: |
-          jf rt bp "${{ env.BUILD_NAME }}" "${{ env.BUILD_NUMBER }}"
-
-      - name: Prepare evidence signing configuration
-        if: ${{ false }}
-        env:
-          EVIDENCE_PK: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT: ${{ vars.EVIDENCE_KEY_ALIAS }}
-        run: |
-          set +e
-          set +u
-          set +o pipefail
-          umask 077
-          # Default effective alias from repo vars (ED25519 key expected on platform)
-          ALIAS_DEFAULT="${EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT:-}"
-          if [[ -z "$ALIAS_DEFAULT" ]]; then ALIAS_DEFAULT="bookverse_key"; fi
-          echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=$ALIAS_DEFAULT" >> $GITHUB_ENV
-          # Write private key to file for jf evd --key (robust handling: quotes, CR, base64)
-          if [[ -n "${EVIDENCE_PK:-}" ]]; then
-            KEY_TMP=$(mktemp)
-            printf '%s' "$EVIDENCE_PK" > "$KEY_TMP"
-            # strip surrounding quotes if present and CRs
-            sed -e 's/^\"//' -e 's/\"$//' -e 's/\r//g' "$KEY_TMP" > "$KEY_TMP.1"
-            if grep -q "BEGIN .*PRIVATE KEY" "$KEY_TMP.1"; then
-              # Already a PEM - copy as is
-              cp "$KEY_TMP.1" evidence_private.pem
-            else
-              # try printf-decoding escapes first
-              printf '%b' "$(cat "$KEY_TMP.1")" > evidence_private.pem 2>/dev/null || true
-              if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
-                # try base64 decode
-                base64 -d "$KEY_TMP.1" > evidence_private.pem 2>/dev/null || true
-              fi
-            fi
-            rm -f "$KEY_TMP" "$KEY_TMP.1"
-          fi
-          if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
-            echo "ℹ️ Fallback: writing secret directly from GitHub expression"
-            RAW_TMP=$(mktemp)
-            printf '%s' "${{ secrets.EVIDENCE_PRIVATE_KEY }}" > "$RAW_TMP"
-            sed -e 's/^\"//' -e 's/\"$//' -e 's/\r//g' "$RAW_TMP" > "$RAW_TMP.1"
-            if grep -q "BEGIN .*PRIVATE KEY" "$RAW_TMP.1"; then
-              cp "$RAW_TMP.1" evidence_private.pem
-            else
-              printf '%b' "$(cat "$RAW_TMP.1")" > evidence_private.pem 2>/dev/null || true
-              if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
-                base64 -d "$RAW_TMP.1" > evidence_private.pem 2>/dev/null || true
-              fi
-            fi
-            rm -f "$RAW_TMP" "$RAW_TMP.1"
-          fi
-          if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
-            echo "⚠️ evidence_private.pem: PEM header not detected; continuing for debug" >&2
-          fi
-          # Validate algorithm is ED25519
-          if ALG_LINE=$(openssl pkey -in evidence_private.pem -text_pub -noout 2>/dev/null | head -n1); then
-            if ! echo "$ALG_LINE" | grep -qi 'ed25519'; then
-              echo "⚠️ Private key not ED25519 (got: $ALG_LINE); continuing for debug" >&2
-            fi
-          else
-            echo "⚠️ Unable to inspect private key algorithm; continuing" >&2
-          fi
-          echo "🔎 evidence_private.pem info:"; ls -l evidence_private.pem || true; head -3 evidence_private.pem || true; wc -c evidence_private.pem || true
-          true
-
-      - name: Ensure ED25519 trusted key exists (non-blocking)
-        if: ${{ false }}
-        run: |
-          set +e
-          echo "🔐 Ensuring ED25519 trusted key exists for project ${{ vars.PROJECT_KEY }}"
-          PUB_PEM=$(openssl pkey -in evidence_private.pem -pubout 2>/dev/null || true)
-          if [ -z "$PUB_PEM" ]; then echo "⚠️ Could not derive public key from evidence_private.pem"; exit 0; fi
-          # Extract base64 body
-          PUB_B64=$(printf "%s\n" "$PUB_PEM" | sed -n '/BEGIN PUBLIC KEY/,$p' | sed '/BEGIN PUBLIC KEY/d;/END PUBLIC KEY/d;s/\r//g' | tr -d '\n')
-          KEYS_FILE=$(mktemp)
-          curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-               -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" > "$KEYS_FILE" || true
-          HAS_ED=$(jq -r '[.[] | select(.type|test("ed25519";"i"))] | length' "$KEYS_FILE" 2>/dev/null || echo 0)
-          if [ "$HAS_ED" = "0" ] || [ -z "$HAS_ED" ]; then
-            echo "ℹ️ No ED25519 trusted key found; attempting to upload"
-            jq -n --arg alias "bookverse_evidence_key" --arg key "$PUB_B64" '{alias:$alias, type:"ED25519", key:$key}' > create_key.json
-            HTTP=$(curl -sS -L -o resp.json -w "%{http_code}" -X POST \
-              "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" \
-              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-              -H "Content-Type: application/json" \
-              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-              --data-binary @create_key.json || echo 000)
-            echo "POST trusted key -> HTTP $HTTP"; cat resp.json || true
-            rm -f resp.json create_key.json || true
-          else
-            echo "✅ ED25519 trusted key already present"
-          fi
-          rm -f "$KEYS_FILE"
-
-      - name: "Debug: list trusted keys (project scope)"
-        if: ${{ false }}
-        run: |
-          set +e
-          echo "🔎 Listing trusted keys for project ${{ vars.PROJECT_KEY }}"
-          KEYS_FILE=$(mktemp)
-          curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-               -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" > "$KEYS_FILE" || true
-          NORM=$(jq -c 'if type=="array" then . else (.keys // []) end' "$KEYS_FILE" 2>/dev/null || echo '[]')
-          printf '%s' "$NORM" | jq '.[] | {alias, kid, type, issued_on}' 2>/dev/null || true
-          # Prefer ED25519 keys matching alias patterns; fallback to any ED25519 key
-          KID=$(printf '%s' "$NORM" | jq -r '[.[] | select((.type|test("ed25519";"i")) and (.alias|test("bookverse|evidence|bookverse_key|bookverse_evidence_key";"i")))] | .[0].kid // empty' 2>/dev/null || true)
-          if [ -z "$KID" ] || [ "$KID" = "null" ]; then
-            KID=$(printf '%s' "$NORM" | jq -r '[.[] | select(.type|test("ed25519";"i"))] | .[0].kid // empty' 2>/dev/null || true)
-          fi
-          rm -f "$KEYS_FILE"
-          if [ -n "$KID" ] && [ "$KID" != "null" ]; then
-            echo "EVIDENCE_KID=$KID" >> $GITHUB_ENV
-            echo "✅ Resolved EVIDENCE_KID=$KID"
-          else
-            echo "⚠️ Could not resolve ED25519 key id; using default"
-          fi
-
-      - name: Attach SonarQube quality gate to Build (Build Evidence)
-        if: ${{ false }}
-        env:
-          JFROG_CLI_LOG_LEVEL: DEBUG
+      - name: Attach coverage evidence to Docker image (pytest)
         run: |
           set -euo pipefail
-          echo "🔍 Attaching SonarQube Quality Gate evidence to Build"
-          QG_STATUS=PASSED
-          BUGS=$((5 + RANDOM % 10))
-          CODE_SMELLS=$((50 + RANDOM % 100))
-          VULNS=$((0 + RANDOM % 5))
-          COVERAGE=$(awk -v s=$RANDOM 'BEGIN{srand(s); printf "%.1f", 82.0 + rand()*10.0}')
-          DUPLICATION=$(awk -v s=$RANDOM 'BEGIN{srand(s); printf "%.1f", 1.0 + rand()*3.0}')
+          echo "📊 Attaching pytest coverage evidence to Docker image"
           NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-          cat <<EOF > sonar-quality-gate.json
-          {
-            "qualityGateStatus": "${QG_STATUS}",
-            "metrics": {
-              "bugs": ${BUGS},
-              "codeSmells": ${CODE_SMELLS},
-              "vulnerabilities": ${VULNS},
-              "coveragePercent": ${COVERAGE},
-              "duplicationPercent": ${DUPLICATION}
-            },
-            "generatedAt": "${NOW_TS}",
-            "tool": {
-              "name": "SonarQube",
-              "version": "10.6"
-            }
-          }
-          EOF
-
-          cat <<EOF > sonar-quality-gate.md
-          # SonarQube Quality Gate Evidence
-
-          **Status:** ${QG_STATUS}
-          **Generated:** ${NOW_TS}
-
-          ## Metrics
-          - Bugs: ${BUGS}
-          - Code Smells: ${CODE_SMELLS}
-          - Vulnerabilities: ${VULNS}
-          - Coverage: ${COVERAGE}%
-          - Duplication: ${DUPLICATION}%
-          EOF
-
-          EVIDENCE_ALIAS=${EVIDENCE_EFFECTIVE_KEY_ALIAS:-${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}}
-          jf evd create \
-            --predicate sonar-quality-gate.json \
-            --markdown sonar-quality-gate.md \
-            --predicate-type "https://sonarsource.com/evidence/quality-gate/v1" \
-            --build-name "${{ env.BUILD_NAME }}" \
-            --build-number "${{ env.BUILD_NUMBER }}" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key-alias "$EVIDENCE_ALIAS" \
-            --key "$(cat evidence_private.pem)" || echo "⚠️ SonarQube evidence attachment failed"
-
-          echo "✅ SonarQube evidence attached to Build"
-
-      - name: Attach FOSSA license compliance to Build (Build Evidence)
-        if: ${{ false }}
-        env:
-          JFROG_CLI_LOG_LEVEL: DEBUG
-        run: |
-          set -euo pipefail
-          echo "🔍 Attaching FOSSA License Compliance evidence to Build"
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          ALLOW=$((100 + RANDOM % 60))
-          WARN=$((5 + RANDOM % 10))
-          BLOCK=$((0 + RANDOM % 3))
-
-          cat <<EOF > fossa-license-scan.json
-          {
-            "scanResult": {
-              "allow": ${ALLOW},
-              "warn": ${WARN},
-              "block": ${BLOCK}
-            },
-            "policy": "default",
-            "generatedAt": "${NOW_TS}",
-            "tool": {
-              "name": "FOSSA CLI",
-              "version": "3.6"
-            }
-          }
-          EOF
-
-          cat <<EOF > fossa-license-scan.md
-          # FOSSA License Compliance Evidence
-
-          **Policy:** default  
-          **Generated:** ${NOW_TS}
-
-          ## Findings
-          - Allow: ${ALLOW}
-          - Warn: ${WARN}
-          - Block: ${BLOCK}
-          EOF
-
-          EVIDENCE_ALIAS=${EVIDENCE_EFFECTIVE_KEY_ALIAS:-${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}}
-          jf evd create \
-            --predicate fossa-license-scan.json \
-            --markdown fossa-license-scan.md \
-            --predicate-type "https://fossa.com/evidence/license-scan/v2.1" \
-            --build-name "${{ env.BUILD_NAME }}" \
-            --build-number "${{ env.BUILD_NUMBER }}" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key-alias "$EVIDENCE_ALIAS" \
-            --key "$(cat evidence_private.pem)" || echo "⚠️ FOSSA evidence attachment failed"
-
-          echo "✅ FOSSA evidence attached to Build"
-
-      - name: Test PGP-RSA-2048 signing (non-blocking)
-        if: ${{ false }}
-        env:
-          JFROG_CLI_LOG_LEVEL: DEBUG
-        run: |
-          set +e
-          set -o pipefail
-          echo "🔐 Generating ephemeral PGP RSA-2048 key and testing jf evd create"
-          export GNUPGHOME=$(mktemp -d)
-          gpg --version || true
-          gpg --batch --passphrase '' --quick-generate-key "BookVerse CI Test <ci@example.com>" rsa2048 sign 0
-          FPR=$(gpg --list-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')
-          echo "🔎 Generated PGP key fingerprint: ${FPR:-unknown}"
-          gpg --batch --pinentry-mode loopback --passphrase '' --export-secret-keys --armor "$FPR" > pgp_private.asc
-          gpg --export --armor "$FPR" > pgp_public.asc
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          cat > pgp-test.json <<JSON
-          {
-            "note": "PGP RSA test signature",
-            "generatedAt": "${NOW_TS}"
-          }
-          JSON
-          EVIDENCE_ALIAS="ci-pgp-rsa-2048"
-          jf evd create \
-            --predicate pgp-test.json \
-            --predicate-type "https://bookverse.dev/evidence/pgp-test/v1" \
-            --build-name "${{ env.BUILD_NAME }}" \
-            --build-number "${{ env.BUILD_NUMBER }}" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key-alias "$EVIDENCE_ALIAS" \
-            --key "$(cat pgp_private.asc)" || echo "⚠️ PGP RSA signing test failed (non-blocking)"
-          echo "🧹 Cleaning up GnuPG home"
-          rm -rf "$GNUPGHOME" || true
-
-      - name: Test RSA PKCS#8 signing (non-blocking)
-        if: ${{ false }}
-        env:
-          JFROG_CLI_LOG_LEVEL: DEBUG
-        run: |
-          set +e
-          set -o pipefail
-          echo "🔐 Generating ephemeral RSA PKCS#8 key and testing jf evd create"
-          umask 077
-          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out rsa_private.pem
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          cat > rsa-test.json <<JSON
-          {
-            "note": "RSA PKCS#8 test signature",
-            "generatedAt": "${NOW_TS}"
-          }
-          JSON
-          EVIDENCE_ALIAS="ci-rsa-pkcs8"
-          jf evd create \
-            --predicate rsa-test.json \
-            --predicate-type "https://bookverse.dev/evidence/rsa-test/v1" \
-            --build-name "${{ env.BUILD_NAME }}" \
-            --build-number "${{ env.BUILD_NUMBER }}" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key-alias "$EVIDENCE_ALIAS" \
-            --key rsa_private.pem || echo "⚠️ RSA PKCS#8 signing test failed (non-blocking)"
-
-      - name: Attach unit/coverage evidence to Docker image (PyTest)
-        if: ${{ false }}
-        env:
-          JFROG_CLI_LOG_LEVEL: DEBUG
-        run: |
-          echo "📊 Attaching PyTest unit/coverage evidence to Docker image"
-          
-          # Randomize values to simulate real runs
-          TESTS_PASSED=$((220 + RANDOM % 61))
-          COV=$(awk -v s=$RANDOM 'BEGIN{srand(s); printf "%.1f", 90.0 + rand()*5.0}')
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-          # Create pytest evidence predicate
-          cat <<EOF > pytest-evidence.json
+          cat > coverage-evidence.json <<JSON
           {
             "framework": "pytest",
             "status": "PASSED",
-            "testsPassed": ${TESTS_PASSED},
-            "testsFailed": 0,
-            "coveragePercent": ${COV},
+            "coveragePercent": ${COVERAGE_PERCENT:-0},
             "generatedAt": "${NOW_TS}",
             "reports": ["coverage.xml", "htmlcov/index.html"]
           }
-          EOF
-          
-          # Create coverage evidence markdown
-          cat <<EOF > coverage-evidence.md
+          JSON
+          cat > coverage-evidence.md <<MD
           # Test Coverage Evidence
-          
-          **Test Framework:** pytest with coverage  
-          **Coverage:** 90% (135/150 lines covered)  
-          **Status:** ${{ env.TESTS_PASSED == 'true' && 'Tests Passed' || 'Fallback Data (Tests Failed)' }}  
-          **Generated:** $(date -u)  
-          
-          ## Coverage Details
-          - **Lines Valid:** 150
-          - **Lines Covered:** 135  
-          - **Branches Valid:** 50
-          - **Branches Covered:** 45
-          
-          ## Reports Generated
-          - XML Report: coverage.xml
-          - HTML Report: htmlcov/index.html
-          
-          **Build:** [${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          EOF
-          
-          # Attach PyTest evidence to Docker image (package subject)
-          EVIDENCE_ALIAS=${EVIDENCE_EFFECTIVE_KEY_ALIAS:-${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}}
-          jf evd create \
-            --predicate pytest-evidence.json \
+
+          - Framework: pytest
+          - Coverage: ${COVERAGE_PERCENT:-N/A}%
+          - Generated: ${NOW_TS}
+          - Build: ${BUILD_NAME}#${BUILD_NUMBER}
+          - Image: ${IMAGE_NAME}
+          MD
+          jf evd create-evidence \
+            --predicate coverage-evidence.json \
             --markdown coverage-evidence.md \
             --predicate-type "https://pytest.org/evidence/results/v1" \
-            --package-name "${{ env.SERVICE_NAME }}" \
-            --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
-            --package-version "${{ env.IMAGE_TAG }}" \
+            --package-name "$SERVICE_NAME" \
+            --package-repo-name "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" \
+            --package-version "$IMAGE_TAG" \
             --project "${{ vars.PROJECT_KEY }}" \
-            --key-alias "$EVIDENCE_ALIAS" \
-            --key "$(cat evidence_private.pem)" || echo "⚠️ Coverage evidence attachment failed"
-          
-          echo "✅ Coverage evidence attached to Docker image"
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" || echo "⚠️ Coverage evidence attachment failed"
 
-      - name: Verify coverage evidence (optional)
-        if: ${{ false }}
-        env:
-          JFROG_CLI_LOG_LEVEL: DEBUG
+      - name: Collect Git information for Build Info
         run: |
-          echo "🔎 Verifying coverage evidence with public key"
-          jf evd verify \
-            --package-name "${{ env.SERVICE_NAME }}" \
-            --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
-            --package-version "${{ env.IMAGE_TAG }}" \
-            --public-keys evidence_public.pem || echo "⚠️ Evidence verification failed (non-blocking)"
+          jf rt bag "$BUILD_NAME" "$BUILD_NUMBER"
 
-      - name: Attach SAST evidence to Docker image (Checkmarx)
-        if: ${{ false }}
-        env:
-          JFROG_CLI_LOG_LEVEL: DEBUG
+      - name: Collect Environment Variables for Build Info
         run: |
-          echo "🔍 Attaching Checkmarx SAST evidence to Docker image"
-          
-          # Randomized SAST summary
-          SCAN_ID=$(cat /proc/sys/kernel/random/uuid)
-          HIGH=$((1 + RANDOM % 4))
-          MED=$((10 + RANDOM % 16))
-          LOW=$((30 + RANDOM % 31))
-          INFO=$((80 + RANDOM % 61))
+          jf rt bce "$BUILD_NAME" "$BUILD_NUMBER"
+
+      - name: Publish Build Info
+        run: |
+          jf rt bp "$BUILD_NAME" "$BUILD_NUMBER"
+
+      - name: Attach coverage evidence to Build (pytest)
+        run: |
+          set -euo pipefail
+          echo "📊 Attaching pytest coverage evidence to Build"
           NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-          cat <<EOF > sast-checkmarx.json
+          cat > coverage-evidence.json <<JSON
           {
-            "scanId": "${SCAN_ID}",
-            "summary": { "high": ${HIGH}, "medium": ${MED}, "low": ${LOW}, "info": ${INFO} },
-            "scanTimestamp": "${NOW_TS}"
+            "framework": "pytest",
+            "status": "PASSED",
+            "coveragePercent": ${COVERAGE_PERCENT:-0},
+            "generatedAt": "${NOW_TS}",
+            "reports": ["coverage.xml", "htmlcov/index.html"]
           }
-          EOF
-          
-          # Create SAST evidence markdown
-          cat <<EOF > sast-summary.md
-          # SAST Security Scan Evidence
-          
-          **Tool:** CodeQL v2.15.3  
-          **Scan Date:** $(date -u)  
-          **Total Findings:** 2 (1 medium, 1 low)  
-          
-          ## Security Issues Found
-          | Severity | Rule ID | File | Line | Description |
-          |----------|---------|------|------|-------------|
-          | Medium | py/sql-injection | app/database.py | 45 | Potential SQL injection vulnerability |
-          | Low | py/clear-text-logging-sensitive-data | app/services.py | 123 | Sensitive data may be logged |
-          
-          ## Scan Summary
-          - **High Priority:** 0 issues
-          - **Medium Priority:** 1 issue
-          - **Low Priority:** 1 issue
-          - **Total:** 2 issues requiring attention
-          
-          **Build:** [${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          EOF
-          
-          # Attach Checkmarx SAST to Docker image (package subject)
-          EVIDENCE_ALIAS=${EVIDENCE_EFFECTIVE_KEY_ALIAS:-${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}}
-          jf evd create \
-            --predicate sast-checkmarx.json \
-            --markdown sast-summary.md \
-            --predicate-type "https://checkmarx.com/evidence/sast/v1.1" \
-            --package-name "${{ env.SERVICE_NAME }}" \
-            --package-repo-name "${{ vars.PROJECT_KEY }}-${{ env.SERVICE_NAME }}-docker-internal-local" \
-            --package-version "${{ env.IMAGE_TAG }}" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key-alias "$EVIDENCE_ALIAS" \
-            --key "$(cat evidence_private.pem)" || echo "⚠️ SAST evidence attachment failed"
-          
-          echo "✅ SAST evidence attached to Docker image"
+          JSON
+          cat > coverage-evidence.md <<MD
+          # Test Coverage Evidence
 
-      # Removed Evidence REST API based verification. Prefer jf evd verify or skip.
+          - Framework: pytest
+          - Coverage: ${COVERAGE_PERCENT:-N/A}%
+          - Generated: ${NOW_TS}
+          - Build: ${BUILD_NAME}#${BUILD_NUMBER}
+          MD
+          jf evd create-evidence \
+            --predicate coverage-evidence.json \
+            --markdown coverage-evidence.md \
+            --predicate-type "https://pytest.org/evidence/results/v1" \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER" \
+            --project "${{ vars.PROJECT_KEY }}" \
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" || echo "⚠️ Coverage evidence attachment to Build failed"
 
   create-application-version:
     needs: build-test-publish
@@ -754,6 +419,7 @@ jobs:
           echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
           echo "BUILD_INFO_REPO=$BUILD_INFO_REPO" >> $GITHUB_ENV
+          echo "COVERAGE_PERCENT=${{ needs.build-test-publish.outputs.coverage_percent }}" >> $GITHUB_ENV
           
           echo "✅ AppTrust variables set:"
           echo "   📦 Application: $APPLICATION_KEY"
@@ -824,7 +490,8 @@ jobs:
           # Debug: show sanitized curl and payload
           echo "📦 Application Key: ${{ env.APPLICATION_KEY }}"
           echo "📝 Payload:"; echo "$APP_VERSION_PAYLOAD" | jq . || echo "$APP_VERSION_PAYLOAD"
-          echo "🔗 Curl (sanitized): curl -X POST '${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/?project=${{ vars.PROJECT_KEY }}&async=false' -H 'Authorization: Bearer ***' -H 'X-JFrog-Project: ${{ vars.PROJECT_KEY }}' -H 'Content-Type: application/json' -d '<payload>'"
+          echo "🔗 Curl (sanitized): curl -X POST '${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/?async=false' -H 'Authorization: Bearer ***' -H 'X-JFrog-Project: ${{ vars.PROJECT_KEY }}' -H 'Content-Type: application/json' -H 'Accept: application/json' -d '<payload>'"
+          DEBUG_INCLUDE_PROJECT_HEADER=true PROJECT_KEY='${{ vars.PROJECT_KEY }}' HTTP_DEBUG_LEVEL='${{ vars.HTTP_DEBUG_LEVEL || 'basic' }}' print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/?async=false" "<payload>"
 
           # Create the application version with status/body capture
           RESP_BODY=$(mktemp)
@@ -846,195 +513,18 @@ jobs:
           echo "✅ Application version created: ${{ env.APPLICATION_KEY }}@${{ env.APP_VERSION }}"
           echo "📦 Packages will be automatically bound from build sources"
 
-      - name: Prepare evidence signing key
-        if: ${{ false }}
-        env:
-          EVIDENCE_PK: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT: ${{ vars.EVIDENCE_KEY_ALIAS }}
-        run: |
-          set +e
-          set +u
-          set +o pipefail
-          umask 077
-          ALIAS_DEFAULT="${EVIDENCE_EFFECTIVE_KEY_ALIAS_INPUT:-}"
-          if [[ -z "$ALIAS_DEFAULT" ]]; then ALIAS_DEFAULT="bookverse_key"; fi
-          echo "EVIDENCE_EFFECTIVE_KEY_ALIAS=$ALIAS_DEFAULT" >> $GITHUB_ENV
-          if [[ -n "${EVIDENCE_PK:-}" ]]; then
-            KEY_TMP=$(mktemp)
-            printf '%s' "$EVIDENCE_PK" > "$KEY_TMP"
-            sed -e 's/^\"//' -e 's/\"$//' -e 's/\r//g' "$KEY_TMP" > "$KEY_TMP.1"
-            if grep -q "BEGIN .*PRIVATE KEY" "$KEY_TMP.1"; then
-              cp "$KEY_TMP.1" evidence_private.pem
-            else
-              printf '%b' "$(cat "$KEY_TMP.1")" > evidence_private.pem 2>/dev/null || true
-              if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
-                base64 -d "$KEY_TMP.1" > evidence_private.pem 2>/dev/null || true
-              fi
-            fi
-            rm -f "$KEY_TMP" "$KEY_TMP.1"
-          fi
-          if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
-            echo "ℹ️ Fallback: writing secret directly from GitHub expression"
-            RAW_TMP=$(mktemp)
-            printf '%s' "${{ secrets.EVIDENCE_PRIVATE_KEY }}" > "$RAW_TMP"
-            sed -e 's/^\"//' -e 's/\"$//' -e 's/\r//g' "$RAW_TMP" > "$RAW_TMP.1"
-            if grep -q "BEGIN .*PRIVATE KEY" "$RAW_TMP.1"; then
-              cp "$RAW_TMP.1" evidence_private.pem
-            else
-              printf '%b' "$(cat "$RAW_TMP.1")" > evidence_private.pem 2>/dev/null || true
-              if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
-                base64 -d "$RAW_TMP.1" > evidence_private.pem 2>/dev/null || true
-              fi
-            fi
-            rm -f "$RAW_TMP" "$RAW_TMP.1"
-          fi
-          if ! grep -q "BEGIN .*PRIVATE KEY" evidence_private.pem 2>/dev/null; then
-            echo "⚠️ evidence_private.pem: PEM header not detected; continuing for debug" >&2
-          fi
-          if ALG_LINE=$(openssl pkey -in evidence_private.pem -text_pub -noout 2>/dev/null | head -n1); then
-            if ! echo "$ALG_LINE" | grep -qi 'ed25519'; then
-              echo "⚠️ Private key not ED25519 (got: $ALG_LINE); continuing for debug" >&2
-            fi
-          else
-            echo "⚠️ Unable to inspect private key algorithm; continuing" >&2
-          fi
-          echo "🔎 evidence_private.pem info:"; ls -l evidence_private.pem || true; head -3 evidence_private.pem || true; wc -c evidence_private.pem || true
-          true
+      # Evidence signing and ED25519 debug steps removed as no longer necessary
 
-      - name: "Debug: list trusted keys (project scope)"
-        if: ${{ false }}
-        run: |
-          set +e
-          echo "🔎 Listing trusted keys for project ${{ vars.PROJECT_KEY }}"
-          KEYS_FILE=$(mktemp)
-          curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-               -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-               "${{ vars.JFROG_URL }}/artifactory/api/security/keys/trusted" > "$KEYS_FILE" || true
-          NORM=$(jq -c 'if type=="array" then . else (.keys // []) end' "$KEYS_FILE" 2>/dev/null || echo '[]')
-          printf '%s' "$NORM" | jq '.[] | {alias, kid, type, issued_on}' 2>/dev/null || true
-          # Prefer ED25519 keys matching alias patterns; fallback to any ED25519 key
-          KID=$(printf '%s' "$NORM" | jq -r '[.[] | select((.type|test("ed25519";"i")) and (.alias|test("bookverse|evidence|bookverse_key|bookverse_evidence_key";"i")))] | .[0].kid // empty' 2>/dev/null || true)
-          if [ -z "$KID" ] || [ "$KID" = "null" ]; then
-            KID=$(printf '%s' "$NORM" | jq -r '[.[] | select(.type|test("ed25519";"i"))] | .[0].kid // empty' 2>/dev/null || true)
-          fi
-          rm -f "$KEYS_FILE"
-          if [ -n "$KID" ] && [ "$KID" != "null" ]; then
-            echo "EVIDENCE_KID=$KID" >> $GITHUB_ENV
-            echo "✅ Resolved EVIDENCE_KID=$KID"
-          else
-            echo "⚠️ Could not resolve ED25519 key id; using default"
-          fi
-
-      - name: Attach SLSA provenance (gate to DEV)
-        if: ${{ false }}
-        run: |
-          echo "🧾 Attaching SLSA provenance to application version (UNASSIGNED → gate DEV)"
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          cat <<EOF > slsa-provenance.json
-          {
-            "buildName": "${{ env.BUILD_NAME }}",
-            "buildNumber": "${{ env.BUILD_NUMBER }}",
-            "builderId": "github-actions",
-            "buildType": "container-image",
-            "materials": [ { "uri": "git+${{ github.server_url }}/${{ github.repository }}@${{ github.sha }}", "digest": { "sha256": "${{ github.sha }}" } } ],
-            "invocation": { "parameters": { "workflow": "${{ github.workflow }}" }, "environment": { "runner": "ubuntu-latest" } },
-            "reproducible": false,
-            "createdAt": "${NOW_TS}",
-            "attachStage": "UNASSIGNED",
-            "gateForPromotionTo": "DEV"
-          }
-          EOF
-
-          EVIDENCE_ALIAS=${EVIDENCE_EFFECTIVE_KEY_ALIAS:-${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}}
-          jf evd create \
-            --predicate slsa-provenance.json \
-            --predicate-type "https://slsa.dev/provenance/v1" \
-            --release-bundle "${{ env.APPLICATION_KEY }}" \
-            --release-bundle-version "${{ env.APP_VERSION }}" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key-alias "$EVIDENCE_ALIAS" \
-            --key "$(cat evidence_private.pem)" || echo "⚠️ SLSA evidence attachment failed"
-
-          echo "✅ SLSA provenance attached"
-
-      - name: Attach Jira tickets (gate to DEV)
-        if: ${{ false }}
-        run: |
-          echo "🧾 Attaching Jira tickets to application version (UNASSIGNED → gate DEV)"
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          I1=$((1800 + RANDOM % 101))
-          I2=$((1800 + RANDOM % 101))
-          cat <<EOF > jira-tickets.json
-          {
-            "issues": [
-              { "key": "PROJ-${I1}", "type": "Story", "summary": "User profile settings page" },
-              { "key": "PROJ-${I2}", "type": "Bug", "summary": "Fix token refresh loop" }
-            ],
-            "approvedBy": "lead-${RANDOM}",
-            "approvedAt": "${NOW_TS}",
-            "attachStage": "UNASSIGNED",
-            "gateForPromotionTo": "DEV"
-          }
-          EOF
-
-          EVIDENCE_ALIAS=${EVIDENCE_EFFECTIVE_KEY_ALIAS:-${{ vars.EVIDENCE_KEY_ALIAS || 'BookVerse-Evidence-Key' }}}
-          jf evd create \
-            --predicate jira-tickets.json \
-            --predicate-type "https://atlassian.com/evidence/jira/release/v1" \
-            --release-bundle "${{ env.APPLICATION_KEY }}" \
-            --release-bundle-version "${{ env.APP_VERSION }}" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key-alias "$EVIDENCE_ALIAS" \
-            --key "$(cat evidence_private.pem)" || echo "⚠️ Jira tickets evidence attachment failed"
-
-          echo "✅ Jira tickets attached"
-
-          # (redacted secret output and test blocks removed)
-
-      - name: Wait for application version completion
-        if: ${{ false }}
-        run: |
-          set -euo pipefail
-          APP_URL="${{ vars.JFROG_URL }}/apptrust/api/v1/applications/${{ env.APPLICATION_KEY }}/versions/${{ env.APP_VERSION }}/content"
-          echo "⏳ Waiting for application version to complete: $APP_URL"
-          for i in {1..30}; do
-            STATUS_FILE=$(mktemp)
-            HTTP_STATUS=$(curl -sS -L -o "$STATUS_FILE" -w "%{http_code}" "$APP_URL" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json")
-            echo "HTTP $HTTP_STATUS"
-            if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
-              STATUS=$(jq -r '.status // empty' "$STATUS_FILE" 2>/dev/null || echo "")
-              echo "Current status: ${STATUS:-unknown}"
-              cat "$STATUS_FILE" | jq . || true
-              rm -f "$STATUS_FILE"
-              if [[ "$STATUS" == "IN_PROGRESS" || -z "$STATUS" ]]; then
-                sleep 5
-                continue
-              elif [[ "$STATUS" == "COMPLETED" || "$STATUS" == "READY" || "$STATUS" == "SUCCEEDED" ]]; then
-                echo "✅ Application version is completed."
-                exit 0
-              else
-                echo "❌ Application version ended in unexpected status: $STATUS" >&2
-                exit 1
-              fi
-            else
-              echo "⚠️ Unexpected HTTP status while polling. Body:" >&2
-              cat "$STATUS_FILE" >&2 || true
-              rm -f "$STATUS_FILE"
-              sleep 5
-            fi
-          done
-          echo "❌ Timed out waiting for application version to complete" >&2
-          exit 1
+      # Optional sample evidence and polling steps removed to keep workflow lean
 
       - name: Add build evidence
         run: |
           echo "🛡️ Complete evidence summary for AppTrust application version"
           echo "📋 Evidence Summary:"
           echo "   🐳 Artifacts: Docker container image with attached evidence"
-          echo "   📊 Coverage Evidence: Test results ($([ "${{ env.TESTS_PASSED }}" == "true" ] && echo 'Real' || echo 'Fallback')) attached to image"
-          echo "   🔍 SAST Evidence: CodeQL security scan results attached to image"
-          echo "   🔨 Build: ${{ env.SERVICE_NAME }}#${{ env.IMAGE_TAG }}"
-          echo "   🏷️ Version: ${{ env.APP_VERSION }} (SemVer compliant)"
+          echo "   📊 Coverage Evidence: ${COVERAGE_PERCENT:-N/A}% (pytest) attached to image"
+          echo "   🔨 Build: $SERVICE_NAME#$IMAGE_TAG"
+          echo "   🏷️ Version: $APP_VERSION (SemVer compliant)"
           echo "   📅 Created: $(date -u)"
           echo "   👤 Developer: ${{ github.actor }}"
           echo "   👨‍💼 Reviewer: tech-lead-$(echo ${{ github.actor }} | head -c3)"
@@ -1048,21 +538,17 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📄 Evidence Plan: see bookverse-demo-init/docs/EVIDENCE_PLAN.md" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Application:** \`${{ env.APPLICATION_KEY }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** \`${{ env.APP_VERSION }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Build:** \`${{ env.SERVICE_NAME }}#${{ env.IMAGE_TAG }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Application:** \`$APPLICATION_KEY\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`$APP_VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Build:** \`$SERVICE_NAME#$IMAGE_TAG\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📦 Automatically Bound Artifacts:" >> $GITHUB_STEP_SUMMARY
-          echo "- 🔄 **Build Artifacts**: All artifacts from build \`${{ env.SERVICE_NAME }}#${{ env.IMAGE_TAG }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔄 **Build Artifacts**: All artifacts from build \`$SERVICE_NAME#$IMAGE_TAG\`" >> $GITHUB_STEP_SUMMARY
           echo "- 🐳 **Docker Image**: Container image with automatic SBOMs and signatures" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🛡️ Evidence Attached to Artifacts:" >> $GITHUB_STEP_SUMMARY
-          echo "- 📊 **Test Coverage Evidence** (Docker Image): pytest results (90% coverage)" >> $GITHUB_STEP_SUMMARY
-          echo "  - Status: \`${{ env.TESTS_PASSED == 'true' && 'Real test results' || 'Fallback data (tests failed)' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 📊 **Test Coverage Evidence** (Docker Image): pytest results (coverage ${COVERAGE_PERCENT:-N/A}%)" >> $GITHUB_STEP_SUMMARY
           echo "  - Reports: coverage.xml, HTML coverage report" >> $GITHUB_STEP_SUMMARY
-          echo "- 🔍 **SAST Security Evidence** (Docker Image): CodeQL scan results" >> $GITHUB_STEP_SUMMARY
-          echo "  - Tool: CodeQL v2.15.3" >> $GITHUB_STEP_SUMMARY
-          echo "  - Findings: 2 issues (1 medium, 1 low)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ **Build Provenance**: Git commit, trigger source, and build metadata" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**🎯 AppTrust application version ready for promotion and governance!**" >> $GITHUB_STEP_SUMMARY
