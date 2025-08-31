@@ -116,6 +116,42 @@ jobs:
         run: |
           set -euo pipefail
           if [ -f .github/scripts/http_debug.sh ]; then source .github/scripts/http_debug.sh; fi
+          # Fallback minimal debug function (respects HTTP_DEBUG_LEVEL)
+          if ! declare -f print_request_debug >/dev/null 2>&1; then
+            print_request_debug() {
+              local method="$1"; local url="$2"; local body="${3:-}"; local level="${HTTP_DEBUG_LEVEL:-basic}"
+              [ "$level" = "none" ] && return 0
+              local show_project_header=false
+              # Allow forcing header via env var, otherwise infer from URL
+              if [[ "${DEBUG_INCLUDE_PROJECT_HEADER:-}" == "true" || "${DEBUG_INCLUDE_PROJECT_HEADER:-}" == "1" ]]; then
+                show_project_header=true
+              else
+                if [[ "$url" == *"/apptrust/api/"* ]]; then
+                  if [[ "$url" == *"/promote"* || "$url" == *"/release"* ]]; then
+                    show_project_header=false
+                  else
+                    show_project_header=true
+                  fi
+                fi
+              fi
+              local show_content_type=false
+              if [[ "$method" == "POST" ]]; then
+                show_content_type=true
+              fi
+              echo "---- Request debug (${level}) ----"
+              echo "Method: ${method}"
+              echo "URL: ${url}"
+              echo "Headers:"
+              echo "  Authorization: Bearer ***REDACTED***"
+              if $show_project_header && [[ -n "${PROJECT_KEY:-}" ]]; then echo "  X-JFrog-Project: ${PROJECT_KEY}"; fi
+              if $show_content_type; then echo "  Content-Type: application/json"; fi
+              echo "  Accept: application/json"
+              if [ -n "$body" ] && [ "$level" = "verbose" ]; then
+                echo "Body: ${body}"
+              fi
+              echo "-----------------------"
+            }
+          fi
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
@@ -268,6 +304,8 @@ jobs:
           echo "✅ Docker image present in Artifactory"
 
       - name: Attach coverage evidence to Docker image (pytest)
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           echo "📊 Attaching pytest coverage evidence to Docker image"
@@ -290,6 +328,8 @@ jobs:
           - Build: ${BUILD_NAME}#${BUILD_NUMBER}
           - Image: ${IMAGE_NAME}
           MD
+          KEY_ARGS=()
+          if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then KEY_ARGS+=(--key "$EVIDENCE_PRIVATE_KEY"); fi
           jf evd create-evidence \
             --predicate coverage-evidence.json \
             --markdown coverage-evidence.md \
@@ -298,7 +338,7 @@ jobs:
             --package-repo-name "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" \
             --package-version "$IMAGE_TAG" \
             --project "${{ vars.PROJECT_KEY }}" \
-            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" || echo "⚠️ Coverage evidence attachment failed"
+            "${KEY_ARGS[@]}" || echo "⚠️ Coverage evidence attachment failed"
 
       - name: Collect Git information for Build Info
         run: |
@@ -313,6 +353,8 @@ jobs:
           jf rt bp "$BUILD_NAME" "$BUILD_NUMBER"
 
       - name: Attach coverage evidence to Build (pytest)
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           echo "📊 Attaching pytest coverage evidence to Build"
@@ -334,6 +376,8 @@ jobs:
           - Generated: ${NOW_TS}
           - Build: ${BUILD_NAME}#${BUILD_NUMBER}
           MD
+          KEY_ARGS=()
+          if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then KEY_ARGS+=(--key "$EVIDENCE_PRIVATE_KEY"); fi
           jf evd create-evidence \
             --predicate coverage-evidence.json \
             --markdown coverage-evidence.md \
@@ -341,7 +385,7 @@ jobs:
             --build-name "$BUILD_NAME" \
             --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}" \
-            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" || echo "⚠️ Coverage evidence attachment to Build failed"
+            "${KEY_ARGS[@]}" || echo "⚠️ Coverage evidence attachment to Build failed"
 
   create-application-version:
     needs: build-test-publish
@@ -489,6 +533,42 @@ jobs:
           # Debug: show sanitized curl and payload
           echo "📦 Application Key: $APPLICATION_KEY"
           echo "📝 Payload:"; echo "$APP_VERSION_PAYLOAD" | jq . || echo "$APP_VERSION_PAYLOAD"
+          # Source shared helper if available, with a robust fallback definition
+          if [ -f .github/scripts/http_debug.sh ]; then source .github/scripts/http_debug.sh; fi
+          if ! declare -f print_request_debug >/dev/null 2>&1; then
+            print_request_debug() {
+              local method="$1"; local url="$2"; local body="${3:-}"; local level="${HTTP_DEBUG_LEVEL:-basic}"
+              [ "$level" = "none" ] && return 0
+              local show_project_header=false
+              if [[ "${DEBUG_INCLUDE_PROJECT_HEADER:-}" == "true" || "${DEBUG_INCLUDE_PROJECT_HEADER:-}" == "1" ]]; then
+                show_project_header=true
+              else
+                if [[ "$url" == *"/apptrust/api/"* ]]; then
+                  if [[ "$url" == *"/promote"* || "$url" == *"/release"* ]]; then
+                    show_project_header=false
+                  else
+                    show_project_header=true
+                  fi
+                fi
+              fi
+              local show_content_type=false
+              if [[ "$method" == "POST" ]]; then
+                show_content_type=true
+              fi
+              echo "---- Request debug (${level}) ----"
+              echo "Method: ${method}"
+              echo "URL: ${url}"
+              echo "Headers:"
+              echo "  Authorization: Bearer ***REDACTED***"
+              if $show_project_header && [[ -n "${PROJECT_KEY:-}" ]]; then echo "  X-JFrog-Project: ${PROJECT_KEY}"; fi
+              if $show_content_type; then echo "  Content-Type: application/json"; fi
+              echo "  Accept: application/json"
+              if [ -n "$body" ] && [ "$level" = "verbose" ]; then
+                echo "Body: ${body}"
+              fi
+              echo "-----------------------"
+            }
+          fi
           echo "🔗 Curl (sanitized): curl -X POST '${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/?async=false' -H 'Authorization: Bearer ***' -H 'X-JFrog-Project: ${{ vars.PROJECT_KEY }}' -H 'Content-Type: application/json' -H 'Accept: application/json' -d '<payload>'"
           DEBUG_INCLUDE_PROJECT_HEADER=true PROJECT_KEY='${{ vars.PROJECT_KEY }}' print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/?async=false" "<payload>"
 
