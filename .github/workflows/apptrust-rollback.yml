@@ -1,0 +1,74 @@
+name: AppTrust Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_key:
+        description: "AppTrust application key"
+        required: true
+        type: string
+      version:
+        description: "Version (SemVer) to rollback"
+        required: true
+        type: string
+      dry_run:
+        description: "Dry run (no mutations)"
+        required: false
+        default: true
+        type: boolean
+      base_url:
+        description: "Override AppTrust base URL (defaults to secret)"
+        required: false
+        type: string
+
+concurrency:
+  group: apptrust-rollback-${{ inputs.app_key }}
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Rollback ${{ inputs.app_key }} ${{ inputs.version }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Execute rollback
+        shell: bash
+        env:
+          AT_BASE_URL_INPUT: ${{ inputs.base_url }}
+          AT_BASE_URL_SECRET: ${{ secrets.APPTRUST_BASE_URL }}
+          APPTRUST_ACCESS_TOKEN: ${{ secrets.APPTRUST_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASE_URL="${AT_BASE_URL_INPUT}"
+          if [ -z "${BASE_URL}" ]; then
+            BASE_URL="${AT_BASE_URL_SECRET}"
+          fi
+          if [ -z "${BASE_URL}" ]; then
+            echo "Base URL is required via input 'base_url' or secret 'APPTRUST_BASE_URL'" >&2
+            exit 2
+          fi
+
+          export APPTRUST_BASE_URL="${BASE_URL}"
+          if [ -z "${APPTRUST_ACCESS_TOKEN}" ]; then
+            echo "Missing secret APPTRUST_ACCESS_TOKEN" >&2
+            exit 2
+          fi
+
+          DRY_FLAG=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            DRY_FLAG="--dry-run"
+          fi
+
+          python3 scripts/apptrust_rollback.py \
+            --app "${{ inputs.app_key }}" \
+            --version "${{ inputs.version }}" \
+            ${DRY_FLAG}
