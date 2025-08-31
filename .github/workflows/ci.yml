@@ -353,8 +353,6 @@ jobs:
       - name: Populate coverage evidence and attach (pytest)
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
-          EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           set -euo pipefail
           # Ensure envsubst is available
@@ -391,27 +389,11 @@ jobs:
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Coverage evidence attachment failed"
 
       # Evidence Plan: Package subject – sast-scan (Checkmarx)
-      - name: Attach SAST evidence to Docker image (sast-scan)
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
-          EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
+      - name: Prepare SAST evidence template (sast-scan)
         run: |
           set -euo pipefail
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          echo "📎 Attaching SAST evidence to Docker image"
-          cat > sast-evidence.json <<JSON
-          {
-            "sast": {
-              "tool": "Checkmarx",
-              "scanDate": "${NOW_TS}",
-              "summary": {"critical": 0, "high": 0, "medium": 1, "low": 2},
-              "repository": "${{ github.repository }}",
-              "commit": "${{ github.sha }}"
-            }
-          }
-          JSON
-          cat > sast-evidence.md <<MD
+          echo "📄 Preparing SAST evidence template"
+          cat > sast-evidence.template.md <<'EOF'
           ### 🛡️ Checkmarx SAST Scan Summary
 
           | Status | Findings | Details |
@@ -439,7 +421,29 @@ jobs:
           * **Repository**: `${{ github.repository }}`
           * **Commit SHA**: `${{ github.sha }}`
           * **Scan Date (UTC)**: `${NOW_TS}`
-          MD
+          EOF
+
+      - name: Populate SAST evidence and attach (sast-scan)
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          # Create predicate JSON
+          cat > sast-evidence.json <<JSON
+          {
+            "sast": {
+              "tool": "Checkmarx",
+              "scanDate": "${NOW_TS}",
+              "summary": {"critical": 0, "high": 0, "medium": 1, "low": 2},
+              "repository": "${{ github.repository }}",
+              "commit": "${{ github.sha }}"
+            }
+          }
+          JSON
+          export NOW_TS="${NOW_TS}"
+          envsubst < sast-evidence.template.md > sast-evidence.md
           jf evd create-evidence \
             --predicate sast-evidence.json \
             --markdown sast-evidence.md \
@@ -466,24 +470,11 @@ jobs:
       
 
       # Evidence Plan: Build subject – code-quality (SonarQube)
-      - name: Attach Sonar quality gate to Build (code-quality)
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
-          EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
+      - name: Prepare Sonar quality gate template (code-quality)
         run: |
           set -euo pipefail
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          cat > quality-gate.json <<JSON
-          {
-            "qualityGate": {
-              "tool": "SonarQube",
-              "status": "PASSED",
-              "checkedAt": "${NOW_TS}"
-            }
-          }
-          JSON
-          cat > quality-gate.md <<MD
+          echo "📄 Preparing quality gate template"
+          cat > quality-gate.template.md <<'EOF'
           # SonarQube Quality Gate Report
 
           > ## ✅ Status: PASSED
@@ -497,7 +488,26 @@ jobs:
           * **Analysis Tool**: `SonarQube`
           * **Result**: `PASSED`
           * **Checked At (UTC)**: `${NOW_TS}`
-          MD
+          EOF
+
+      - name: Populate quality gate template and attach (code-quality)
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat > quality-gate.json <<JSON
+          {
+            "qualityGate": {
+              "tool": "SonarQube",
+              "status": "PASSED",
+              "checkedAt": "${NOW_TS}"
+            }
+          }
+          JSON
+          export NOW_TS="${NOW_TS}"
+          envsubst < quality-gate.template.md > quality-gate.md
           jf evd create-evidence \
             --predicate quality-gate.json \
             --markdown quality-gate.md \
@@ -509,24 +519,11 @@ jobs:
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Quality gate evidence attachment failed"
 
       # Evidence Plan: Build subject – license-compliance (FOSSA)
-      - name: Attach FOSSA license compliance to Build (license-compliance)
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
-          EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
+      - name: Prepare FOSSA license compliance template (license-compliance)
         run: |
           set -euo pipefail
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          cat > license-evidence.json <<JSON
-          {
-            "licenseScan": {
-              "tool": "FOSSA",
-              "status": "PASSED",
-              "checkedAt": "${NOW_TS}"
-            }
-          }
-          JSON
-          cat > license-evidence.md <<MD
+          echo "📄 Preparing license compliance template"
+          cat > license-evidence.template.md <<'EOF'
           # 🛡️ FOSSA License Compliance Report
 
           > ## ✅ Status: PASSED
@@ -540,7 +537,26 @@ jobs:
           * **Compliance Tool**: `FOSSA`
           * **Result**: `PASSED`
           * **Checked At (UTC)**: `${NOW_TS}`
-          MD
+          EOF
+
+      - name: Populate license template and attach (license-compliance)
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat > license-evidence.json <<JSON
+          {
+            "licenseScan": {
+              "tool": "FOSSA",
+              "status": "PASSED",
+              "checkedAt": "${NOW_TS}"
+            }
+          }
+          JSON
+          export NOW_TS="${NOW_TS}"
+          envsubst < license-evidence.template.md > license-evidence.md
           jf evd create-evidence \
             --predicate license-evidence.json \
             --markdown license-evidence.md \
@@ -758,28 +774,11 @@ jobs:
           echo "📦 Packages will be automatically bound from build sources"
 
       # Evidence Plan: App UNASSIGNED – slsa-provenance and jira-tickets (gate to DEV)
-      - name: Attach UNASSIGNED evidence (SLSA, Jira)
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
-          EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
+      - name: Prepare UNASSIGNED evidence templates (SLSA, Jira)
         run: |
           set -euo pipefail
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-          # SLSA Provenance
-          cat > slsa.json <<JSON
-          {
-            "provenance": {
-              "framework": "SLSA",
-              "level": "v1",
-              "generatedAt": "${NOW_TS}",
-              "attachStage": "UNASSIGNED",
-              "gateForPromotionTo": "DEV"
-            }
-          }
-          JSON
-          cat > slsa.md <<MD
+          echo "📄 Preparing SLSA and Jira templates"
+          cat > slsa.template.md <<'EOF'
           # SLSA Provenance Report 🛡️
 
           This document summarizes the SLSA (Supply-chain Levels for Software Artifacts) provenance check. This evidence serves as a quality and security gate for promoting an artifact to the `DEV` environment.
@@ -793,29 +792,8 @@ jobs:
           * **Generated At**: `${NOW_TS}`
           * **Gate for Promotion To**: `DEV`
           * **Attachment Stage**: `UNASSIGNED`
-          MD
-          jf evd create-evidence \
-            --predicate slsa.json \
-            --markdown slsa.md \
-            --predicate-type "https://slsa.dev/provenance/v1" \
-            --release-bundle "$APPLICATION_KEY" \
-            --release-bundle-version "$APP_VERSION" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ SLSA evidence attach failed"
-
-          # Jira Tickets
-          cat > jira.json <<JSON
-          {
-            "jira": {
-              "tickets": ["BV-${{ github.run_number }}"],
-              "status": "ready",
-              "attachStage": "UNASSIGNED",
-              "gateForPromotionTo": "DEV"
-            }
-          }
-          JSON
-          cat > jira.md <<MD
+          EOF
+          cat > jira.template.md <<'EOF'
           # 🎫 Jira Validation Gate Report
 
           > ## ✅ Gate Passed
@@ -831,7 +809,51 @@ jobs:
           * **Required Status**: `ready`
           * **Promotion Gate For**: `DEV`
           * **Attachment Stage**: `UNASSIGNED`
-          MD
+          EOF
+
+      - name: Populate UNASSIGNED templates and attach (SLSA, Jira)
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          export NOW_TS="${NOW_TS}"
+          # SLSA predicate and markdown
+          cat > slsa.json <<JSON
+          {
+            "provenance": {
+              "framework": "SLSA",
+              "level": "v1",
+              "generatedAt": "${NOW_TS}",
+              "attachStage": "UNASSIGNED",
+              "gateForPromotionTo": "DEV"
+            }
+          }
+          JSON
+          envsubst < slsa.template.md > slsa.md
+          jf evd create-evidence \
+            --predicate slsa.json \
+            --markdown slsa.md \
+            --predicate-type "https://slsa.dev/provenance/v1" \
+            --release-bundle "$APPLICATION_KEY" \
+            --release-bundle-version "$APP_VERSION" \
+            --project "${{ vars.PROJECT_KEY }}" \
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ SLSA evidence attach failed"
+
+          # Jira predicate and markdown
+          cat > jira.json <<JSON
+          {
+            "jira": {
+              "tickets": ["BV-${{ github.run_number }}"],
+              "status": "ready",
+              "attachStage": "UNASSIGNED",
+              "gateForPromotionTo": "DEV"
+            }
+          }
+          JSON
+          envsubst < jira.template.md > jira.md
           jf evd create-evidence \
             --predicate jira.json \
             --markdown jira.md \
@@ -926,15 +948,28 @@ jobs:
           disable-job-summary: true
           oidc-audience: jfrog-github
 
-      - name: Attach verified evidence to latest version
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
-          EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
+      - name: Prepare verified evidence template
         run: |
           set -euo pipefail
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "📄 Preparing verified evidence template"
+          cat > verified.template.md <<'EOF'
+          # ✅ Verification Evidence
 
+          > Status: verified  
+          > Verified At: ${NOW_TS}
+
+          Minimal verification evidence attached to the latest application version for demonstration.
+          EOF
+
+      - name: Populate verified template and attach
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          export NOW_TS="${NOW_TS}"
+          envsubst < verified.template.md > verified.md
           cat > verified.json <<JSON
           {
             "verification": {
@@ -944,16 +979,6 @@ jobs:
             }
           }
           JSON
-
-          cat > verified.md <<MD
-          # ✅ Verification Evidence
-
-          > Status: verified  
-          > Verified At: ${NOW_TS}
-
-          Minimal verification evidence attached to the latest application version for demonstration.
-          MD
-
           jf evd create-evidence \
             --predicate verified.json \
             --markdown verified.md \
