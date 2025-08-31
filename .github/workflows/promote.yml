@@ -180,10 +180,47 @@ jobs:
           
           PROMOTED_STAGES=""
           DID_RELEASE=false
-          # Chain from next stage after current to the target stage inclusive
-          for (( i=CURRENT_INDEX+1; i<=TARGET_INDEX; i++ )); do
-            STG="${STAGES[$i]}"
-            # Use Release API if stage likely represents Production, else Promote API
+          
+          fetch_summary() {
+            local body
+            body=$(mktemp)
+            local code
+            code=$(curl -sS -L -o "$body" -w "%{http_code}" \
+              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION?project=${{ vars.PROJECT_KEY }}" \
+              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+              -H "Accept: application/json")
+            if [[ "$code" -lt 200 || "$code" -ge 300 ]]; then
+              code=$(curl -sS -L -o "$body" -w "%{http_code}" \
+                "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/?project=${{ vars.PROJECT_KEY }}" \
+                -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+                -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+                -H "Accept: application/json")
+            fi
+            if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
+              CURRENT_STAGE=$(jq -r '.current_stage // empty' "$body" 2>/dev/null || echo "")
+              RELEASE_STATUS=$(jq -r '.release_status // empty' "$body" 2>/dev/null || echo "")
+            fi
+            rm -f "$body"
+            CS_UPPER=$(echo "$CURRENT_STAGE" | tr '[:lower:]' '[:upper:]')
+            echo "🔎 Current stage: ${CURRENT_STAGE:-UNASSIGNED} (release_status=${RELEASE_STATUS:-unknown})"
+          }
+
+          # Iteratively promote/release to next stage, refetching state each hop
+          fetch_summary
+          while true; do
+            # Compute current and target indices each iteration
+            CURRENT_INDEX=-1
+            for i in "${!STAGES[@]}"; do if [[ "${STAGES[$i]^^}" == "$CS_UPPER" ]]; then CURRENT_INDEX=$i; break; fi; done
+            if [[ "$CURRENT_INDEX" -lt 0 ]]; then CURRENT_INDEX=-1; fi
+            # Recompute target index (may be unchanged)
+            TARGET_UPPER=$(echo "$TARGET_NAME" | tr '[:lower:]' '[:upper:]')
+            TARGET_INDEX=-1
+            for i in "${!STAGES[@]}"; do if [[ "${STAGES[$i]^^}" == "$TARGET_UPPER" ]]; then TARGET_INDEX=$i; break; fi; done
+            if [[ "$TARGET_INDEX" -lt 0 ]]; then TARGET_INDEX=$((${#STAGES[@]}-1)); fi
+            NEXT_INDEX=$((CURRENT_INDEX+1))
+            if [[ "$NEXT_INDEX" -gt "$TARGET_INDEX" ]]; then break; fi
+            STG="${STAGES[$NEXT_INDEX]}"
             if [[ "${STG^^}" =~ ^PROD ]]; then
               echo "🚀 Releasing to PROD via AppTrust Release API"
               RESP_BODY=$(mktemp)
@@ -202,6 +239,7 @@ jobs:
               fi
               DID_RELEASE=true
               PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }PROD"
+              fetch_summary
             else
               echo "🚀 Promoting to $STG via AppTrust"
               RESP_BODY=$(mktemp)
@@ -213,12 +251,22 @@ jobs:
                 -H "Accept: application/json" \
                 -d "{\"target_stage\": \"$STG\", \"promotion_type\": \"copy\"}")
               echo "HTTP $HTTP_STATUS"; cat "$RESP_BODY" || true; echo
-              rm -f "$RESP_BODY"
-              if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then
-                echo "❌ Promotion to $STG failed" >&2
-                exit 1
+              # Handle 400 same-as-current gracefully by refetching and continuing
+              if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
+                PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$STG"
+                rm -f "$RESP_BODY"
+                fetch_summary
+              else
+                if grep -q "same as current stage" "$RESP_BODY" 2>/dev/null; then
+                  echo "ℹ️ Server reports current is already $STG; refetching and continuing"
+                  rm -f "$RESP_BODY"
+                  fetch_summary
+                else
+                  rm -f "$RESP_BODY"
+                  echo "❌ Promotion to $STG failed" >&2
+                  exit 1
+                fi
               fi
-              PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$STG"
             fi
           done
           echo "PROMOTED_STAGES=$PROMOTED_STAGES" >> $GITHUB_ENV
