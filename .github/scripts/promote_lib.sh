@@ -123,12 +123,22 @@ release_version() {
     -H "Accept: application/json" \
     -d '{"promotion_type":"move"}')
   echo "HTTP $http_status"; cat "$resp_body" || true; echo
-  rm -f "$resp_body"
   if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
-    echo "❌ Release to ${FINAL_STAGE} failed (HTTP $http_status)" >&2
-    print_request_debug "POST" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" "{\"promotion_type\":\"move\"}"
-    return 1
+    if grep -qi "Invalid target environment" "$resp_body"; then
+      echo "⚠️ Release API unsupported for PROD on this instance; falling back to stage promotion"
+      rm -f "$resp_body"
+      promote_to_stage "PROD" || return 1
+      DID_RELEASE=true
+      echo "DID_RELEASE=${DID_RELEASE}" >> "$GITHUB_ENV"
+      return 0
+    else
+      echo "❌ Release to ${FINAL_STAGE} failed (HTTP $http_status)" >&2
+      print_request_debug "POST" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" "{\"promotion_type\":\"move\"}"
+      rm -f "$resp_body"
+      return 1
+    fi
   fi
+  rm -f "$resp_body"
   DID_RELEASE=true
   echo "DID_RELEASE=${DID_RELEASE}" >> "$GITHUB_ENV"
   PROMOTED_STAGES="${PROMOTED_STAGES:-}${PROMOTED_STAGES:+ }${FINAL_STAGE}"
