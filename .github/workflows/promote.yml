@@ -68,390 +68,143 @@ jobs:
           disable-job-summary: true
           oidc-audience: jfrog-github
 
-      - name: Promote application version across SDLC to PROD (chain)
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+      - name: Initialize promotion context
         run: |
           set -euo pipefail
-          # HTTP_DEBUG_LEVEL can be set at repo or project vars: none|basic|verbose
           if [[ -n "${HTTP_DEBUG_LEVEL:-}" ]]; then :; else export HTTP_DEBUG_LEVEL=basic; fi
+          export JFROG_URL="${{ vars.JFROG_URL }}"
+          export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
+          export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
+          source .github/scripts/promote_lib.sh
           echo "📦 Application: $APPLICATION_KEY"
           echo "🏷️ Version: $APP_VERSION"
-          
-          # Single source of truth for summary – define once and reuse
-          # Source shared debug helper (if present)
-          if [ -f .github/scripts/http_debug.sh ]; then source .github/scripts/http_debug.sh; fi
-          # Fallback minimal debug function (respects HTTP_DEBUG_LEVEL)
-          if ! declare -f print_request_debug >/dev/null 2>&1; then
-            print_request_debug() {
-              local method="$1"; local url="$2"; local body="${3:-}"; local level="${HTTP_DEBUG_LEVEL:-basic}"
-              [ "$level" = "none" ] && return 0
-              local show_project_header=false
-              local show_content_type=false
-              if [[ "$url" == *"/apptrust/api/"* ]]; then
-                if [[ "$url" == *"/promote"* || "$url" == *"/release"* ]]; then
-                  show_project_header=false
-                else
-                  show_project_header=true
-                fi
-              fi
-              if [[ "$method" == "POST" ]]; then
-                show_content_type=true
-              fi
-              echo "---- Request debug (${level}) ----"
-              echo "Method: ${method}"
-              echo "URL: ${url}"
-              echo "Headers:"
-              echo "  Authorization: Bearer ***REDACTED***"
-              if $show_project_header; then echo "  X-JFrog-Project: ${{ vars.PROJECT_KEY }}"; fi
-              if $show_content_type; then echo "  Content-Type: application/json"; fi
-              echo "  Accept: application/json"
-              if [ -n "$body" ] && [ "$level" = "verbose" ]; then
-                echo "Body: ${body}"
-              fi
-              echo "-----------------------"
-            }
-          fi
-
-          fetch_summary() {
-            local body
-            body=$(mktemp)
-            local code
-            code=$(curl -sS -L -o "$body" -w "%{http_code}" \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-            -H "Accept: application/json")
-            if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
-              CURRENT_STAGE=$(jq -r '.current_stage // empty' "$body" 2>/dev/null || echo "")
-              RELEASE_STATUS=$(jq -r '.release_status // empty' "$body" 2>/dev/null || echo "")
-            else
-              echo "❌ Failed to fetch version summary (HTTP $code)" >&2
-              print_request_debug "GET" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content"
-              cat "$body" || true
-              rm -f "$body"
-            exit 1
-          fi
-            rm -f "$body"
-          echo "🔎 Current stage: ${CURRENT_STAGE:-UNASSIGNED} (release_status=${RELEASE_STATUS:-unknown})"
-          }
-          # Initial state snapshot
           fetch_summary
           echo "CURRENT_STAGE_BEFORE=${CURRENT_STAGE:-UNASSIGNED}" >> $GITHUB_ENV
           echo "RELEASE_STATUS_BEFORE=${RELEASE_STATUS:-UNKNOWN}" >> $GITHUB_ENV
-          
-          # Resolve lifecycle order dynamically (bookverse-lifecycle by default)
-          LIFECYCLE_NAME="${LIFECYCLE_NAME:-}"
-          if [[ -z "$LIFECYCLE_NAME" ]]; then LIFECYCLE_NAME='bookverse-lifecycle'; fi
           LC_FILE=$(mktemp)
-          # Access API: list lifecycles for project, then select by name
-          CODE=$(curl -sS -L -o "$LC_FILE" -w "%{http_code}" "${{ vars.JFROG_URL }}/access/api/v2/lifecycle/?project_key=${{ vars.PROJECT_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-            -H "Accept: application/json" || echo 000)
+          CODE=$(curl -sS -L -o "$LC_FILE" -w "%{http_code}" "$JFROG_URL/access/api/v2/lifecycle/?project_key=$PROJECT_KEY" -H "Authorization: Bearer $JFROG_ADMIN_TOKEN" -H "Accept: application/json" || echo 000)
           if [[ "$CODE" -lt 200 || "$CODE" -ge 300 ]]; then
-            echo "❌ Failed to fetch lifecycles list for project '${{ vars.PROJECT_KEY }}' (HTTP $CODE)" >&2
-            print_request_debug "GET" "${{ vars.JFROG_URL }}/access/api/v2/lifecycle/?project_key=${{ vars.PROJECT_KEY }}"
+            echo "❌ Failed to fetch lifecycles list for project '$PROJECT_KEY' (HTTP $CODE)" >&2
+            print_request_debug "GET" "$JFROG_URL/access/api/v2/lifecycle/?project_key=$PROJECT_KEY"
             cat "$LC_FILE" || true
             rm -f "$LC_FILE"
             exit 1
           fi
-          # Normalize lifecycle response into an array of lifecycles and extract
           NORM_FILE=$(mktemp)
-          jq -c '
-            if type=="array" then .
-            elif has("lifecycles") then .lifecycles
-            elif has("items") then .items
-            elif has("results") then .results
-            elif (has("name") and has("stages")) then [.] else [] end
-          ' "$LC_FILE" > "$NORM_FILE" 2>/dev/null || printf '[]' > "$NORM_FILE"
+          jq -c 'if type=="array" then . elif has("lifecycles") then .lifecycles elif has("items") then .items elif has("results") then .results elif (has("name") and has("stages")) then [.] else [] end' "$LC_FILE" > "$NORM_FILE" 2>/dev/null || printf '[]' > "$NORM_FILE"
           rm -f "$LC_FILE"
+          LIFECYCLE_NAME="${LIFECYCLE_NAME:-bookverse-lifecycle}"
           NAMES=$(jq -r --arg n "$LIFECYCLE_NAME" 'map(select(.name == $n)) | .[0].stages // [] | map(if type=="object" then .name else . end) | .[]' "$NORM_FILE" 2>/dev/null || true)
           RELEASE_STAGE=$(jq -r --arg n "$LIFECYCLE_NAME" '([ .[] | select(.name == $n) | .releaseStage ] | .[0]) // empty' "$NORM_FILE" 2>/dev/null || true)
           STAGES=()
-          STAGES_PROMOTE=()
-          # Build display stages (without project prefix) and API stages (with project prefix), respecting PROD exception
           while IFS= read -r orig; do
             [[ -z "$orig" ]] && continue
-            display="$orig"
-            promote="$orig"
-            if [[ "$orig" == "PROD" || "$orig" == "${{ vars.PROJECT_KEY }}-PROD" ]]; then
-              display="PROD"
-              promote="PROD"
-            elif [[ "$orig" == "${{ vars.PROJECT_KEY }}-"* ]]; then
-              display="${orig#${{ vars.PROJECT_KEY }}-}"
-              promote="$orig"
-            else
-              display="$orig"
-              if [[ "$display" != "PROD" ]]; then promote="${{ vars.PROJECT_KEY }}-$display"; fi
-            fi
+            display=$(display_stage_for "$orig")
             STAGES+=("$display")
-            STAGES_PROMOTE+=("$promote")
           done < <(printf "%s\n" "$NAMES")
           rm -f "$NORM_FILE"
           if [[ ${#STAGES[@]} -eq 0 ]]; then
             echo "ℹ️ Lifecycle '$LIFECYCLE_NAME' not found; falling back to default stages (DEV → QA → STAGING → PROD)" >&2
             STAGES=(DEV QA STAGING PROD)
           fi
-          # Prefer lifecycle.releaseStage as the final stage; fallback to last stage (or PROD for default)
           if [[ -n "$RELEASE_STAGE" ]]; then
-            if [[ "$RELEASE_STAGE" == "${{ vars.PROJECT_KEY }}-"* ]]; then
-              FINAL_STAGE="${RELEASE_STAGE#${{ vars.PROJECT_KEY }}-}"
-            elif [[ "$RELEASE_STAGE" == "PROD" ]]; then
-              FINAL_STAGE="PROD"
-            else
-              FINAL_STAGE="$RELEASE_STAGE"
-            fi
+            FINAL_STAGE=$(display_stage_for "$RELEASE_STAGE")
           else
             FINAL_STAGE="${STAGES[$((${#STAGES[@]}-1))]}"
           fi
           echo "FINAL_STAGE=$FINAL_STAGE" >> $GITHUB_ENV
-          # Compute indices (case-sensitive)
-          CURRENT_INDEX=-1
-          # Map stage to API form for comparisons (handle PROD and already-prefixed names)
-          API_STAGE_FOR() {
-            local s="$1"
-            if [[ "$s" == "PROD" ]]; then echo "PROD"; 
-            elif [[ "$s" == "${{ vars.PROJECT_KEY }}-"* ]]; then echo "$s"; 
-            else echo "${{ vars.PROJECT_KEY }}-$s"; fi
-          }
-          for i in "${!STAGES[@]}"; do if [[ "$(API_STAGE_FOR "${STAGES[$i]}")" == "$(API_STAGE_FOR "$CURRENT_STAGE")" ]]; then CURRENT_INDEX=$i; break; fi; done
+          STAGES_STR="${STAGES[*]}"
+          echo "STAGES_STR=$STAGES_STR" >> $GITHUB_ENV
           TS_INPUT="${{ inputs.target_stage }}"
           TARGET_NAME="$TS_INPUT"
           if [[ -z "$TARGET_NAME" ]]; then TARGET_NAME="$FINAL_STAGE"; fi
-          TARGET_INDEX=-1
-          for i in "${!STAGES[@]}"; do if [[ "${STAGES[$i]}" == "$TARGET_NAME" ]]; then TARGET_INDEX=$i; break; fi; done
-          if [[ "$TARGET_INDEX" -lt 0 ]]; then
-            echo "❌ Target stage '$TARGET_NAME' not found in lifecycle. Available: ${STAGES[*]}" >&2
-            exit 1
-          fi
-          # If current unknown/unassigned, start before first stage
-          if [[ "$CURRENT_INDEX" -lt 0 ]]; then CURRENT_INDEX=-1; fi
-          if [[ "$CURRENT_INDEX" -ge "$TARGET_INDEX" ]]; then
-            echo "ℹ️ Current stage ($CURRENT_STAGE) is at or beyond target ($TARGET_NAME). Nothing to promote."
-            echo "PROMOTED_STAGES=" >> $GITHUB_ENV
-            echo "DID_RELEASE=false" >> $GITHUB_ENV
-            exit 0
-          fi
-          
-          PROMOTED_STAGES=""
-          DID_RELEASE=false
-          
-          # HTTP helper for AppTrust POST calls
-          apptrust_post() {
-            local path="$1"; local data="$2"; local out_file="$3"
-            local status
-            status=$(curl -sS -L -o "$out_file" -w "%{http_code}" -X POST \
-              "${{ vars.JFROG_URL }}$path" \
-              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
-              -d "$data")
-            echo "$status"
-          }
+          echo "TARGET_NAME=$TARGET_NAME" >> $GITHUB_ENV
+          echo "PROMOTED_STAGES=" >> $GITHUB_ENV
+          echo "DID_RELEASE=false" >> $GITHUB_ENV
 
-          promote_to_stage() {
-            local target_stage="$1"
-            echo "🚀 Promoting to $target_stage via AppTrust"
-            local resp_body http_status
-            resp_body=$(mktemp)
-            # Translate display stage to API stage (prefix with project except PROD)
-            local api_stage
-            if [[ "$target_stage" == "PROD" ]]; then api_stage="PROD"; else api_stage="${{ vars.PROJECT_KEY }}-$target_stage"; fi
-            http_status=$(apptrust_post \
-              "/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/promote?async=false" \
-              "{\"target_stage\": \"$api_stage\", \"promotion_type\": \"move\"}" \
-              "$resp_body")
-            echo "HTTP $http_status"; cat "$resp_body" || true; echo
-            rm -f "$resp_body"
-            if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
-              echo "❌ Promotion to $target_stage failed (HTTP $http_status)" >&2
-              print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/promote?async=false" "{\"target_stage\": \"$api_stage\", \"promotion_type\": \"move\"}"
-              exit 1
-            fi
-            PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$target_stage"
-            fetch_summary
-          }
-
-          release_version() {
-              echo "🚀 Releasing to $FINAL_STAGE via AppTrust Release API"
-            local resp_body http_status
-            resp_body=$(mktemp)
-            http_status=$(apptrust_post \
-              "/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/release?async=false" \
-              "{\"promotion_type\":\"move\"}" \
-              "$resp_body")
-            echo "HTTP $http_status"; cat "$resp_body" || true; echo
-            rm -f "$resp_body"
-            if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
-              echo "❌ Release to $FINAL_STAGE failed (HTTP $http_status)" >&2
-              print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/release?async=false" "{\"promotion_type\":\"move\"}"
-                exit 1
-              fi
-              DID_RELEASE=true
-              PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$FINAL_STAGE"
-            fetch_summary
-          }
-
-          # Evidence helpers per stage
-          emit_json() {
-            # emit_json <file> <json_string>
-            local out_file="$1"; shift
-            local content="$*"
-            printf "%s\n" "$content" > "$out_file"
-          }
-
-          evd_create() {
-            # evd_create <file> <type>
-            local predicate_file="$1"; local predicate_type="$2"
-            KEY_ARGS=()
-            if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then KEY_ARGS+=(--key "$EVIDENCE_PRIVATE_KEY"); fi
-            jf evd create-evidence \
-              --predicate "$predicate_file" \
-              --predicate-type "$predicate_type" \
-              --release-bundle "$APPLICATION_KEY" \
-              --release-bundle-version "$APP_VERSION" \
-              --project "${{ vars.PROJECT_KEY }}" \
-              --provider-id github-actions \
-              "${KEY_ARGS[@]}" || true
-          }
-
-          attach_evidence_qa() {
-            local now_ts scan_id med coll pass
-            now_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-            # Invicti DAST (QA)
-            scan_id=$(cat /proc/sys/kernel/random/uuid)
-            med=$((2 + RANDOM % 5))
-            emit_json dast-qa.json "{
-              \"environment\": \"QA\",
-              \"scanId\": \"${scan_id}\",
-              \"status\": \"PASSED\",
-              \"findings\": { \"critical\": 0, \"high\": 0, \"medium\": ${med} },
-              \"attachStage\": \"QA\", \"gateForPromotionTo\": \"STAGING\",
-              \"timestamp\": \"${now_ts}\"
-            }"
-            evd_create dast-qa.json "https://invicti.com/evidence/dast/v3"
-            # Postman API (QA)
-            coll=$(cat /proc/sys/kernel/random/uuid)
-            pass=$((100 + RANDOM % 31))
-            emit_json postman-qa.json "{
-              \"environment\": \"QA\",
-              \"collectionId\": \"${coll}\",
-              \"status\": \"PASSED\",
-              \"assertionsPassed\": ${pass},
-              \"assertionsFailed\": 0,
-              \"attachStage\": \"QA\", \"gateForPromotionTo\": \"STAGING\",
-              \"timestamp\": \"${now_ts}\"
-            }"
-            evd_create postman-qa.json "https://postman.com/evidence/collection/v2.2"
-          }
-
-          attach_evidence_staging() {
-            local now_ts med_iac low_iac pent tid
-            now_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-            # Snyk IaC (STAGING)
-            med_iac=$((1 + RANDOM % 3)); low_iac=$((8 + RANDOM % 7))
-            emit_json iac-staging.json "{
-              \"environment\": \"STAGING\", \"status\": \"PASSED\",
-              \"misconfigurations\": { \"high\": 0, \"medium\": ${med_iac}, \"low\": ${low_iac} },
-              \"attachStage\": \"STAGING\", \"gateForPromotionTo\": \"PROD\",
-              \"timestamp\": \"${now_ts}\"
-            }"
-            evd_create iac-staging.json "https://snyk.io/evidence/iac/v1"
-            # Cobalt Pentest (STAGING)
-            pent=$(cat /proc/sys/kernel/random/uuid)
-            emit_json pentest-staging.json "{
-              \"environment\": \"STAGING\", \"pentestId\": \"${pent}\",
-              \"status\": \"COMPLETED\", \"summary\": \"No critical/high. Medium/low scheduled for remediation.\",
-              \"attachStage\": \"STAGING\", \"gateForPromotionTo\": \"PROD\",
-              \"timestamp\": \"${now_ts}\"
-            }"
-            evd_create pentest-staging.json "https://cobalt.io/evidence/pentest/v1"
-            # ServiceNow change approval (STAGING gate to PROD)
-            tid=$((3000000 + RANDOM % 1000000))
-            emit_json servicenow-approval.json "{
-              \"environment\": \"PROD\",
-              \"ticketId\": \"CHG${tid}\",
-              \"status\": \"APPROVED\",
-              \"approvedBy\": \"change-manager-${RANDOM}\",
-              \"approvalTimestamp\": \"${now_ts}\",
-              \"attachStage\": \"STAGING\", \"gateForPromotionTo\": \"PROD\"
-            }"
-            evd_create servicenow-approval.json "https://servicenow.com/evidence/change-request/v1"
-          }
-
-          attach_evidence_prod() {
-            local now_ts rev short
-            now_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-            # ArgoCD deployment evidence (PROD verification)
-            rev="${{ github.sha }}"; short=${rev:0:8}
-            emit_json argocd-prod.json "{ \"tool\": \"ArgoCD\", \"status\": \"Synced\", \"revision\": \"${short}\", \"deployedAt\": \"${now_ts}\", \"attachStage\": \"PROD\" }"
-            evd_create argocd-prod.json "https://argoproj.github.io/argo-cd/evidence/deployment/v1"
-          }
-
-          attach_evidence_for() {
-            local stage_name="$1"
-            case "$stage_name" in
-              UNASSIGNED)
-                echo "ℹ️ No evidence for UNASSIGNED" ;;
-              DEV)
-                echo "ℹ️ No evidence configured for DEV in demo" ;;
-              QA)
-                attach_evidence_qa ;;
-              STAGING)
-                attach_evidence_staging ;;
-              PROD)
-                attach_evidence_prod ;;
-              *)
-                echo "ℹ️ No evidence rule for stage '$stage_name'" ;;
-            esac
-          }
-
-          promote_or_release_and_attach() {
-            local next_stage="$1"
-            if [[ "$next_stage" == "$FINAL_STAGE" ]]; then
-              release_version
-              attach_evidence_prod
-            else
-              promote_to_stage "$next_stage"
-              attach_evidence_for "$next_stage"
-            fi
-          }
-
-          # Determine next stage and execute a single promotion step
-          CURRENT_INDEX=-1
-          for i in "${!STAGES[@]}"; do if [[ "${STAGES[$i]}" == "$CURRENT_STAGE" ]]; then CURRENT_INDEX=$i; break; fi; done
-          if [[ "$CURRENT_INDEX" -lt 0 ]]; then CURRENT_INDEX=-1; fi
-          NEXT_INDEX=$((CURRENT_INDEX+1))
-          if [[ "$NEXT_INDEX" -gt "$TARGET_INDEX" ]]; then
-            echo "ℹ️ Next stage would exceed target ($TARGET_NAME). Nothing to promote."
-            echo "PROMOTED_STAGES=$PROMOTED_STAGES" >> $GITHUB_ENV
-            echo "DID_RELEASE=$DID_RELEASE" >> $GITHUB_ENV
-            exit 0
-          fi
-          NEXT_STAGE="${STAGES[$NEXT_INDEX]}"
-
-          case "${CURRENT_STAGE:-UNASSIGNED}" in
-            ""|UNASSIGNED|DEV|QA|STAGING)
-              promote_or_release_and_attach "$NEXT_STAGE" ;;
-            PROD)
-              echo "ℹ️ Already at PROD; nothing to promote" ;;
-            *)
-              promote_or_release_and_attach "$NEXT_STAGE" ;;
-          esac
-
-          echo "PROMOTED_STAGES=$PROMOTED_STAGES" >> $GITHUB_ENV
-          echo "DID_RELEASE=$DID_RELEASE" >> $GITHUB_ENV
-          # Final verification for this step
-          if [[ "$NEXT_STAGE" == "$FINAL_STAGE" ]]; then
-            if [[ "$RELEASE_STATUS" != "RELEASED" && "$RELEASE_STATUS" != "TRUSTED_RELEASE" ]]; then
-              echo "❌ Verification failed: expected release, got current_stage=${CURRENT_STAGE:-unknown} release_status=${RELEASE_STATUS:-unknown}" >&2
-              exit 1
-            fi
+      - name: Promote from UNASSIGNED → next
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          export JFROG_URL="${{ vars.JFROG_URL }}"
+          export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
+          export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
+          source .github/scripts/promote_lib.sh
+          fetch_summary
+          if [[ -z "${CURRENT_STAGE:-}" || "$(display_stage_for "${CURRENT_STAGE}")" == "UNASSIGNED" ]]; then
+            ALLOW_RELEASE=false
+            advance_one_step
           else
-            if [[ "$(API_STAGE_FOR "$CURRENT_STAGE")" != "$(API_STAGE_FOR "$NEXT_STAGE")" ]]; then
-              echo "❌ Verification failed: expected $(API_STAGE_FOR "$NEXT_STAGE"), got ${CURRENT_STAGE:-unknown}" >&2
-              exit 1
-            fi
+            echo "Skipping: current stage is $(display_stage_for "${CURRENT_STAGE}")"
+          fi
+
+      - name: Promote from DEV → next
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          export JFROG_URL="${{ vars.JFROG_URL }}"
+          export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
+          export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
+          source .github/scripts/promote_lib.sh
+          fetch_summary
+          if [[ "$(display_stage_for "${CURRENT_STAGE:-}")" == "DEV" ]]; then
+            ALLOW_RELEASE=false
+            advance_one_step
+          else
+            echo "Skipping: current stage is $(display_stage_for "${CURRENT_STAGE:-UNASSIGNED}")"
+          fi
+
+      - name: Promote from QA → next
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          export JFROG_URL="${{ vars.JFROG_URL }}"
+          export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
+          export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
+          source .github/scripts/promote_lib.sh
+          fetch_summary
+          if [[ "$(display_stage_for "${CURRENT_STAGE:-}")" == "QA" ]]; then
+            ALLOW_RELEASE=false
+            advance_one_step
+          else
+            echo "Skipping: current stage is $(display_stage_for "${CURRENT_STAGE:-UNASSIGNED}")"
+          fi
+
+      - name: Promote from STAGING → next
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          export JFROG_URL="${{ vars.JFROG_URL }}"
+          export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
+          export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
+          source .github/scripts/promote_lib.sh
+          fetch_summary
+          if [[ "$(display_stage_for "${CURRENT_STAGE:-}")" == "STAGING" ]]; then
+            ALLOW_RELEASE=false
+            advance_one_step
+          else
+            echo "Skipping: current stage is $(display_stage_for "${CURRENT_STAGE:-UNASSIGNED}")"
+          fi
+
+      - name: Release to PROD
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          export JFROG_URL="${{ vars.JFROG_URL }}"
+          export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
+          export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
+          source .github/scripts/promote_lib.sh
+          fetch_summary
+          if [[ "$(display_stage_for "${CURRENT_STAGE:-}")" == "STAGING" ]]; then
+            ALLOW_RELEASE=true
+            advance_one_step
+          else
+            echo "Skipping release: current stage is $(display_stage_for "${CURRENT_STAGE:-UNASSIGNED}")"
           fi
 
 
