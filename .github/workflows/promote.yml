@@ -246,12 +246,6 @@ jobs:
               fi
               DID_RELEASE=true
               PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }PROD"
-              fetch_summary
-              # Verify post-release stage/status
-              if [[ "$CS_UPPER" != "PROD" && "$RELEASE_STATUS" != "RELEASED" && "$RELEASE_STATUS" != "TRUSTED_RELEASE" ]]; then
-                echo "❌ Post-release verification failed: current_stage=$CS_UPPER release_status=${RELEASE_STATUS:-unknown}" >&2
-                exit 1
-              fi
             else
               echo "🚀 Promoting to $STG via AppTrust"
               RESP_BODY=$(mktemp)
@@ -266,21 +260,33 @@ jobs:
               if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
                 PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$STG"
                 rm -f "$RESP_BODY"
-                fetch_summary
-                # Verify post-promotion stage
-                if [[ "$CS_UPPER" != "${STG^^}" ]]; then
-                  echo "❌ Post-promotion verification failed: expected $STG, got ${CURRENT_STAGE:-unknown}" >&2
+              else
+                if grep -q "same as current stage" "$RESP_BODY" 2>/dev/null; then
+                  echo "ℹ️ Server reports current is already $STG; treating as no-op and continuing"
+                  rm -f "$RESP_BODY"
+                else
+                  rm -f "$RESP_BODY"
+                  echo "❌ Promotion to $STG failed" >&2
                   exit 1
                 fi
-              else
-                rm -f "$RESP_BODY"
-                echo "❌ Promotion to $STG failed" >&2
-                exit 1
               fi
             fi
           done
           echo "PROMOTED_STAGES=$PROMOTED_STAGES" >> $GITHUB_ENV
           echo "DID_RELEASE=$DID_RELEASE" >> $GITHUB_ENV
+          # Final verification against target stage
+          fetch_summary
+          if [[ "${TARGET_UPPER}" =~ ^PROD ]]; then
+            if [[ "$RELEASE_STATUS" != "RELEASED" && "$RELEASE_STATUS" != "TRUSTED_RELEASE" ]]; then
+              echo "❌ Final verification failed: expected release, got current_stage=$CS_UPPER release_status=${RELEASE_STATUS:-unknown}" >&2
+              exit 1
+            fi
+          else
+            if [[ "$CS_UPPER" != "$TARGET_UPPER" ]]; then
+              echo "❌ Final verification failed: expected $TARGET_UPPER, got ${CURRENT_STAGE:-unknown}" >&2
+              exit 1
+            fi
+          fi
 
       - name: Attach QA gate evidence (Invicti DAST, Postman API) if in QA
         run: |
