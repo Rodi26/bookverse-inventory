@@ -71,6 +71,9 @@ jobs:
       - name: Initialize promotion context
         run: |
           set -euo pipefail
+          # This step resolves lifecycle, establishes CURRENT_STAGE, and prepares
+          # variables consumed by promote_lib.sh. See promote_lib.sh header docs
+          # for how advance_one_step orchestrates promote vs release.
           if [[ -n "${HTTP_DEBUG_LEVEL:-}" ]]; then :; else export HTTP_DEBUG_LEVEL=basic; fi
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
@@ -127,6 +130,8 @@ jobs:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
+          # Single-step progression; if CURRENT_STAGE is UNASSIGNED, this will
+          # move to the first lifecycle stage. Release is never attempted here.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
@@ -144,6 +149,8 @@ jobs:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
+          # From DEV, advance to QA (no release). Evidence for QA gates is
+          # attached by the library immediately after promote.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
@@ -161,6 +168,8 @@ jobs:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
+          # From QA, advance to STAGING (no release). QA gate evidence is
+          # attached during this transition.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
@@ -178,6 +187,9 @@ jobs:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
+          # From STAGING, advance_one_step would attempt release if allowed.
+          # We defer release to the dedicated step below by keeping
+          # ALLOW_RELEASE=false here.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
@@ -193,6 +205,8 @@ jobs:
       - name: Attach STAGING gate evidence (IaC, Pentest, Change Approval)
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
+          EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           set -euo pipefail
           export JFROG_URL="${{ vars.JFROG_URL }}"
@@ -209,6 +223,8 @@ jobs:
           NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           KEY_ARGS=()
           if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then KEY_ARGS+=(--key "$EVIDENCE_PRIVATE_KEY"); fi
+          ALIAS="${EVIDENCE_KEY_ALIAS:-${EVIDENCE_KEY_ALIAS_VAR:-}}"
+          if [[ -n "$ALIAS" ]]; then KEY_ARGS+=(--key-alias "$ALIAS"); fi
 
           # --- Snyk IaC Evidence ---
           cat > iac-evidence.json <<JSON
@@ -331,6 +347,9 @@ jobs:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
+          # Only here do we set ALLOW_RELEASE=true. advance_one_step computes
+          # that the next stage equals FINAL_STAGE (PROD) and calls
+          # release_version(), which invokes the AppTrust Release API.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"

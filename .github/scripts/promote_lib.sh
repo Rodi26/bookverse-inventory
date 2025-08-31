@@ -46,6 +46,9 @@ print_request_debug() {
   echo "-----------------------"
 }
 
+# Translate a display stage name (e.g., DEV) to the API stage identifier:
+# - Non-PROD stages must be project-prefixed for API calls (bookverse-DEV, etc.)
+# - PROD remains the global release stage (no prefix)
 api_stage_for() {
   local s="${1:-}"
   if [[ "$s" == "PROD" ]]; then
@@ -57,6 +60,9 @@ api_stage_for() {
   fi
 }
 
+# Translate an API stage identifier to a display name used internally:
+# - bookverse-DEV → DEV, bookverse-STAGING → STAGING
+# - PROD remains PROD
 display_stage_for() {
   local s="${1:-}"
   if [[ "$s" == "PROD" || "$s" == "${PROJECT_KEY:-}-PROD" ]]; then
@@ -68,6 +74,10 @@ display_stage_for() {
   fi
 }
 
+# Query the AppTrust Version Summary to determine current stage and release status.
+# On success, exports CURRENT_STAGE and RELEASE_STATUS to the environment, with
+# CURRENT_STAGE in API form (e.g., bookverse-STAGING, PROD). Callers should wrap
+# it with display_stage_for when comparing against human readable names.
 fetch_summary() {
   local body
   body=$(mktemp)
@@ -93,6 +103,9 @@ fetch_summary() {
   echo "🔎 Current stage: $(display_stage_for "${CURRENT_STAGE:-UNASSIGNED}") (release_status=${RELEASE_STATUS:-unknown})"
 }
 
+# Small helper to POST JSON to AppTrust endpoints, capturing HTTP status and body.
+# NOTE: Callers are responsible for printing request context (via print_request_debug)
+# upon errors and for interpreting success/failure semantics.
 apptrust_post() {
   local path="${1:-}"; local data="${2:-}"; local out_file="${3:-}"
   local status
@@ -134,6 +147,12 @@ promote_to_stage() {
 #       sets ALLOW_RELEASE=true and calls advance_one_step(); only when the
 #       computed next stage equals FINAL_STAGE (PROD) will advance_one_step()
 #       invoke release_version(). See advance_one_step() below.
+# Call the AppTrust Release API to move the version to the final release stage (PROD)
+#
+# Payload selection rules (included_repository_keys):
+# - If RELEASE_INCLUDED_REPO_KEYS is provided (JSON array), it is used verbatim.
+# - Otherwise, infer repository keys from APPLICATION_KEY and PROJECT_KEY.
+#   These should point to release-local repositories attached to PROD.
 release_version() {
   local resp_body http_status
   resp_body=$(mktemp)
@@ -183,7 +202,13 @@ emit_json() {
 evd_create() {
   local predicate_file="${1:-}"; local predicate_type="${2:-}"; local markdown_file="${3:-}"
   local key_args=()
-  if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then key_args+=(--key "${EVIDENCE_PRIVATE_KEY}"); fi
+  if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then
+    key_args+=(--key "${EVIDENCE_PRIVATE_KEY}")
+    # Prefer secret alias, then repo/organization variable
+    local alias_val
+    alias_val="${EVIDENCE_KEY_ALIAS:-${EVIDENCE_KEY_ALIAS_VAR:-}}"
+    if [[ -n "$alias_val" ]]; then key_args+=(--key-alias "$alias_val"); fi
+  fi
   local md_args=()
   if [[ -n "$markdown_file" ]]; then md_args+=(--markdown "$markdown_file"); fi
   jf evd create-evidence \
