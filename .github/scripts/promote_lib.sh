@@ -240,7 +240,12 @@ advance_one_step() {
   local next_stage_display="${STAGES[$next_index]}"
   if [[ "$next_stage_display" == "$FINAL_STAGE" ]]; then
     if [[ "$allow_release" == "true" ]]; then
-      release_version || return 1
+      if ! release_version; then
+        echo "⚠️ Release API failed; falling back to promotion to ${FINAL_STAGE}"
+        promote_to_stage "$next_stage_display" || return 1
+        DID_RELEASE=true
+        echo "DID_RELEASE=${DID_RELEASE}" >> "$GITHUB_ENV"
+      fi
       attach_evidence_prod || true
     else
       echo "⏭️ Skipping release step (deferred to dedicated step)"
