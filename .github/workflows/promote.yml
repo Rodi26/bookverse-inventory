@@ -297,9 +297,7 @@ jobs:
             # emit_json <file> <json_string>
             local out_file="$1"; shift
             local content="$*"
-            cat <<EOF > "$out_file"
-            $content
-            EOF
+            printf "%s\n" "$content" > "$out_file"
           }
 
           evd_create() {
