@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import List, Optional
 from uuid import uuid4, UUID
 
-from sqlalchemy import Column, String, Text, DateTime, Boolean, Integer, DECIMAL, JSON
+from sqlalchemy import Column, String, Text, DateTime, Boolean, Integer, DECIMAL, JSON, ForeignKey, Index, CheckConstraint
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 
@@ -48,10 +48,15 @@ class InventoryRecord(Base):
     __tablename__ = "inventory_records"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    book_id = Column(String(36), nullable=False, unique=True, index=True)  # One record per book
+    book_id = Column(String(36), ForeignKey('books.id', ondelete='CASCADE'), nullable=False, unique=True, index=True)  # One record per book
     quantity_available = Column(Integer, nullable=False, default=0)
     quantity_total = Column(Integer, nullable=False, default=0)
     reorder_point = Column(Integer, nullable=False, default=5)
+    __table_args__ = (
+        CheckConstraint('quantity_available >= 0', name='ck_inventory_nonneg_available'),
+        CheckConstraint('quantity_total >= 0', name='ck_inventory_nonneg_total'),
+        Index('ix_inventory_low_stock', 'quantity_available', 'reorder_point'),
+    )
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -68,13 +73,16 @@ class StockTransaction(Base):
     __tablename__ = "stock_transactions"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    book_id = Column(String(36), nullable=False, index=True)
+    book_id = Column(String(36), ForeignKey('books.id', ondelete='CASCADE'), nullable=False, index=True)
     transaction_type = Column(String(20), nullable=False)  # 'stock_in', 'stock_out', 'adjustment'
     quantity_change = Column(Integer, nullable=False)
     notes = Column(String(500), nullable=True)
     
     # Timestamp
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        Index('ix_stock_tx_book_ts', 'book_id', 'timestamp'),
+    )
 
     def __repr__(self):
         return f"<StockTransaction(book_id={self.book_id}, type={self.transaction_type}, change={self.quantity_change})>"

@@ -40,15 +40,21 @@ class BookService:
         
         # Get books with pagination
         books = query.offset(skip).limit(limit).all()
-        
+
+        # Preload inventory for this page in a single query (avoid N+1)
+        book_ids = [book.id for book in books]
+        inventory_by_book_id = {}
+        if book_ids:
+            inventory_records = db.query(InventoryRecord).filter(
+                InventoryRecord.book_id.in_(book_ids)
+            ).all()
+            inventory_by_book_id = {inv.book_id: inv for inv in inventory_records}
+
         # Enrich with availability info
-        books_with_availability = []
+        books_with_availability: List[dict] = []
         for book in books:
-            # Get inventory record
-            inventory = db.query(InventoryRecord).filter(
-                InventoryRecord.book_id == book.id
-            ).first()
-            
+            inventory = inventory_by_book_id.get(book.id)
+
             if inventory:
                 availability = {
                     "quantity_available": inventory.quantity_available,
@@ -61,7 +67,7 @@ class BookService:
                     "in_stock": False,
                     "low_stock": True
                 }
-            
+
             book_dict = {
                 "id": book.id,
                 "title": book.title,
@@ -73,7 +79,7 @@ class BookService:
                 "availability": availability
             }
             books_with_availability.append(book_dict)
-        
+
         return books_with_availability, total
     
     @staticmethod
@@ -89,21 +95,21 @@ class BookService:
         book_dict = book_data.model_dump()
         book_dict['id'] = str(uuid4())  # Add UUID as string
         book = Book(**book_dict)
-        db.add(book)
-        db.commit()
+
+        # Create book and initial inventory atomically
+        with db.begin():
+            db.add(book)
+            inventory = InventoryRecord(
+                id=str(uuid4()),
+                book_id=book.id,
+                quantity_available=0,
+                quantity_total=0,
+                reorder_point=LOW_STOCK_THRESHOLD
+            )
+            db.add(inventory)
+
         db.refresh(book)
-        
-        # Create initial inventory record with 0 stock
-        inventory = InventoryRecord(
-            id=str(uuid4()),
-            book_id=book.id,
-            quantity_available=0,
-            quantity_total=0,
-            reorder_point=LOW_STOCK_THRESHOLD
-        )
-        db.add(inventory)
-        db.commit()
-        
+
         logger.info(f"Created new book: {book.title} (ID: {book.id})")
         return book
     
@@ -251,13 +257,12 @@ class InventoryService:
         
         book_id_str = str(book_id)
         
-        # Get or create inventory record
+        # Get or create inventory record (demo allows creating inventory without a book)
         inventory = db.query(InventoryRecord).filter(
             InventoryRecord.book_id == book_id_str
         ).first()
-        
+        inventory_is_new = False
         if not inventory:
-            # Create new inventory record if it doesn't exist
             inventory = InventoryRecord(
                 id=str(uuid4()),
                 book_id=book_id_str,
@@ -265,7 +270,7 @@ class InventoryService:
                 quantity_total=0,
                 reorder_point=LOW_STOCK_THRESHOLD
             )
-            db.add(inventory)
+            inventory_is_new = True
         
         # Calculate new quantities
         new_available = inventory.quantity_available + adjustment.quantity_change
@@ -275,15 +280,9 @@ class InventoryService:
         if new_available < 0:
             logger.warning(f"Adjustment would result in negative available quantity for book {book_id}")
             return None
-        
         if new_total < 0:
             logger.warning(f"Adjustment would result in negative total quantity for book {book_id}")
             return None
-        
-        # Update inventory
-        inventory.quantity_available = new_available
-        inventory.quantity_total = new_total
-        inventory.updated_at = datetime.utcnow()
         
         # Determine transaction type
         if adjustment.quantity_change > 0:
@@ -292,8 +291,8 @@ class InventoryService:
             transaction_type = "stock_out"
         else:
             transaction_type = "adjustment"
-        
-        # Create transaction record
+
+        # Apply changes atomically
         transaction = StockTransaction(
             id=str(uuid4()),
             book_id=book_id_str,
@@ -301,9 +300,15 @@ class InventoryService:
             quantity_change=adjustment.quantity_change,
             notes=adjustment.notes
         )
-        
-        db.add(transaction)
-        db.commit()
+
+        with db.begin():
+            if inventory_is_new:
+                db.add(inventory)
+            inventory.quantity_available = new_available
+            inventory.quantity_total = new_total
+            inventory.updated_at = datetime.utcnow()
+            db.add(transaction)
+
         db.refresh(transaction)
         
         logger.info(

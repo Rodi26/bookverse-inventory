@@ -234,17 +234,14 @@ attach_evidence_staging() {
   local now_ts med_iac low_iac pent tid
   now_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   med_iac=$((1 + RANDOM % 3)); low_iac=$((8 + RANDOM % 7))
-  emit_json iac-staging.json "{\n    \"environment\": \"STAGING\", \"status\": \"PASSED\",\n    \"misconfigurations\": { \"high\": 0, \"medium\": ${med_iac}, \"low\": ${low_iac} },\n    \"attachStage\": \"STAGING\", \"gateForPromotionTo\": \"PROD\",\n    \"timestamp\": \"${now_ts}\"\n  }"
-  printf "# iac-scan\n" > iac-scan.md
-  evd_create iac-staging.json "https://snyk.io/evidence/iac/v1" iac-scan.md
+  # Disabled: staging gate evidence is attached explicitly in workflow to avoid duplicates
+  :
   pent=$(cat /proc/sys/kernel/random/uuid)
-  emit_json pentest-staging.json "{\n    \"environment\": \"STAGING\", \"pentestId\": \"${pent}\",\n    \"status\": \"COMPLETED\", \"summary\": \"No critical/high. Medium/low scheduled for remediation.\",\n    \"attachStage\": \"STAGING\", \"gateForPromotionTo\": \"PROD\",\n    \"timestamp\": \"${now_ts}\"\n  }"
-  printf "# pentest-summary\n" > pentest-summary.md
-  evd_create pentest-staging.json "https://cobalt.io/evidence/pentest/v1" pentest-summary.md
+  # Disabled duplicate pentest evidence; handled by workflow
+  :
   tid=$((3000000 + RANDOM % 1000000))
-  emit_json servicenow-approval.json "{\n    \"environment\": \"PROD\",\n    \"ticketId\": \"CHG${tid}\",\n    \"status\": \"APPROVED\",\n    \"approvedBy\": \"change-manager-${RANDOM}\",\n    \"approvalTimestamp\": \"${now_ts}\",\n    \"attachStage\": \"STAGING\", \"gateForPromotionTo\": \"PROD\"\n  }"
-  printf "# change-approval\n" > change-approval.md
-  evd_create servicenow-approval.json "https://servicenow.com/evidence/change-request/v1" change-approval.md
+  # Disabled duplicate ServiceNow approval; handled by workflow
+  :
 }
 
 attach_evidence_prod() {
@@ -253,7 +250,8 @@ attach_evidence_prod() {
   rev="${GITHUB_SHA:-${GITHUB_SHA:-}}"; short=${rev:0:8}
   emit_json argocd-prod.json "{ \"tool\": \"ArgoCD\", \"status\": \"Synced\", \"revision\": \"${short}\", \"deployedAt\": \"${now_ts}\", \"attachStage\": \"PROD\" }"
   printf "# argocd-deploy\n" > argocd-deploy.md
-  evd_create argocd-prod.json "https://argoproj.github.io/argo-cd/evidence/deployment/v1" argocd-deploy.md
+  # Use a shortened predicate-type to ensure type slug < 16 chars
+  evd_create argocd-prod.json "https://argo.cd/ev/deploy/v1" argocd-deploy.md
 }
 
 attach_evidence_for() {

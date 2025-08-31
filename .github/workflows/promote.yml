@@ -206,40 +206,15 @@ jobs:
             echo "Skipping: current stage is $(display_stage_for "${CURRENT_STAGE:-UNASSIGNED}")"
           fi
 
-      - name: Attach STAGING gate evidence (IaC, Pentest, Change Approval)
+      - name: Prepare STAGING evidence templates (IaC, Pentest, Change Approval)
         run: |
           set -euo pipefail
-          export JFROG_URL="${{ vars.JFROG_URL }}"
-          export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-          export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
-          source .github/scripts/promote_lib.sh
-          fetch_summary
-          if [[ "$(display_stage_for "${CURRENT_STAGE:-}")" != "STAGING" ]]; then
-            echo "Skipping evidence attach: current stage is $(display_stage_for "${CURRENT_STAGE:-UNASSIGNED}")"
-            exit 0
-          fi
+          # We use quoted here-docs (<<'EOF') to prevent the shell from expanding
+          # variables or command substitutions while creating templates. This keeps
+          # a clean, literal template that we populate later with envsubst.
 
-          echo "📎 Attaching STAGING gate evidence with Markdown"
-          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-          # --- Snyk IaC Evidence ---
-          cat > iac-evidence.json <<JSON
-          {
-            "iacScan": {
-              "tool": "Snyk",
-              "scanDate": "${NOW_TS}",
-              "summary": {
-                "critical": 0,
-                "high": 1,
-                "medium": 2,
-                "low": 3
-              },
-              "repository": "${{ github.repository }}",
-              "commit": "${{ github.sha }}"
-            }
-          }
-          JSON
-          cat > iac-evidence.md <<MD
+          # IaC template
+          cat > iac-evidence.template.md <<'EOF'
           # Snyk IaC Scan
 
           **Scan Tool:** Snyk IaC  
@@ -254,36 +229,10 @@ jobs:
           - Low: 3
 
           > Infrastructure-as-Code configuration findings for STAGING gate.
-          MD
-          jf evd create-evidence \
-            --predicate iac-evidence.json \
-            --markdown iac-evidence.md \
-            --predicate-type "https://snyk.io/evidence/iac/v1" \
-            --release-bundle "$APPLICATION_KEY" \
-            --release-bundle-version "$APP_VERSION" \
-            --project "${{ vars.PROJECT_KEY }}" \
-            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ IaC evidence attachment failed"
+          EOF
 
-          # --- Cobalt Pentest Evidence ---
-          ENG_ID="ENG-$(( (${GITHUB_RUN_NUMBER:-0} + ${GITHUB_RUN_ATTEMPT:-0}) % 9000 + 1000 ))"
-          cat > pentest-evidence.json <<JSON
-          {
-            "pentest": {
-              "provider": "Cobalt.io",
-              "engagementId": "${ENG_ID}",
-              "completedAt": "${NOW_TS}",
-              "summary": {
-                "totalFindings": 1,
-                "critical": 0,
-                "high": 0,
-                "medium": 1,
-                "low": 0
-              }
-            }
-          }
-          JSON
-          cat > pentest-evidence.md <<MD
+          # Pentest template
+          cat > pentest-evidence.template.md <<'EOF'
           # Cobalt.io Pentest Summary
 
           **Engagement ID:** ${ENG_ID}  
@@ -297,7 +246,65 @@ jobs:
           - Low: 0
 
           > External penetration test summary attached for STAGING gate.
-          MD
+          EOF
+
+          # Change approval template
+          cat > change-approval.template.md <<'EOF'
+          # ServiceNow Change Approval
+
+          **Change ID:** ${CHG_ID}  
+          **Status:** Approved  
+          **Approved By:** ${APPROVER}  
+          **Approved At:** ${NOW_TS}
+
+          > Managerial approval for release promotion from STAGING to PROD.
+          EOF
+
+      - name: Populate STAGING templates and attach evidence
+        run: |
+          set -euo pipefail
+          # Export variables and use envsubst to safely substitute values into templates
+          if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi
+          export NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          export ENG_ID="ENG-$(( (${GITHUB_RUN_NUMBER:-0} + ${GITHUB_RUN_ATTEMPT:-0}) % 9000 + 1000 ))"
+          export CHG_ID="CHG-$(( (${GITHUB_RUN_NUMBER:-0} * 10 + ${GITHUB_RUN_ATTEMPT:-0}) ))"
+          export APPROVER="user-${GITHUB_ACTOR}-${GITHUB_RUN_ATTEMPT:-1}"
+
+          # IaC predicate and markdown
+          cat > iac-evidence.json <<JSON
+          {
+            "iacScan": {
+              "tool": "Snyk",
+              "scanDate": "${NOW_TS}",
+              "summary": { "critical": 0, "high": 1, "medium": 2, "low": 3 },
+              "repository": "${{ github.repository }}",
+              "commit": "${{ github.sha }}"
+            }
+          }
+          JSON
+          envsubst < iac-evidence.template.md > iac-evidence.md
+          jf evd create-evidence \
+            --predicate iac-evidence.json \
+            --markdown iac-evidence.md \
+            --predicate-type "https://snyk.io/evidence/iac/v1" \
+            --release-bundle "$APPLICATION_KEY" \
+            --release-bundle-version "$APP_VERSION" \
+            --project "${{ vars.PROJECT_KEY }}" \
+            --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ IaC evidence attachment failed"
+
+          # Pentest predicate and markdown
+          cat > pentest-evidence.json <<JSON
+          {
+            "pentest": {
+              "provider": "Cobalt.io",
+              "engagementId": "${ENG_ID}",
+              "completedAt": "${NOW_TS}",
+              "summary": { "totalFindings": 1, "critical": 0, "high": 0, "medium": 1, "low": 0 }
+            }
+          }
+          JSON
+          envsubst < pentest-evidence.template.md > pentest-evidence.md
           jf evd create-evidence \
             --predicate pentest-evidence.json \
             --markdown pentest-evidence.md \
@@ -308,33 +315,23 @@ jobs:
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Pentest evidence attachment failed"
 
-          # --- ServiceNow Change Approval Evidence ---
-          CHG_ID="CHG-$(( (${GITHUB_RUN_NUMBER:-0} * 10 + ${GITHUB_RUN_ATTEMPT:-0}) ))"
+          # Change approval predicate and markdown
           cat > change-approval.json <<JSON
           {
             "changeRequest": {
               "id": "${CHG_ID}",
               "status": "approved",
-              "approvedBy": "release-manager",
+              "approvedBy": "${APPROVER}",
               "approvedAt": "${NOW_TS}",
               "environment": "STAGING"
             }
           }
           JSON
-          cat > change-approval.md <<MD
-          # ServiceNow Change Approval
-
-          **Change ID:** ${CHG_ID}  
-          **Status:** Approved  
-          **Approved By:** release-manager  
-          **Approved At:** ${NOW_TS}
-
-          > Managerial approval for release promotion from STAGING to PROD.
-          MD
+          envsubst < change-approval.template.md > change-approval.md
           jf evd create-evidence \
             --predicate change-approval.json \
             --markdown change-approval.md \
-            --predicate-type "https://servicenow.com/evidence/change-request/v1" \
+            --predicate-type "https://servicenow.com/evidence/change-req/v1" \
             --release-bundle "$APPLICATION_KEY" \
             --release-bundle-version "$APP_VERSION" \
             --project "${{ vars.PROJECT_KEY }}" \

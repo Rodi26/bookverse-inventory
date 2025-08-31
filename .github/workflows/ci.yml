@@ -322,9 +322,9 @@ jobs:
           cat > coverage-evidence.template.md <<'EOF'
           # Code Coverage Report: `pytest`
 
-          > ## ${STATUS_EMOJI} Status: ${STATUS}
-          >
-          > This report details the results of the automated code coverage checks.
+          > ${STATUS_EMOJI} Status: ${STATUS}
+
+          This report details the results of the automated code coverage checks.
 
           ---
 
@@ -339,7 +339,7 @@ jobs:
 
           ## 📝 Analysis & Recommendations
 
-          > ${ANALYSIS_TEXT}
+          ${ANALYSIS_TEXT}
 
           ---
 
@@ -400,9 +400,9 @@ jobs:
           cat > sast-evidence.template.md <<'EOF'
           ### 🛡️ Checkmarx SAST Scan Summary
 
-          | Status | Findings | Details |
-          | :--- | :--- | :--- |
-          | ✅ **Review Required** | **1** Medium <br> **2** Low | No Critical or High severity issues were found. A manual review is recommended. |
+          | Status | Details |
+          | :--- | :--- |
+          | ✅ Review Required | No Critical or High severity issues were found. A manual review is recommended. |
 
           ---
 
@@ -481,9 +481,9 @@ jobs:
           cat > quality-gate.template.md <<'EOF'
           # SonarQube Quality Gate Report
 
-          > ## ✅ Status: PASSED
-          >
-          > The project meets all quality requirements and has successfully passed the SonarQube quality gate.
+          > ✅ Status: PASSED
+
+          The project meets all quality requirements and has successfully passed the SonarQube quality gate.
 
           ---
 
@@ -530,9 +530,9 @@ jobs:
           cat > license-evidence.template.md <<'EOF'
           # 🛡️ FOSSA License Compliance Report
 
-          > ## ✅ Status: PASSED
-          >
-          > All software dependencies are in compliance with the project's license policies.
+          > ✅ Status: PASSED
+
+          All software dependencies are in compliance with the project's license policies.
 
           ---
 
@@ -785,7 +785,7 @@ jobs:
           cat > slsa.template.md <<'EOF'
           # SLSA Provenance Report 🛡️
 
-          This document summarizes the SLSA (Supply-chain Levels for Software Artifacts) provenance check. This evidence serves as a quality and security gate for promoting an artifact to the `DEV` environment.
+          This document summarizes the SLSA (Supply-chain Levels for Software Artifacts) provenance and build context for this version.
 
           ---
 
@@ -794,25 +794,22 @@ jobs:
           * **Framework**: `SLSA`
           * **SLSA Level**: `v1`
           * **Generated At**: `${NOW_TS}`
-          * **Gate for Promotion To**: `DEV`
-          * **Attachment Stage**: `UNASSIGNED`
+          * **Builder**: `GitHub Actions`
+          * **Workflow**: `${{ github.workflow }}`
+          * **Repository**: `${{ github.repository }}`
+          * **Commit**: `${{ github.sha }}`
           EOF
           cat > jira.template.md <<'EOF'
-          # 🎫 Jira Validation Gate Report
+          # 🎫 Jira Release Notes
 
-          > ## ✅ Gate Passed
-          >
-          > The associated Jira ticket has been verified and is in the correct `ready` state. This satisfies the promotion criteria for the **DEV** environment.
+          This evidence lists the Jira issues included in this application version.
 
           ---
 
-          ## Gate Details
-
-          * **Integration**: `Jira`
-          * **Ticket(s) Verified**: `BV-${{ github.run_number }}`
-          * **Required Status**: `ready`
-          * **Promotion Gate For**: `DEV`
-          * **Attachment Stage**: `UNASSIGNED`
+          ## Tickets
+          - ${T1} — ${T1_TYPE}
+          - ${T2} — ${T2_TYPE}
+          - ${T3} — ${T3_TYPE}
           EOF
 
       - name: Populate UNASSIGNED templates and attach (SLSA, Jira)
@@ -847,13 +844,23 @@ jobs:
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ SLSA evidence attach failed"
 
           # Jira predicate and markdown
+          # Generate a small set of pseudo tickets and types for the release notes
+          T1="BV-$(( (${GITHUB_RUN_NUMBER:-0} % 200) + 100 ))"
+          T2="BV-$(( ((${GITHUB_RUN_NUMBER:-0} + ${GITHUB_RUN_ATTEMPT:-0}) % 200) + 300 ))"
+          T3="BV-$(( ((${GITHUB_RUN_NUMBER:-0} * 3 + ${GITHUB_RUN_ATTEMPT:-0}) % 200) + 500 ))"
+          TYPES=(feature bug improvement)
+          T1_TYPE="${TYPES[$(( ${GITHUB_RUN_NUMBER:-0} % 3 ))]}"
+          T2_TYPE="${TYPES[$(( (${GITHUB_RUN_NUMBER:-0} + 1) % 3 ))]}"
+          T3_TYPE="${TYPES[$(( (${GITHUB_RUN_NUMBER:-0} + 2) % 3 ))]}"
+          export T1 T2 T3 T1_TYPE T2_TYPE T3_TYPE
           cat > jira.json <<JSON
           {
             "jira": {
-              "tickets": ["BV-${{ github.run_number }}"],
-              "status": "ready",
-              "attachStage": "UNASSIGNED",
-              "gateForPromotionTo": "DEV"
+              "tickets": [
+                {"id": "${T1}", "type": "${T1_TYPE}"},
+                {"id": "${T2}", "type": "${T2_TYPE}"},
+                {"id": "${T3}", "type": "${T3_TYPE}"}
+              ]
             }
           }
           JSON
