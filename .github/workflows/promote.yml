@@ -142,12 +142,21 @@ jobs:
             rm -f "$LC_FILE"
             exit 1
           fi
-          # Extract stage names and the declared releaseStage (case-sensitive)
-          NAMES=$(jq -r --arg n "$LIFECYCLE_NAME" '.[] | select(.name == $n) | .stages[] | (if type=="object" then .name else . end)' "$LC_FILE" 2>/dev/null || true)
-          RELEASE_STAGE=$(jq -r --arg n "$LIFECYCLE_NAME" '.[] | select(.name == $n) | (.releaseStage // empty)' "$LC_FILE" 2>/dev/null || true)
+          # Normalize lifecycle response into an array of lifecycles and extract
+          NORM_FILE=$(mktemp)
+          jq -c '
+            if type=="array" then .
+            elif has("lifecycles") then .lifecycles
+            elif has("items") then .items
+            elif has("results") then .results
+            elif (has("name") and has("stages")) then [.] else [] end
+          ' "$LC_FILE" > "$NORM_FILE" 2>/dev/null || printf '[]' > "$NORM_FILE"
           rm -f "$LC_FILE"
+          NAMES=$(jq -r --arg n "$LIFECYCLE_NAME" 'map(select(.name == $n)) | .[0].stages // [] | map(if type=="object" then .name else . end) | .[]' "$NORM_FILE" 2>/dev/null || true)
+          RELEASE_STAGE=$(jq -r --arg n "$LIFECYCLE_NAME" '([ .[] | select(.name == $n) | .releaseStage ] | .[0]) // empty' "$NORM_FILE" 2>/dev/null || true)
           STAGES=()
           while IFS= read -r line; do [[ -n "$line" ]] && STAGES+=("$line"); done < <(printf "%s\n" "$NAMES")
+          rm -f "$NORM_FILE"
           if [[ ${#STAGES[@]} -eq 0 ]]; then
             echo "ℹ️ Lifecycle '$LIFECYCLE_NAME' not found; falling back to default stages (DEV → QA → STAGING → PROD)" >&2
             STAGES=(DEV QA STAGING PROD)
