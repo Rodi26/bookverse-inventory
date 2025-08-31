@@ -112,10 +112,6 @@ jobs:
             if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
               CURRENT_STAGE=$(jq -r '.current_stage // empty' "$body" 2>/dev/null || echo "")
               RELEASE_STATUS=$(jq -r '.release_status // empty' "$body" 2>/dev/null || echo "")
-              # Normalize project-prefixed stage names to display form (strip project prefix except PROD)
-              if [[ -n "$CURRENT_STAGE" && "$CURRENT_STAGE" == "${{ vars.PROJECT_KEY }}-"* ]]; then
-                CURRENT_STAGE="${CURRENT_STAGE#${{ vars.PROJECT_KEY }}-}"
-              fi
             else
               echo "❌ Failed to fetch version summary (HTTP $code)" >&2
               print_request_debug "GET" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content"
@@ -198,8 +194,13 @@ jobs:
           echo "FINAL_STAGE=$FINAL_STAGE" >> $GITHUB_ENV
           # Compute indices (case-sensitive)
           CURRENT_INDEX=-1
-          # Map display stage to API stage for comparisons (handle PROD exception)
-          API_STAGE_FOR() { local s="$1"; if [[ "$s" == "PROD" ]]; then echo "PROD"; else echo "${{ vars.PROJECT_KEY }}-$s"; fi }
+          # Map stage to API form for comparisons (handle PROD and already-prefixed names)
+          API_STAGE_FOR() {
+            local s="$1"
+            if [[ "$s" == "PROD" ]]; then echo "PROD"; 
+            elif [[ "$s" == "${{ vars.PROJECT_KEY }}-"* ]]; then echo "$s"; 
+            else echo "${{ vars.PROJECT_KEY }}-$s"; fi
+          }
           for i in "${!STAGES[@]}"; do if [[ "$(API_STAGE_FOR "${STAGES[$i]}")" == "$(API_STAGE_FOR "$CURRENT_STAGE")" ]]; then CURRENT_INDEX=$i; break; fi; done
           TS_INPUT="${{ inputs.target_stage }}"
           TARGET_NAME="$TS_INPUT"
@@ -229,7 +230,6 @@ jobs:
             status=$(curl -sS -L -o "$out_file" -w "%{http_code}" -X POST \
               "${{ vars.JFROG_URL }}$path" \
               -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
               -H "Content-Type: application/json" \
               -H "Accept: application/json" \
               -d "$data")
@@ -255,7 +255,7 @@ jobs:
               print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/promote?async=false" "{\"target_stage\": \"$api_stage\", \"promotion_type\": \"copy\"}"
               exit 1
             fi
-            PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$target_stage"
+            PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$api_stage"
             fetch_summary
           }
 
@@ -278,7 +278,7 @@ jobs:
                 exit 1
               fi
               DID_RELEASE=true
-              PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$FINAL_STAGE"
+              PROMOTED_STAGES="$PROMOTED_STAGES${PROMOTED_STAGES:+ }$api_stage"
             fetch_summary
           }
 
@@ -436,8 +436,8 @@ jobs:
               exit 1
             fi
           else
-            if [[ "$CURRENT_STAGE" != "$NEXT_STAGE" ]]; then
-              echo "❌ Verification failed: expected $NEXT_STAGE, got ${CURRENT_STAGE:-unknown}" >&2
+            if [[ "$(API_STAGE_FOR "$CURRENT_STAGE")" != "$(API_STAGE_FOR "$NEXT_STAGE")" ]]; then
+              echo "❌ Verification failed: expected $(API_STAGE_FOR "$NEXT_STAGE"), got ${CURRENT_STAGE:-unknown}" >&2
               exit 1
             fi
           fi
