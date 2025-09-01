@@ -160,7 +160,7 @@ release_version() {
   # Build included repositories list if provided or infer from APPLICATION_KEY and PROJECT_KEY
   local payload
   if [[ -n "${RELEASE_INCLUDED_REPO_KEYS:-}" ]]; then
-    payload=$(printf '{"promotion_type":"copy","included_repository_keys":%s}' "${RELEASE_INCLUDED_REPO_KEYS}")
+    payload=$(printf '{"promotion_type":"move","included_repository_keys":%s}' "${RELEASE_INCLUDED_REPO_KEYS}")
   else
     # Derive service name from application key: bookverse-<service>
     local service_name
@@ -169,7 +169,7 @@ release_version() {
     # Use release repositories for final PROD release
     repo_docker="${PROJECT_KEY}-${service_name}-docker-release-local"
     repo_python="${PROJECT_KEY}-${service_name}-python-release-local"
-    payload=$(printf '{"promotion_type":"copy","included_repository_keys":["%s","%s"]}' "$repo_docker" "$repo_python")
+    payload=$(printf '{"promotion_type":"move","included_repository_keys":["%s","%s"]}' "$repo_docker" "$repo_python")
   fi
   http_status=$(curl -sS -L -o "$resp_body" -w "%{http_code}" -X POST \
     "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" \
@@ -181,7 +181,7 @@ release_version() {
   echo "HTTP $http_status"; cat "$resp_body" || true; echo
   if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
     echo "❌ Release to ${FINAL_STAGE} failed (HTTP $http_status)" >&2
-    print_request_debug "POST" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" "{\"promotion_type\":\"copy\"}"
+    print_request_debug "POST" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" "{\"promotion_type\":\"move\"}"
     rm -f "$resp_body"
     return 1
   fi

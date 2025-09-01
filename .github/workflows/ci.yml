@@ -285,10 +285,10 @@ jobs:
       - name: Build and push Docker image via JFrog CLI
         run: |
           set -euo pipefail
-          echo ${{ secrets.JFROG_ADMIN_TOKEN }} | docker login "$REGISTRY_URL" -u yonatan --password-stdin
+          jf docker login "$REGISTRY_URL"
           jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
           jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-          jf rt dp "$IMAGE_NAME" "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
+          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
           echo "✅ Built and pushed Docker image (with build-info)"
 
       # Rely on Build Info as the source of truth; explicit registry checks removed
