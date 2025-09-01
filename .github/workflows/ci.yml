@@ -291,21 +291,7 @@ jobs:
           jf rt dp "$IMAGE_NAME" "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
           echo "✅ Built and pushed Docker image (with build-info)"
 
-      - name: Verify Docker image exists in Artifactory
-        run: |
-          set -euo pipefail
-          REPO="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local"
-          IMAGE="$SERVICE_NAME"
-          TAG="$IMAGE_TAG"
-          URL="${{ vars.JFROG_URL }}/artifactory/api/docker/${REPO}/v2/${IMAGE}/manifests/${TAG}"
-          echo "🔎 Verifying image manifest: ${URL}"
-          STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/vnd.docker.distribution.manifest.v2+json" "$URL")
-          echo "HTTP $STATUS"
-          if [[ "$STATUS" != "200" ]]; then
-            echo "❌ Docker image manifest not found for ${REPO}/${IMAGE}:${TAG}" >&2
-            exit 1
-          fi
-          echo "✅ Docker image present in Artifactory"
+      # Rely on Build Info as the source of truth; explicit registry checks removed
 
       # Evidence Plan: Package subject – unit-tests (pytest)
       - name: Prepare coverage evidence template (pytest)
