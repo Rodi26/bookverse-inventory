@@ -289,7 +289,7 @@ jobs:
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID" || true
           # Export OIDC-derived credentials and login Docker with access token (non-interactive)
-          CREDS_JSON=$(jf c export "$SERVER_ID" --show)
+          CREDS_JSON=$(jf c export --server-id "$SERVER_ID" --show)
           DOCKER_USER=$(echo "$CREDS_JSON" | jq -r '.user // empty')
           ACCESS_TOKEN=$(echo "$CREDS_JSON" | jq -r '.accessToken // empty')
           if [ -n "$DOCKER_USER" ] && [ -n "$ACCESS_TOKEN" ]; then
