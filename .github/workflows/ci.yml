@@ -288,13 +288,6 @@ jobs:
           # Use JFrog CLI to authenticate pushes without requiring docker login
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID" || true
-          # Export OIDC-derived credentials and login Docker with access token (non-interactive)
-          CREDS_JSON=$(jf c export --server-id "$SERVER_ID" --show)
-          DOCKER_USER=$(echo "$CREDS_JSON" | jq -r '.user // empty')
-          ACCESS_TOKEN=$(echo "$CREDS_JSON" | jq -r '.accessToken // empty')
-          if [ -n "$DOCKER_USER" ] && [ -n "$ACCESS_TOKEN" ]; then
-            echo "$ACCESS_TOKEN" | docker login "$REGISTRY_URL" --username "$DOCKER_USER" --password-stdin
-          fi
           jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
           jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
           jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
