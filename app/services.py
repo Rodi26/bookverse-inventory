@@ -292,7 +292,7 @@ class InventoryService:
         else:
             transaction_type = "adjustment"
 
-        # Apply changes atomically
+        # Apply changes using the current session transaction
         transaction = StockTransaction(
             id=str(uuid4()),
             book_id=book_id_str,
@@ -301,14 +301,14 @@ class InventoryService:
             notes=adjustment.notes
         )
 
-        with db.begin():
-            if inventory_is_new:
-                db.add(inventory)
-            inventory.quantity_available = new_available
-            inventory.quantity_total = new_total
-            inventory.updated_at = datetime.utcnow()
-            db.add(transaction)
+        if inventory_is_new:
+            db.add(inventory)
+        inventory.quantity_available = new_available
+        inventory.quantity_total = new_total
+        inventory.updated_at = datetime.utcnow()
+        db.add(transaction)
 
+        db.commit()
         db.refresh(transaction)
         
         logger.info(
