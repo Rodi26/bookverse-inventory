@@ -13,6 +13,12 @@ on:
         description: 'Application version (SemVer) to promote (leave empty for latest)'
         required: false
         type: string
+      DEMO_MODE:
+        description: 'Enable demo mode (verbose logs, request tracing)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
 
 jobs:
   promote:
@@ -27,6 +33,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Apply DEMO_MODE settings
+        if: ${{ inputs.DEMO_MODE == 'true' || env.DEMO_MODE == 'true' }}
+        run: |
+          echo "🔔 DEMO_MODE enabled"
+          echo "ACTIONS_STEP_DEBUG=true" >> $GITHUB_ENV
+          echo "ACTIONS_RUNNER_DEBUG=true" >> $GITHUB_ENV
+          echo "HTTP_DEBUG_LEVEL=verbose" >> $GITHUB_ENV
+          echo "BASH_XTRACE_ENABLED=1" >> $GITHUB_ENV
+          echo "LOG_LEVEL=DEBUG" >> $GITHUB_ENV
 
       - name: Resolve application and version
         run: |
