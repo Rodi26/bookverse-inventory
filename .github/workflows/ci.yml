@@ -10,6 +10,12 @@ on:
         required: false
         default: 'Manual testing'
         type: string
+      DEMO_MODE:
+        description: 'Enable demo mode (verbose logs, request tracing)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
 
 # Evidence signing configuration:
 # - secrets.EVIDENCE_PRIVATE_KEY: private key material (sensitive)
@@ -32,6 +38,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Apply DEMO_MODE settings
+        if: ${{ inputs.DEMO_MODE == 'true' || env.DEMO_MODE == 'true' }}
+        run: |
+          echo "🔔 DEMO_MODE enabled"
+          # Enable GitHub Actions debug logs for this job
+          echo "ACTIONS_STEP_DEBUG=true" >> $GITHUB_ENV
+          echo "ACTIONS_RUNNER_DEBUG=true" >> $GITHUB_ENV
+          # Make HTTP helpers verbose
+          echo "HTTP_DEBUG_LEVEL=verbose" >> $GITHUB_ENV
+          # Many steps respect this to show detailed shell execution
+          echo "BASH_XTRACE_ENABLED=1" >> $GITHUB_ENV
+          # Also useful for services using LOG_LEVEL env
+          echo "LOG_LEVEL=DEBUG" >> $GITHUB_ENV
+
       - name: Configure HTTP debug verbosity
         run: |
           # HTTP_DEBUG_LEVEL: none|basic|verbose (default basic)
@@ -39,13 +59,19 @@ jobs:
             none|basic|verbose)
               echo "HTTP_DEBUG_LEVEL=${HTTP_DEBUG_LEVEL}" >> $GITHUB_ENV ;;
             *)
-              echo "HTTP_DEBUG_LEVEL=basic" >> $GITHUB_ENV ;;
+              # If DEMO_MODE is on, keep verbose, else default basic
+              if [[ "${{ inputs.DEMO_MODE }}" == "true" || "${DEMO_MODE:-}" == "true" ]]; then
+                echo "HTTP_DEBUG_LEVEL=verbose" >> $GITHUB_ENV
+              else
+                echo "HTTP_DEBUG_LEVEL=basic" >> $GITHUB_ENV
+              fi ;;
           esac
 
       - name: Display manual trigger info
         run: |
           echo "🚀 Manual CI trigger initiated"
           echo "📝 Reason: ${{ inputs.reason || 'Manual testing' }}"
+          echo "🎛️ DEMO_MODE: ${{ inputs.DEMO_MODE || env.DEMO_MODE || 'false' }}"
           echo "👤 Triggered by: ${{ github.actor }}"
           echo "🕐 Timestamp: $(date -u)"
 
@@ -735,15 +761,14 @@ jobs:
               echo "-----------------------"
             }
           fi
-          echo "🔗 Curl (sanitized): curl -X POST '${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/?async=false' -H 'Authorization: Bearer ***' -H 'X-JFrog-Project: ${{ vars.PROJECT_KEY }}' -H 'Content-Type: application/json' -H 'Accept: application/json' -d '<payload>'"
-          DEBUG_INCLUDE_PROJECT_HEADER=true PROJECT_KEY='${{ vars.PROJECT_KEY }}' print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/?async=false" "<payload>"
+          echo "🔗 Curl (sanitized): curl -X POST '${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/?async=false' -H 'Authorization: Bearer ***' -H 'Content-Type: application/json' -H 'Accept: application/json' -d '<payload>'"
+          DEBUG_INCLUDE_PROJECT_HEADER=false print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/?async=false" "<payload>"
 
           # Create the application version with status/body capture
           RESP_BODY=$(mktemp)
           HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
             "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/?async=false" \
             -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
             -d "$APP_VERSION_PAYLOAD")
