@@ -28,8 +28,8 @@ jobs:
       contents: read
       id-token: write
     outputs:
-      build_name: ${{ steps.finalize-build-info.outputs.build_name }}
-      build_number: ${{ steps.finalize-build-info.outputs.build_number }}
+      build_name: ${{ steps.set-build-info.outputs.build_name }}
+      build_number: ${{ steps.set-build-info.outputs.build_number }}
       app_version: ${{ steps.set-app-version.outputs.app_version }}
       coverage_percent: ${{ steps.test-coverage.outputs.coverage_percent }}
 
@@ -75,10 +75,10 @@ jobs:
           echo "👤 Triggered by: ${{ github.actor }}"
           echo "🕐 Timestamp: $(date -u)"
 
-      - name: Set Build Info (job + run)
+      - name: Set Build Info (canonical)
         id: set-build-info
         run: |
-          BUILD_NAME="${{ github.event.repository.name }}-${{ github.job }}"
+          BUILD_NAME="${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}"
           BUILD_NUMBER="${{ github.run_number }}-${{ github.run_attempt }}"
           echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
@@ -130,16 +130,12 @@ jobs:
           else
             APP_VERSION="1.0.0"
           fi
-          # Update tags and build identifiers to SemVer
+          # Update tags to SemVer
           IMAGE_TAG="$APP_VERSION"
           IMAGE_NAME="${REGISTRY_URL}/${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-docker-internal-local/${SERVICE_NAME}:${IMAGE_TAG}"
-          BUILD_NAME="$SERVICE_NAME"
-          BUILD_NUMBER="$APP_VERSION"
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
-          echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
-          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
 
       - name: Determine SemVer image version
         id: set-app-version
@@ -228,17 +224,12 @@ jobs:
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
 
-      - name: Finalize Build Info (repo_workflow_job / runNumber)
-        id: finalize-build-info
+      - name: Set canonical Build Info env (redundant outputs avoided)
         run: |
-          # Build name: <repo>_<workflow>_<job>
           BUILD_NAME="${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}"
-          # Build number: <run-number>
-          BUILD_NUMBER="${{ github.run_number }}"
+          BUILD_NUMBER="${{ github.run_number }}-${{ github.run_attempt }}"
           echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
-          echo "build_name=$BUILD_NAME" >> $GITHUB_OUTPUT
-          echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
 
       - name: Setup JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
@@ -620,9 +611,9 @@ jobs:
           IMAGE_TAG="${APP_VERSION}"
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           BUILD_INFO_REPO="${{ vars.PROJECT_KEY }}-build-info"
-          # Align build reference with build-test-publish job outputs
-          BUILD_NAME="${{ needs.build-test-publish.outputs.build_name }}"
-          BUILD_NUMBER="${{ needs.build-test-publish.outputs.build_number }}"
+          # Recompute canonical build reference for the build job
+          BUILD_NAME="${{ github.event.repository.name }}_${{ github.workflow }}_build-test-publish"
+          BUILD_NUMBER="${{ github.run_number }}-${{ github.run_attempt }}"
           BUILD_INFO_REPO="${{ vars.PROJECT_KEY }}-build-info"
           
           echo "🔍 Checking for existing application versions..."
@@ -761,8 +752,7 @@ jobs:
               echo "-----------------------"
             }
           fi
-          echo "🔗 Curl (sanitized): curl -X POST '${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/?async=false' -H 'Authorization: Bearer ***' -H 'Content-Type: application/json' -H 'Accept: application/json' -d '<payload>'"
-          DEBUG_INCLUDE_PROJECT_HEADER=false print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/?async=false" "<payload>"
+          DEBUG_INCLUDE_PROJECT_HEADER=false print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/?async=false" "$APP_VERSION_PAYLOAD"
 
           # Create the application version with status/body capture
           RESP_BODY=$(mktemp)
