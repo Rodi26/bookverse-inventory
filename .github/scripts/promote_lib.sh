@@ -85,7 +85,6 @@ fetch_summary() {
   code=$(curl -sS -L -o "$body" -w "%{http_code}" \
     "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/content" \
     -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN}" \
-    -H "X-JFrog-Project: ${PROJECT_KEY}" \
     -H "Accept: application/json" || echo 000)
   if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
     CURRENT_STAGE=$(jq -r '.current_stage // empty' "$body" 2>/dev/null || echo "")
@@ -174,7 +173,6 @@ release_version() {
   http_status=$(curl -sS -L -o "$resp_body" -w "%{http_code}" -X POST \
     "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" \
     -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN}" \
-    -H "X-JFrog-Project: ${PROJECT_KEY}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
     -d "$payload")
