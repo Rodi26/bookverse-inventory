@@ -224,13 +224,6 @@ jobs:
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
 
-      - name: Set canonical Build Info env (redundant outputs avoided)
-        run: |
-          BUILD_NAME="${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}"
-          BUILD_NUMBER="${{ github.run_number }}-${{ github.run_attempt }}"
-          echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
-          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
-
       - name: Setup JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
         env:
@@ -242,7 +235,7 @@ jobs:
           version: latest
           oidc-provider-name: github-bookverse-inventory
           disable-job-summary: false
-          disable-auto-build-publish: false
+          disable-auto-build-publish: true
           disable-auto-evidence-collection: false
           oidc-audience: jfrog-github
       - name: Set up Python
@@ -458,19 +451,11 @@ jobs:
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ SAST evidence attachment failed"
 
-      - name: Collect Git information for Build Info
-        run: |
-          jf rt bag "$BUILD_NAME" "$BUILD_NUMBER"
-
-      - name: Collect Environment Variables for Build Info
-        run: |
-          jf rt bce "$BUILD_NAME" "$BUILD_NUMBER"
-
       - name: Publish Build Info
         run: |
+          jf rt bag "$BUILD_NAME" "$BUILD_NUMBER"
+          jf rt bce "$BUILD_NAME" "$BUILD_NUMBER"
           jf rt bp "$BUILD_NAME" "$BUILD_NUMBER"
-
-      
 
       # Evidence Plan: Build subject – code-quality (SonarQube)
       - name: Prepare Sonar quality gate template (code-quality)
@@ -595,7 +580,7 @@ jobs:
           version: latest
           oidc-provider-name: github-bookverse-inventory
           disable-job-summary: false
-          disable-auto-build-publish: false
+          disable-auto-build-publish: true
           disable-auto-evidence-collection: false
           oidc-audience: jfrog-github
 
