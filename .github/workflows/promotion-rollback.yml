@@ -1,4 +1,4 @@
-name: AppTrust Rollback
+name: Promotion Rollback
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ on:
         options: ['false', 'true']
 
 concurrency:
-  group: apptrust-rollback-${{ github.event.repository.name }}
+  group: promotion-rollback-${{ github.event.repository.name }}
   cancel-in-progress: false
 
 jobs:
@@ -95,7 +95,7 @@ jobs:
             DRY_FLAG="--dry-run"
           fi
 
-          python3 scripts/apptrust_rollback.py \
+          python3 .github/scripts/apptrust_rollback.py \
             --app "$APP_KEY" \
             --version "$TARGET_VERSION" \
             ${DRY_FLAG}
