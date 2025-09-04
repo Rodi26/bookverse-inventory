@@ -237,7 +237,7 @@ jobs:
           disable-job-summary: false
           disable-auto-build-publish: true
           disable-auto-evidence-collection: false
-          # oidc-audience: jfrog-github
+          oidc-audience: jfrog-github
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -586,7 +586,7 @@ jobs:
           disable-job-summary: false
           disable-auto-build-publish: true
           disable-auto-evidence-collection: false
-          # oidc-audience: jfrog-github
+          oidc-audience: jfrog-github
 
       - name: Configure JFrog CLI
         run: |
