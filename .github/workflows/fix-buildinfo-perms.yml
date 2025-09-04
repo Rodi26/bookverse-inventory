@@ -26,39 +26,26 @@ jobs:
           cat > "$PT_JSON" <<JSON
           {
             "name": "${NAME}",
-            "projectKey": "${PROJECT}",
-            "repo": {
-              "repositories": ["${REPO_KEY}"],
-              "includesPattern": "**/*",
-              "excludesPattern": ""
-            },
+            "includesPattern": "**/*",
+            "excludesPattern": "",
+            "repositories": ["${REPO_KEY}"],
             "principals": {
               "users": {
-                "frank.inventory@bookverse.com": ["read","write","annotate","delete"],
-                "pipeline.inventory@bookverse.com": ["read","write","annotate","delete"]
+                "frank.inventory@bookverse.com": ["read","write","annotate"],
+                "pipeline.inventory@bookverse.com": ["read","write","annotate"]
               },
               "groups": {}
             }
           }
           JSON
-          echo "Applying permission target via v1 API with project header..."
+          echo "Applying permission target via v2 API with projectKey..."
           BODY="/tmp/resp.json"
           CODE=$(curl -sS -w "%{http_code}" -o "$BODY" \
             -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN}" \
             -H "Content-Type: application/json" \
-            -H "X-JFrog-Project: ${PROJECT}" \
-            -X PUT "${JFROG_URL}/artifactory/api/security/permissions/${NAME}" \
+            -X PUT "${JFROG_URL}/artifactory/api/v2/security/permissions/${NAME}?projectKey=${PROJECT}" \
             -d @"$PT_JSON")
-          echo "HTTP: $CODE" && cat "$BODY" || true
-          if [[ "$CODE" -lt 200 || "$CODE" -ge 300 ]]; then
-            echo "Falling back to v2 API with projectKey query..."
-            CODE=$(curl -sS -w "%{http_code}" -o "$BODY" \
-              -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN}" \
-              -H "Content-Type: application/json" \
-              -X PUT "${JFROG_URL}/artifactory/api/v2/security/permissions/${NAME}?projectKey=${PROJECT}" \
-              -d @"$PT_JSON")
-            echo "HTTP (v2): $CODE" && cat "$BODY" || true
-          fi
+          echo "HTTP: $CODE" && echo "Response:" && cat "$BODY" || true
           if [[ "$CODE" -lt 200 || "$CODE" -ge 300 ]]; then
             echo "❌ Failed to update permission target"; exit 1
           else
