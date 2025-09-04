@@ -1,0 +1,54 @@
+name: '🔧 Fix Build-Info Repo Permissions'
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fix-perms:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v4
+        with:
+          version: latest
+      - name: Grant deploy perms on build-info repo
+        env:
+          JFROG_URL: ${{ vars.JFROG_URL }}
+          JFROG_ADMIN_TOKEN: ${{ secrets.JFROG_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          NAME="bookverse-build-info-deployers"
+          REPO_KEY="bookverse-build-info"
+          TMP=$(mktemp)
+          cat > "$TMP" <<JSON
+          {
+            "name": "${NAME}",
+            "repo": {
+              "repositories": ["${REPO_KEY}"],
+              "includesPattern": "**/*",
+              "excludesPattern": "",
+              "actions": {
+                "users": {
+                  "frank.inventory@bookverse.com": ["read","write","annotate","delete","manage"],
+                  "pipeline.inventory@bookverse.com": ["read","write","annotate","delete","manage"]
+                },
+                "groups": {}
+              }
+            }
+          }
+          JSON
+          echo "Applying permission target: $NAME for repo $REPO_KEY"
+          # Use PUT to create or update
+          code=$(curl -sS -w "%{http_code}" -o /dev/null \
+            -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -X PUT "${JFROG_URL}/artifactory/api/security/permissions/${NAME}" \
+            -d @"$TMP")
+          echo "HTTP: $code"
+          if [ "$code" -ge 200 ] && [ "$code" -lt 300 ]; then
+            echo "✅ Permissions updated"
+          else
+            echo "❌ Failed to update permissions"; exit 1
+          fi
