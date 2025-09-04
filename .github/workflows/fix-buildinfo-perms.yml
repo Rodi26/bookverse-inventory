@@ -31,8 +31,8 @@ jobs:
               "excludesPattern": "",
               "actions": {
                 "users": {
-                  "frank.inventory@bookverse.com": ["read","write","annotate","delete","manage"],
-                  "pipeline.inventory@bookverse.com": ["read","write","annotate","delete","manage"]
+                  "frank.inventory@bookverse.com": ["read","deploy","annotate","delete","manage"],
+                  "pipeline.inventory@bookverse.com": ["read","deploy","annotate","delete","manage"]
                 },
                 "groups": {}
               }
