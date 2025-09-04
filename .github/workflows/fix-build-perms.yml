@@ -13,7 +13,7 @@ jobs:
         uses: jfrog/setup-jfrog-cli@v4
         with:
           version: latest
-      - name: Grant build publish perms via v1 (build section)
+      - name: Grant build publish perms via v2 (builds section)
         env:
           JFROG_URL: ${{ vars.JFROG_URL }}
           JFROG_ADMIN_TOKEN: ${{ secrets.JFROG_ADMIN_TOKEN }}
@@ -21,55 +21,25 @@ jobs:
         run: |
           set -euo pipefail
           NAME="bookverse-builds-deployer"
-          PT_JSON="/tmp/pt_build_v1.json"
-          cat > "$PT_JSON" <<JSON
+          PT_JSON2="/tmp/pt_build_v2.json"
+          cat > "$PT_JSON2" <<JSON
           {
             "name": "${NAME}",
-            "build": {
+            "projectKey": "${PROJECT}",
+            "builds": {
               "includesPattern": "**/*",
               "excludesPattern": "",
-              "repositories": ["${PROJECT}-build-info"],
               "actions": {
                 "users": {
-                  "frank.inventory@bookverse.com": ["read","write","annotate","delete","manage"],
-                  "pipeline.inventory@bookverse.com": ["read","write","annotate","delete","manage"]
+                  "frank.inventory@bookverse.com": ["read","manage","annotate"],
+                  "pipeline.inventory@bookverse.com": ["read","manage","annotate"]
                 },
                 "groups": {}
               }
             }
           }
           JSON
-          echo "Applying build permission target (v1) with project header..."
           BODY="/tmp/resp.json"
-          CODE=$(curl -sS -w "%{http_code}" -o "$BODY" \
-            -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -H "X-JFrog-Project: ${PROJECT}" \
-            -X PUT "${JFROG_URL}/artifactory/api/security/permissions/${NAME}" \
-            -d @"$PT_JSON")
-          echo "HTTP (v1): $CODE" && echo "Response:" && cat "$BODY" || true
-          if [[ "$CODE" -ge 200 && "$CODE" -lt 300 ]]; then
-            echo "✅ Build permission target updated (v1)"; exit 0
-          fi
-          echo "Falling back to v2 schema..."
-          PT_JSON2="/tmp/pt_build_v2.json"
-          cat > "$PT_JSON2" <<JSON
-          {
-            "name": "${NAME}",
-            "principals": {
-              "users": {
-                "frank.inventory@bookverse.com": ["read","write","annotate","delete","manage"],
-                "pipeline.inventory@bookverse.com": ["read","write","annotate","delete","manage"]
-              },
-              "groups": {}
-            },
-            "builds": {
-              "includesPattern": "**/*",
-              "excludesPattern": "",
-              "repositories": ["${PROJECT}-build-info"]
-            }
-          }
-          JSON
           CODE=$(curl -sS -w "%{http_code}" -o "$BODY" \
             -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN}" \
             -H "Content-Type: application/json" \
