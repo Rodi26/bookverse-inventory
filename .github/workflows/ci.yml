@@ -452,10 +452,11 @@ jobs:
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ SAST evidence attachment failed"
 
       - name: Publish Build Info
+        env:
+          JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
-          # Use admin context for build-info publish to avoid OIDC repo permission gaps
-          jf c add bookverse-admin --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}" || true
-          jf c use bookverse-admin || true
+          # Ensure project scoping and headers are sent for OIDC access tokens
+          echo "Using JFrog server(s):" && jf c show || true
           jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
           jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
           jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
