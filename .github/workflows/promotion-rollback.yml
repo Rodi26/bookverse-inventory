@@ -7,11 +7,6 @@ on:
         description: "Version (SemVer) to rollback (omit to use latest promoted)"
         required: false
         type: string
-      dry_run:
-        description: "Dry run (no mutations)"
-        required: false
-        default: false
-        type: boolean
       DEMO_MODE:
         description: 'Enable demo mode (verbose logs, request tracing)'
         required: false
@@ -90,12 +85,7 @@ jobs:
             echo "🎯 Defaulting to latest promoted version: $TARGET_VERSION"
           fi
 
-          DRY_FLAG=""
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            DRY_FLAG="--dry-run"
-          fi
-
           python3 .github/scripts/apptrust_rollback.py \
             --app "$APP_KEY" \
             --version "$TARGET_VERSION" \
-            ${DRY_FLAG}
+            
