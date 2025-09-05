@@ -82,6 +82,18 @@ jobs:
             echo "🎯 Defaulting to latest promoted version: $TARGET_VERSION"
           fi
 
+          # Snapshot BEFORE state
+          SNAP_BEFORE=$(mktemp)
+          curl -sS -L -o "$SNAP_BEFORE" -w "" \
+            "$APPTRUST_BASE_URL/applications/$APP_KEY/versions?limit=50&order_by=created&order_asc=false" \
+            -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
+            -H "Accept: application/json"
+          BEFORE_LATEST=$(jq -r '.versions[] | select((.release_status=="RELEASED" or .release_status=="TRUSTED_RELEASE") and (.tag=="latest")) | .version' "$SNAP_BEFORE" | head -n1)
+          TARGET_TAG_BEFORE=$(jq -r --arg ver "$TARGET_VERSION" '.versions[] | select(.version==$ver) | (.tag // "")' "$SNAP_BEFORE" 2>/dev/null || echo "")
+          HAD_LATEST_BEFORE=false
+          if [ "$TARGET_TAG_BEFORE" = "latest" ]; then HAD_LATEST_BEFORE=true; fi
+          rm -f "$SNAP_BEFORE"
+
           STATUS="SUCCESS"
           MSG=""
           if python3 .github/scripts/apptrust_rollback.py \
@@ -91,6 +103,30 @@ jobs:
           else
             STATUS="FAILED"
             MSG="Rollback failed for $APP_KEY@$TARGET_VERSION"
+          fi
+
+          # Snapshot AFTER state and validate outcome
+          SNAP_AFTER=$(mktemp)
+          curl -sS -L -o "$SNAP_AFTER" -w "" \
+            "$APPTRUST_BASE_URL/applications/$APP_KEY/versions?limit=50&order_by=created&order_asc=false" \
+            -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
+            -H "Accept: application/json"
+          AFTER_LATEST=$(jq -r '.versions[] | select((.release_status=="RELEASED" or .release_status=="TRUSTED_RELEASE") and (.tag=="latest")) | .version' "$SNAP_AFTER" | head -n1)
+          TARGET_TAG_AFTER=$(jq -r --arg ver "$TARGET_VERSION" '.versions[] | select(.version==$ver) | (.tag // "")' "$SNAP_AFTER" 2>/dev/null || echo "")
+          rm -f "$SNAP_AFTER"
+
+          VALIDATION_ERRORS=()
+          if [ "$TARGET_TAG_AFTER" != "quarantine" ]; then
+            VALIDATION_ERRORS+=("Target tag not 'quarantine' (got '$TARGET_TAG_AFTER')")
+          fi
+          if [ "$HAD_LATEST_BEFORE" = "true" ]; then
+            if [ -z "${AFTER_LATEST}" ] || [ "$AFTER_LATEST" = "$TARGET_VERSION" ]; then
+              VALIDATION_ERRORS+=("'latest' did not move away from target")
+            fi
+          fi
+          if [ ${#VALIDATION_ERRORS[@]} -gt 0 ]; then
+            STATUS="FAILED"
+            MSG="Validation failed: ${VALIDATION_ERRORS[*]}"
           fi
 
           {
@@ -106,5 +142,21 @@ jobs:
             echo "- Workflow run: \`${{ github.run_id }}\` (attempt \`${{ github.run_attempt }}\`)"
             echo "- Timestamp (UTC): \`$(date -u +%Y-%m-%dT%H:%M:%SZ)\`"
             echo ""
+            echo "### Validation"
+            echo "- Before latest (PROD): \`${BEFORE_LATEST:-none}\`"
+            echo "- After  latest (PROD): \`${AFTER_LATEST:-none}\`"
+            echo "- Target tag before → after: \`${TARGET_TAG_BEFORE:-}\` → \`${TARGET_TAG_AFTER:-}\`"
+            if [ "${#VALIDATION_ERRORS[@]}" -gt 0 ]; then
+              echo "- Result: ❌ ${MSG}"
+            else
+              echo "- Result: ✅ Rollback validated"
+            fi
+            echo ""
             echo "${MSG}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # Fail the job if validation failed
+          if [ "$STATUS" = "FAILED" ]; then
+            echo "${MSG}" >&2
+            exit 1
+          fi
