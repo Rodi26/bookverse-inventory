@@ -82,7 +82,29 @@ jobs:
             echo "🎯 Defaulting to latest promoted version: $TARGET_VERSION"
           fi
 
-          python3 .github/scripts/apptrust_rollback.py \
+          STATUS="SUCCESS"
+          MSG=""
+          if python3 .github/scripts/apptrust_rollback.py \
             --app "$APP_KEY" \
-            --version "$TARGET_VERSION" \
-            
+            --version "$TARGET_VERSION"; then
+            MSG="Rollback executed for $APP_KEY@$TARGET_VERSION"
+          else
+            STATUS="FAILED"
+            MSG="Rollback failed for $APP_KEY@$TARGET_VERSION"
+          fi
+
+          {
+            echo "## 🔄 Promotion Rollback"
+            echo ""
+            echo "**Repository:** \`${{ github.repository }}\`"
+            echo "**Application:** \`$APP_KEY\`"
+            echo "**Target Version:** \`$TARGET_VERSION\`"
+            echo "**Status:** ${STATUS}"
+            echo ""
+            echo "### Details"
+            echo "- Triggered by: \`${{ github.actor }}\`"
+            echo "- Workflow run: \`${{ github.run_id }}\` (attempt \`${{ github.run_attempt }}\`)"
+            echo "- Timestamp (UTC): \`$(date -u +%Y-%m-%dT%H:%M:%SZ)\`"
+            echo ""
+            echo "${MSG}"
+          } >> "$GITHUB_STEP_SUMMARY"
