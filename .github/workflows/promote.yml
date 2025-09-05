@@ -142,8 +142,8 @@ jobs:
           TARGET_NAME="$TS_INPUT"
           if [[ -z "$TARGET_NAME" ]]; then TARGET_NAME="$FINAL_STAGE"; fi
           echo "TARGET_NAME=$TARGET_NAME" >> $GITHUB_ENV
-          echo "PROMOTED_STAGES=" >> $GITHUB_ENV
-          echo "DID_RELEASE=false" >> $GITHUB_ENV
+            echo "PROMOTED_STAGES=" >> $GITHUB_ENV
+            echo "DID_RELEASE=false" >> $GITHUB_ENV
           PROMO_SUMMARY_FILE=$(mktemp)
           echo "PROMO_SUMMARY_FILE=$PROMO_SUMMARY_FILE" >> $GITHUB_ENV
           {
@@ -202,7 +202,7 @@ jobs:
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
           source .github/scripts/promote_lib.sh
-          fetch_summary
+            fetch_summary
           CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
           IFS=' ' read -r -a STAGES <<< "${STAGES_STR:-}"
           # Find next after DEV
@@ -245,7 +245,7 @@ jobs:
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
           source .github/scripts/promote_lib.sh
-          fetch_summary
+            fetch_summary
           CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
           IFS=' ' read -r -a STAGES <<< "${STAGES_STR:-}"
           # Find next after QA
@@ -535,6 +535,7 @@ jobs:
           CURRENT_DISPLAY="${CURRENT_STAGE_BEFORE:-UNASSIGNED}"
           CURRENT_DISPLAY="${CURRENT_DISPLAY#bookverse-}"
           TARGET_DISPLAY="${TARGET_NAME:-${FINAL_STAGE:-UNKNOWN}}"
+          export CURRENT_DISPLAY TARGET_DISPLAY
           # Build lifecycle path that emphasizes CURRENT_DISPLAY ➔ TARGET_DISPLAY
           STAGES="${STAGES_STR:-DEV QA STAGING PROD}"
           IFS=' ' read -r -a STAGE_ARR <<< "$STAGES"
@@ -590,7 +591,6 @@ jobs:
             const target = env.TARGET_DISPLAY || '';
             const lifecycleDefined = `UNASSIGNED → ${(env.STAGES_STR || 'DEV QA STAGING PROD').split(' ').join(' → ')}`;
             const lifecycleHighlight = env.LIFECYCLE_PATH || lifecycleDefined;
-            const overall = (env.OUTCOME || 'SUCCESS').toUpperCase();
             const promoMethod = (env.PROMOTION_METHOD || 'move');
 
             // Step statuses (may be empty if skipped)
@@ -600,28 +600,30 @@ jobs:
             const sStg = (env.PROMO_STAGING_STATUS || '').toUpperCase();
             const sRel = (env.PROMO_RELEASE_STATUS || '').toUpperCase();
 
-            // Evidence statuses (available for STAGING gate in this workflow)
-            const evIac = (env.IAC_EVIDENCE_STATUS || 'N/A').toUpperCase();
-            const evPentest = (env.PENTEST_EVIDENCE_STATUS || 'N/A').toUpperCase();
-            const evChange = (env.CHANGEAPPROVAL_EVIDENCE_STATUS || 'N/A').toUpperCase();
+            // Evidence statuses
+            const evIac = (env.IAC_EVIDENCE_STATUS || '').toUpperCase();
+            const evPentest = (env.PENTEST_EVIDENCE_STATUS || '').toUpperCase();
+            const evChange = (env.CHANGEAPPROVAL_EVIDENCE_STATUS || '').toUpperCase();
 
-            function resultFor(stepStatus, evidenceStatuses){
+            function stepOutcomeFromPlatform(stepStatus){
               const st = (stepStatus||'').toUpperCase();
               if (st === 'FAILED' || st === 'FAILURE') return 'FAILURE';
-              if (evidenceStatuses && evidenceStatuses.some(s => (s||'').toUpperCase() === 'FAILED')) return 'WARNING';
               if (!st) return 'SKIPPED';
               return 'SUCCESS';
             }
 
-            function evidenceLine(name, status){
-              const up = (status||'N/A').toUpperCase();
+            function evidenceLine(name, status, hint){
+              const up = (status||'').toUpperCase();
               if (up === 'FAILED') return `  - ❌ ${name} (failed)`;
               if (up === 'SUCCESS') return `  - ✅ ${name}`;
-              return `  - ${name} (n/a)`;
+              return `  - ${name} (${hint || 'not evaluated'})`;
             }
 
             function stepSection(from, to, kind, constraints, evidences, stepStatus){
-              const outcome = resultFor(stepStatus, evidences.map(e => e.status));
+              const promoResult = stepOutcomeFromPlatform(stepStatus);
+              // A step can be SUCCESS even if evidence had failures; reflect that via step outcome
+              const hasEvidenceFail = evidences.some(e => (e.status||'').toUpperCase() === 'FAILED');
+              const stepOutcome = promoResult === 'FAILURE' ? 'FAILURE' : (hasEvidenceFail ? 'WARNING' : 'SUCCESS');
               const lines = [];
               lines.push(`### Step: ${from} → ${to}`);
               lines.push(`- **Type:** ${kind}`);
@@ -630,13 +632,39 @@ jobs:
               if (!evidences.length) {
                 lines.push(`  - (none)`);
               } else {
-                evidences.forEach(e => lines.push(evidenceLine(e.name, e.status)));
+                evidences.forEach(e => lines.push(evidenceLine(e.name, e.status, e.hint)));
               }
-              lines.push(`- **Result:** ${iconFor(outcome)} ${outcome}`);
-              return lines.join('\n');
+              lines.push(`- **Promotion Result:** ${iconFor(promoResult)} ${promoResult}`);
+              lines.push(`- **Step Outcome:** ${iconFor(stepOutcome)} ${stepOutcome}`);
+              return { text: lines.join('\n'), outcome: stepOutcome };
             }
 
             // Executive Summary
+            // Per-step sections with evidence
+            const sec1 = stepSection('UNASSIGNED','DEV',`Promote (${promoMethod})`, 'None', [
+              { name: 'SLSA Provenance (UNASSIGNED)', status: '', hint: 'attached in CI; not evaluated here' },
+              { name: 'Jira Release Notes (UNASSIGNED)', status: '', hint: 'attached in CI; not evaluated here' },
+            ], sUnassigned);
+            const sec2 = stepSection('DEV','QA',`Promote (${promoMethod})`, 'None', [
+              { name: 'Coverage (pytest) [Package]', status: '', hint: 'attached in CI; not evaluated here' },
+              { name: 'SAST (Checkmarx) [Package]', status: '', hint: 'attached in CI; not evaluated here' },
+            ], sDev);
+            const sec3 = stepSection('QA','STAGING',`Promote (${promoMethod})`, 'None', [
+              { name: 'DAST (Invicti)', status: '', hint: 'not configured in this workflow' },
+              { name: 'API Tests (Postman)', status: '', hint: 'not configured in this workflow' },
+            ], sQa);
+            const sec4 = stepSection('STAGING','PROD',`Release (${promoMethod})`, 'None', [
+              { name: 'Snyk IaC', status: evIac },
+              { name: 'Cobalt Pentest', status: evPentest },
+              { name: 'ServiceNow Change Approval', status: evChange },
+            ], sRel);
+
+            // Aggregate overall outcome: FAIL > WARNING > SUCCESS
+            const outcomes = [sec1.outcome, sec2.outcome, sec3.outcome, sec4.outcome].filter(Boolean);
+            let overall = 'SUCCESS';
+            if (outcomes.some(o => o === 'FAILURE')) overall = 'FAILURE';
+            else if (outcomes.some(o => o === 'WARNING')) overall = 'WARNING';
+
             const exec = [
               `### Executive Summary`,
               `- **Lifecycle:** ${lifecycleDefined}`,
@@ -646,27 +674,7 @@ jobs:
               `- **Outcome:** ${iconFor(overall)} ${overall}`,
             ].join('\n');
 
-            // Per-step sections
-            const sections = [];
-            sections.push(stepSection('UNASSIGNED','DEV',`Promote (${promoMethod})`, 'None', [
-              { name: 'SLSA Provenance (UNASSIGNED)', status: 'N/A' },
-              { name: 'Jira Release Notes (UNASSIGNED)', status: 'N/A' },
-            ], sUnassigned));
-            sections.push(stepSection('DEV','QA',`Promote (${promoMethod})`, 'None', [
-              { name: 'Coverage (pytest) [Package]', status: 'N/A' },
-              { name: 'SAST (Checkmarx) [Package]', status: 'N/A' },
-            ], sDev));
-            sections.push(stepSection('QA','STAGING',`Promote (${promoMethod})`, 'None', [
-              { name: 'DAST (Invicti)', status: 'N/A' },
-              { name: 'API Tests (Postman)', status: 'N/A' },
-            ], sQa));
-            sections.push(stepSection('STAGING','PROD','Release', 'None', [
-              { name: 'Snyk IaC', status: evIac },
-              { name: 'Cobalt Pentest', status: evPentest },
-              { name: 'ServiceNow Change Approval', status: evChange },
-            ], sRel));
-
-            const report = [exec, '', ...sections].join('\n\n');
+            const report = [exec, '', sec1.text, '', sec2.text, '', sec3.text, '', sec4.text].join('\n');
             process.stdout.write(report);
           })();
           NODE
