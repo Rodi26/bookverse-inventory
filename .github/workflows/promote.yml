@@ -530,17 +530,92 @@ jobs:
       - name: Generate promotion summary
         if: always()
         run: |
+          # Derive display values
+          CURRENT_DISPLAY="${CURRENT_STAGE_BEFORE:-UNASSIGNED}"
+          CURRENT_DISPLAY="${CURRENT_DISPLAY#bookverse-}"
+          TARGET_DISPLAY="${TARGET_NAME:-${FINAL_STAGE:-UNKNOWN}}"
+          # Determine promotion type
+          PROMOTION_TYPE="Promotion"
+          if [[ "${PROMO_RELEASE_ATTEMPTED:-false}" == "true" ]]; then
+            if [[ "${PROMO_UNASSIGNED_ATTEMPTED:-false}" == "true" || "${PROMO_DEV_ATTEMPTED:-false}" == "true" || "${PROMO_QA_ATTEMPTED:-false}" == "true" || "${PROMO_STAGING_ATTEMPTED:-false}" == "true" ]]; then
+              PROMOTION_TYPE="Promotion + Release"
+            else
+              PROMOTION_TYPE="Release"
+            fi
+          fi
+          # Determine failures and warnings
+          has_failed=false
+          for s in "${PROMO_UNASSIGNED_STATUS:-}" "${PROMO_DEV_STATUS:-}" "${PROMO_QA_STATUS:-}" "${PROMO_STAGING_STATUS:-}" "${PROMO_RELEASE_STATUS:-}"; do
+            if [[ "$s" == "FAILED" ]]; then has_failed=true; fi
+          done
+          evidence_warn=false
+          for s in "${IAC_EVIDENCE_STATUS:-}" "${PENTEST_EVIDENCE_STATUS:-}" "${CHANGEAPPROVAL_EVIDENCE_STATUS:-}"; do
+            if [[ "$s" == "FAILED" ]]; then evidence_warn=true; fi
+          done
+          OVERALL_STATUS="Success"
+          STATUS_ICON="✅"
+          if $has_failed; then OVERALL_STATUS="Failure"; STATUS_ICON="❌"; elif $evidence_warn; then OVERALL_STATUS="Warning"; STATUS_ICON="⚠️"; fi
+
           echo "## 🚀 AppTrust Promotion Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📄 Evidence Plan: see bookverse-demo-init/docs/EVIDENCE_PLAN.md" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Application:** $APPLICATION_KEY" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** $APP_VERSION" >> $GITHUB_STEP_SUMMARY
-          echo "**Started at:** ${CURRENT_STAGE_BEFORE}" >> $GITHUB_STEP_SUMMARY
-          echo "**Promoted stages:** ${PROMOTED_STAGES:-none}" >> $GITHUB_STEP_SUMMARY
-          echo "**Released to ${FINAL_STAGE}:** ${DID_RELEASE}" >> $GITHUB_STEP_SUMMARY
+          echo "**Lifecycle:** ${CURRENT_DISPLAY} → ${TARGET_DISPLAY}" >> $GITHUB_STEP_SUMMARY
+          echo "**Type:** ${PROMOTION_TYPE}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Lifecycle final stage: ${FINAL_STAGE}" >> $GITHUB_STEP_SUMMARY
+
+          # Template 1: Executive Summary
+          echo "### **Executive Summary**" >> $GITHUB_STEP_SUMMARY
+          case "$OVERALL_STATUS" in
+            Success)
+              echo "* **Success:** ${STATUS_ICON} **Promotion Succeeded**: Version \`$APP_VERSION\` was successfully promoted via \`${PROMOTION_TYPE}\` from \`${CURRENT_DISPLAY}\` to \`${TARGET_DISPLAY}\`." >> $GITHUB_STEP_SUMMARY ;;
+            Warning)
+              echo "* **Warning:** ${STATUS_ICON} **Promotion Succeeded with Warnings**: Version \`$APP_VERSION\` was promoted from \`${CURRENT_DISPLAY}\` to \`${TARGET_DISPLAY}\`, but evidence attachment failed." >> $GITHUB_STEP_SUMMARY ;;
+            Failure)
+              echo "* **Failure:** ${STATUS_ICON} **Promotion Failed**: Could not promote version \`$APP_VERSION\` from \`${CURRENT_DISPLAY}\` to \`${TARGET_DISPLAY}\`." >> $GITHUB_STEP_SUMMARY ;;
+          esac
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Template 2: Tabular Data
+          if [[ "$OVERALL_STATUS" == "Success" ]]; then
+            echo "### ✅ Promotion Succeeded" >> $GITHUB_STEP_SUMMARY
+            echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Version** | \`$APP_VERSION\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Lifecycle** | \`${CURRENT_DISPLAY}\` → \`${TARGET_DISPLAY}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Type** | \`${PROMOTION_TYPE}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Outcome** | All operations completed successfully. |" >> $GITHUB_STEP_SUMMARY
+          elif [[ "$OVERALL_STATUS" == "Warning" ]]; then
+            echo "### ⚠️ Promotion Succeeded with Warnings" >> $GITHUB_STEP_SUMMARY
+            echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Version** | \`$APP_VERSION\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Lifecycle** | \`${CURRENT_DISPLAY}\` → \`${TARGET_DISPLAY}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Type** | \`${PROMOTION_TYPE}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Outcome** | Promotion complete, but **evidence attachment failed**. |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Promotion Failed" >> $GITHUB_STEP_SUMMARY
+            echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Version** | \`$APP_VERSION\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Lifecycle** | \`${CURRENT_DISPLAY}\` → \`${TARGET_DISPLAY}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Type** | \`${PROMOTION_TYPE}\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Outcome** | **Critical failure** during promotion step. |" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Template 3: Process Flow
+          echo "### **Process Flow**" >> $GITHUB_STEP_SUMMARY
+          if [[ "$OVERALL_STATUS" == "Success" ]]; then
+            echo "* **Success:** ${STATUS_ICON} \`$APP_VERSION\`: [\`${CURRENT_DISPLAY}\`] ➔ [\`${TARGET_DISPLAY}\`] | **Status:** Success (Type: \`${PROMOTION_TYPE}\`)" >> $GITHUB_STEP_SUMMARY
+          elif [[ "$OVERALL_STATUS" == "Warning" ]]; then
+            echo "* **Warning:** ${STATUS_ICON} \`$APP_VERSION\`: [\`${CURRENT_DISPLAY}\`] ➔ [\`${TARGET_DISPLAY}\`] | **Status:** Succeeded with warnings (Evidence failed)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "* **Failure:** ${STATUS_ICON} \`$APP_VERSION\`: [\`${CURRENT_DISPLAY}\`] ➔ [\`${TARGET_DISPLAY}\`] | **Status:** Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### ✅ Stage Results (expected vs actual)" >> $GITHUB_STEP_SUMMARY
           if [ -n "${PROMO_SUMMARY_FILE:-}" ] && [ -f "${PROMO_SUMMARY_FILE}" ]; then
