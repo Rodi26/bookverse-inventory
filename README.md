@@ -76,3 +76,14 @@ Perfect for demonstrating a realistic bookshop inventory system!
 🧪 Testing evidence creation fix - Thu Aug 28 17:02:24 IDT 2025
 🧪 Testing SHA256 digest fix - Thu Aug 28 17:13:17 IDT 2025
 🔄 Testing CORRECT Docker evidence format - Thu Aug 28 17:26:46 IDT 2025
+
+## Required repository variables
+
+- `PROJECT_KEY`: `bookverse`
+- `DOCKER_REGISTRY`: e.g., `releases.jfrog.io` (or your Artifactory Docker registry host)
+- `JFROG_URL`: e.g., `https://releases.jfrog.io`
+
+## Required repository secrets
+
+- `JFROG_ACCESS_TOKEN`: Access token used by CI to interact with JFrog Platform
+- `EVIDENCE_PRIVATE_KEY`: Private key PEM for evidence signing (mandatory)
