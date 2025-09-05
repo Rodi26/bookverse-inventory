@@ -82,17 +82,17 @@ jobs:
             echo "🎯 Defaulting to latest promoted version: $TARGET_VERSION"
           fi
 
-          # Snapshot BEFORE state
-          SNAP_BEFORE=$(mktemp)
-          curl -sS -L -o "$SNAP_BEFORE" -w "" \
-            "$APPTRUST_BASE_URL/applications/$APP_KEY/versions?limit=50&order_by=created&order_asc=false" \
+          # Snapshot BEFORE stage via content API
+          CONTENT_BEFORE=$(mktemp)
+          CODE_B=$(curl -sS -L -o "$CONTENT_BEFORE" -w "%{http_code}" \
+            "$APPTRUST_BASE_URL/applications/$APP_KEY/versions/$TARGET_VERSION/content" \
             -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
-            -H "Accept: application/json"
-          BEFORE_LATEST=$(jq -r '.versions[] | select((.release_status=="RELEASED" or .release_status=="TRUSTED_RELEASE") and (.tag=="latest")) | .version' "$SNAP_BEFORE" | head -n1)
-          TARGET_TAG_BEFORE=$(jq -r --arg ver "$TARGET_VERSION" '.versions[] | select(.version==$ver) | (.tag // "")' "$SNAP_BEFORE" 2>/dev/null || echo "")
-          HAD_LATEST_BEFORE=false
-          if [ "$TARGET_TAG_BEFORE" = "latest" ]; then HAD_LATEST_BEFORE=true; fi
-          rm -f "$SNAP_BEFORE"
+            -H "Accept: application/json" || echo 000)
+          CURRENT_STAGE_BEFORE=""
+          if [[ "$CODE_B" -ge 200 && "$CODE_B" -lt 300 ]]; then
+            CURRENT_STAGE_BEFORE=$(jq -r '.current_stage // empty' "$CONTENT_BEFORE" 2>/dev/null || echo "")
+          fi
+          rm -f "$CONTENT_BEFORE"
 
           STATUS="SUCCESS"
           MSG=""
@@ -105,30 +105,7 @@ jobs:
             MSG="Rollback failed for $APP_KEY@$TARGET_VERSION"
           fi
 
-          # Snapshot AFTER state and validate outcome
-          SNAP_AFTER=$(mktemp)
-          curl -sS -L -o "$SNAP_AFTER" -w "" \
-            "$APPTRUST_BASE_URL/applications/$APP_KEY/versions?limit=50&order_by=created&order_asc=false" \
-            -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
-            -H "Accept: application/json"
-          AFTER_LATEST=$(jq -r '.versions[] | select((.release_status=="RELEASED" or .release_status=="TRUSTED_RELEASE") and (.tag=="latest")) | .version' "$SNAP_AFTER" | head -n1)
-          TARGET_TAG_AFTER=$(jq -r --arg ver "$TARGET_VERSION" '.versions[] | select(.version==$ver) | (.tag // "")' "$SNAP_AFTER" 2>/dev/null || echo "")
-          rm -f "$SNAP_AFTER"
-
-          VALIDATION_ERRORS=()
-          if [ "$TARGET_TAG_AFTER" != "quarantine" ]; then
-            VALIDATION_ERRORS+=("Target tag not 'quarantine' (got '$TARGET_TAG_AFTER')")
-          fi
-          if [ "$HAD_LATEST_BEFORE" = "true" ]; then
-            if [ -z "${AFTER_LATEST}" ] || [ "$AFTER_LATEST" = "$TARGET_VERSION" ]; then
-              VALIDATION_ERRORS+=("'latest' did not move away from target")
-            fi
-          fi
-
-          # After invoking dedicated rollback, recompute candidate latest
-          CANDIDATE_VERSION="${AFTER_LATEST:-}"
-
-          # Fetch content summaries for precise current_stage validation
+          # Fetch AFTER stage via content API
           CONTENT_TARGET=$(mktemp)
           CODE_T=$(curl -sS -L -o "$CONTENT_TARGET" -w "%{http_code}" \
             "$APPTRUST_BASE_URL/applications/$APP_KEY/versions/$TARGET_VERSION/content" \
@@ -140,27 +117,48 @@ jobs:
           fi
           rm -f "$CONTENT_TARGET"
 
-          CURR_STAGE_CAND=""
-          if [ -n "$CANDIDATE_VERSION" ]; then
-            CONTENT_CAND=$(mktemp)
-            CODE_C=$(curl -sS -L -o "$CONTENT_CAND" -w "%{http_code}" \
-              "$APPTRUST_BASE_URL/applications/$APP_KEY/versions/$CANDIDATE_VERSION/content" \
-              -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
-              -H "Accept: application/json" || echo 000)
-            if [[ "$CODE_C" -ge 200 && "$CODE_C" -lt 300 ]]; then
-              CURR_STAGE_CAND=$(jq -r '.current_stage // empty' "$CONTENT_CAND" 2>/dev/null || echo "")
-            fi
-            rm -f "$CONTENT_CAND"
+          # Determine lifecycle stages to compute expected previous stage
+          PROJECT_KEY_ENV="${{ vars.PROJECT_KEY }}"
+          LC_FILE=$(mktemp)
+          CODE_LC=$(curl -sS -L -o "$LC_FILE" -w "%{http_code}" "$${APPTRUST_BASE_URL%/apptrust/api/v1}/access/api/v2/lifecycle/?project_key=$PROJECT_KEY_ENV" -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" || echo 000)
+          NORM_FILE=$(mktemp)
+          if [[ "$CODE_LC" -ge 200 && "$CODE_LC" -lt 300 ]]; then
+            jq -c 'if type=="array" then . elif has("lifecycles") then .lifecycles elif has("items") then .items elif has("results") then .results elif (has("name") and has("stages")) then [.] else [] end' "$LC_FILE" > "$NORM_FILE" 2>/dev/null || printf '[]' > "$NORM_FILE"
+          else
+            printf '[]' > "$NORM_FILE"
           fi
+          rm -f "$LC_FILE"
+          LIFECYCLE_NAME="bookverse-lifecycle"
+          STAGES=()
+          while IFS= read -r s; do
+            [ -z "$s" ] && continue
+            s_disp="$s"
+            case "$s_disp" in
+              "$PROJECT_KEY_ENV"-*) s_disp="${s_disp#${PROJECT_KEY_ENV}-}";;
+            esac
+            STAGES+=("$s_disp")
+          done < <(jq -r --arg n "$LIFECYCLE_NAME" '([ .[] | select(.name==$n) | .stages ] | .[0] // []) | map(if type=="object" then .name else . end) | .[]' "$NORM_FILE" 2>/dev/null)
+          rm -f "$NORM_FILE"
+          if [[ ${#STAGES[@]} -eq 0 ]]; then
+            STAGES=(DEV QA STAGING PROD)
+          fi
+          # Compute expected previous stage
+          display_stage() {
+            local x="$1"; local p="$PROJECT_KEY_ENV"; if [[ "$x" == "PROD" || "$x" == "$p-PROD" ]]; then echo "PROD"; elif [[ "$x" == "$p-"* ]]; then echo "${x#${p}-}"; else echo "$x"; fi
+          }
+          CURR_BEFORE_DISP=$(display_stage "${CURRENT_STAGE_BEFORE}")
+          CURR_AFTER_DISP=$(display_stage "${CURR_STAGE_TARGET}")
+          idx_before=-1
+          for i in "${!STAGES[@]}"; do if [[ "${STAGES[$i]}" == "$CURR_BEFORE_DISP" ]]; then idx_before=$i; break; fi; done
+          EXPECTED_PREV="UNASSIGNED"
+          if [[ $idx_before -gt 0 ]]; then EXPECTED_PREV="${STAGES[$((idx_before-1))]}"; elif [[ $idx_before -eq 0 ]]; then EXPECTED_PREV="UNASSIGNED"; fi
 
-          # Validate stage expectations: target not PROD; candidate is PROD (if candidate exists)
-          if [ -n "$CURR_STAGE_TARGET" ] && [ "$CURR_STAGE_TARGET" = "PROD" ]; then
-            VALIDATION_ERRORS+=("Target still at current_stage=PROD")
+          VALIDATION_ERRORS=()
+          if [[ -z "$CURRENT_STAGE_BEFORE" || "$CURR_BEFORE_DISP" == "UNASSIGNED" ]]; then
+            VALIDATION_ERRORS+=("Cannot rollback UNASSIGNED version")
           fi
-          if [ -n "$CANDIDATE_VERSION" ]; then
-            if [ -z "$CURR_STAGE_CAND" ] || [ "$CURR_STAGE_CAND" != "PROD" ]; then
-              VALIDATION_ERRORS+=("Candidate not at current_stage=PROD (got '${CURR_STAGE_CAND:-empty}')")
-            fi
+          if [[ "$CURR_AFTER_DISP" != "$EXPECTED_PREV" ]]; then
+            VALIDATION_ERRORS+=("Stage after rollback '$CURR_AFTER_DISP' != expected '$EXPECTED_PREV'")
           fi
 
           # Finalize validation status after all checks
@@ -218,13 +216,9 @@ jobs:
             echo "- Timestamp (UTC): \`$(date -u +%Y-%m-%dT%H:%M:%SZ)\`"
             echo ""
             echo "### Validation"
-            echo "- Before latest (PROD): \`${BEFORE_LATEST:-none}\`"
-            echo "- After  latest (PROD): \`${AFTER_LATEST:-none}\`"
-            echo "- Target tag before → after: \`${TARGET_TAG_BEFORE:-}\` → \`${TARGET_TAG_AFTER:-}\`"
-            echo "- Target current_stage after: \`${CURR_STAGE_TARGET:-unknown}\`"
-            if [ -n "$CANDIDATE_VERSION" ]; then
-              echo "- Candidate current_stage after: \`${CURR_STAGE_CAND:-unknown}\`"
-            fi
+            echo "- Stage before: \`${CURR_BEFORE_DISP:-unknown}\`"
+            echo "- Stage after:  \`${CURR_AFTER_DISP:-unknown}\`"
+            echo "- Expected previous stage: \`${EXPECTED_PREV:-unknown}\`"
             if [ "${#VALIDATION_ERRORS[@]}" -gt 0 ]; then
               echo "- Result: ❌ ${MSG}"
             else
