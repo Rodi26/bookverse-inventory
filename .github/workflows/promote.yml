@@ -634,8 +634,7 @@ jobs:
                 }
               }
             }
-            const summary = generateGitHubSummary({
-              templateId: Number(process.env.SUMMARY_TEMPLATE_ID || '1'),
+            const baseParams = {
               outcome: (process.env.OUTCOME || 'SUCCESS'),
               applicationName: process.env.APPLICATION_KEY || '',
               version: process.env.APP_VERSION || '',
@@ -643,7 +642,8 @@ jobs:
               targetStage: process.env.TARGET_DISPLAY || '',
               promotionType: process.env.PROMOTION_METHOD || 'move',
               lifecyclePath: process.env.LIFECYCLE_PATH || ''
-            });
-            process.stdout.write(summary);
+            };
+            const parts = [1,2,3].map(id => generateGitHubSummary({ templateId: id, ...baseParams }));
+            process.stdout.write(parts.join('\n\n'));
           })();
           NODE
