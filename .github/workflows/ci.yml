@@ -304,16 +304,26 @@ jobs:
           # Use JFrog CLI to authenticate pushes without requiring docker login
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID" || true
-          if jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" . \
-             && jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" \
-             && jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"; then
-            echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
-            echo "✅ Built and pushed Docker image (with build-info)"
+          # Build image using modern command
+          jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
+          # Push with modern command; if incompatible Artifactory, fall back to deprecated rt docker-push
+          if jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"; then
+            :
           else
-            echo "DOCKER_BUILD_PUSH_STATUS=FAILED" >> $GITHUB_ENV
-            echo "❌ Docker build/push failed"
-            exit 1
+            echo "⚠️ jf docker push failed. Falling back to jf rt docker-push (deprecated)"
+            IMAGE_REPO="${IMAGE_NAME#*/}"
+            IMAGE_REPO="${IMAGE_REPO%:*}"
+            REPO_NAME="${IMAGE_REPO%/*}"
+            jf rt docker-push "$IMAGE_NAME" "$REPO_NAME" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
           fi
+          # Attempt to set docker properties; ignore failure on older instances
+          if jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"; then
+            :
+          else
+            echo "⚠️ jf rt dp failed; continuing"
+          fi
+          echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
+          echo "✅ Built and pushed Docker image (with build-info)"
 
       # Rely on Build Info as the source of truth; explicit registry checks removed
 
