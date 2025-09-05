@@ -574,68 +574,99 @@ jobs:
           # Generate ONLY the markdown summary via Node using the provided templates
           node - <<'NODE' | tee -a "$GITHUB_STEP_SUMMARY" >/dev/null
           (function(){
-            function generateGitHubSummary(params){
-              const { templateId, outcome, applicationName, version, currentStage, targetStage, promotionType, lifecyclePath } = params;
-              const isRelease = targetStage === 'PROD';
-              switch (templateId) {
-                case 1: {
-                  if (isRelease) {
-                    switch (outcome) {
-                      case 'SUCCESS': return `### Release Summary: ${applicationName} ${version}\n**Path:** ${lifecyclePath}\n* ✅ **Release Succeeded**: Successfully released to ${targetStage}.`;
-                      case 'WARNING': return `### Release Summary: ${applicationName} ${version}\n**Path:** ${lifecyclePath}\n* ⚠️ **Release Succeeded with Warnings**: The application version was released to ${targetStage}, but evidence attachment failed.`;
-                      default: return `### Release Summary: ${applicationName} ${version}\n**Path:** ${lifecyclePath}\n* ❌ **Release Failed**: Could not release to ${targetStage}.`;
-                    }
-                  } else {
-                    switch (outcome) {
-                      case 'SUCCESS': return `### Promotion Summary: ${applicationName} ${version}\n**Path:** ${lifecyclePath}\n* ✅ **Promotion Succeeded**: Successfully promoted from ${currentStage} to ${targetStage}.`;
-                      case 'WARNING': return `### Promotion Summary: ${applicationName} ${version}\n**Path:** ${lifecyclePath}\n* ⚠️ **Promotion Succeeded with Warnings**: The application version was promoted from ${currentStage} to ${targetStage}, but evidence attachment failed.`;
-                      default: return `### Promotion Summary: ${applicationName} ${version}\n**Path:** ${lifecyclePath}\n* ❌ **Promotion Failed**: Could not promote from ${currentStage} to ${targetStage}.`;
-                    }
-                  }
-                }
-                case 2: {
-                  if (isRelease) {
-                    switch (outcome) {
-                      case 'SUCCESS': return `### ✅ Release Summary for ${applicationName} ${version}\n| Detail | Value |\n| :--- | :--- |\n| Lifecycle Path | ${lifecyclePath} |\n| Action | Release to ${targetStage} |\n| Type | ${promotionType} |\n| Outcome | All operations completed successfully. |`;
-                      case 'WARNING': return `### ⚠️ Release Summary for ${applicationName} ${version}\n| Detail | Value |\n| :--- | :--- |\n| Lifecycle Path | ${lifecyclePath} |\n| Action | Release to ${targetStage} |\n| Type | ${promotionType} |\n| Outcome | Succeeded with **evidence attachment failure**. |`;
-                      default: return `### ❌ Release Summary for ${applicationName} ${version}\n| Detail | Value |\n| :--- | :--- |\n| Lifecycle Path | ${lifecyclePath} |\n| Action | Release to ${targetStage} |\n| Type | ${promotionType} |\n| Outcome | **Critical failure** during release step. |`;
-                    }
-                  } else {
-                    switch (outcome) {
-                      case 'SUCCESS': return `### ✅ Promotion Summary for ${applicationName} ${version}\n| Detail | Value |\n| :--- | :--- |\n| Lifecycle Path | ${lifecyclePath} |\n| Action | Promote from ${currentStage} to ${targetStage} |\n| Type | ${promotionType} |\n| Outcome | All operations completed successfully. |`;
-                      case 'WARNING': return `### ⚠️ Promotion Summary for ${applicationName} ${version}\n| Detail | Value |\n| :--- | :--- |\n| Lifecycle Path | ${lifecyclePath} |\n| Action | Promote from ${currentStage} to ${targetStage} |\n| Type | ${promotionType} |\n| Outcome | Succeeded with **evidence attachment failure**. |`;
-                      default: return `### ❌ Promotion Summary for ${applicationName} ${version}\n| Detail | Value |\n| :--- | :--- |\n| Lifecycle Path | ${lifecyclePath} |\n| Action | Promote from ${currentStage} to ${targetStage} |\n| Type | ${promotionType} |\n| Outcome | **Critical failure** during promotion step. |`;
-                    }
-                  }
-                }
-                case 3:
-                default: {
-                  if (isRelease) {
-                    switch (outcome) {
-                      case 'SUCCESS': return `**Application Version:** ${applicationName} \`${version}\`\n* ✅ ${lifecyclePath} | **Status:** Release successful`;
-                      case 'WARNING': return `**Application Version:** ${applicationName} \`${version}\`\n* ⚠️ ${lifecyclePath} | **Status:** Release succeeded with warnings`;
-                      default: return `**Application Version:** ${applicationName} \`${version}\`\n* ❌ ${lifecyclePath} | **Status:** Release failed`;
-                    }
-                  } else {
-                    switch (outcome) {
-                      case 'SUCCESS': return `**Application Version:** ${applicationName} \`${version}\`\n* ✅ ${lifecyclePath} | **Status:** Promotion successful`;
-                      case 'WARNING': return `**Application Version:** ${applicationName} \`${version}\`\n* ⚠️ ${lifecyclePath} | **Status:** Promotion succeeded with warnings`;
-                      default: return `**Application Version:** ${applicationName} \`${version}\`\n* ❌ ${lifecyclePath} | **Status:** Promotion failed`;
-                    }
-                  }
-                }
+            function iconFor(status){
+              switch ((status||'').toUpperCase()) {
+                case 'SUCCESS': return '✅';
+                case 'WARNING': return '⚠️';
+                case 'FAILURE': return '❌';
+                case 'FAILED': return '❌';
+                default: return '–';
               }
             }
-            const baseParams = {
-              outcome: (process.env.OUTCOME || 'SUCCESS'),
-              applicationName: process.env.APPLICATION_KEY || '',
-              version: process.env.APP_VERSION || '',
-              currentStage: process.env.CURRENT_DISPLAY || '',
-              targetStage: process.env.TARGET_DISPLAY || '',
-              promotionType: process.env.PROMOTION_METHOD || 'move',
-              lifecyclePath: process.env.LIFECYCLE_PATH || ''
-            };
-            const parts = [1,2,3].map(id => generateGitHubSummary({ templateId: id, ...baseParams }));
-            process.stdout.write(parts.join('\n\n'));
+            const env = process.env;
+            const app = env.APPLICATION_KEY || '';
+            const ver = env.APP_VERSION || '';
+            const current = env.CURRENT_DISPLAY || '';
+            const target = env.TARGET_DISPLAY || '';
+            const lifecycleDefined = `UNASSIGNED → ${(env.STAGES_STR || 'DEV QA STAGING PROD').split(' ').join(' → ')}`;
+            const lifecycleHighlight = env.LIFECYCLE_PATH || lifecycleDefined;
+            const overall = (env.OUTCOME || 'SUCCESS').toUpperCase();
+            const promoMethod = (env.PROMOTION_METHOD || 'move');
+
+            // Step statuses (may be empty if skipped)
+            const sUnassigned = (env.PROMO_UNASSIGNED_STATUS || '').toUpperCase();
+            const sDev = (env.PROMO_DEV_STATUS || '').toUpperCase();
+            const sQa = (env.PROMO_QA_STATUS || '').toUpperCase();
+            const sStg = (env.PROMO_STAGING_STATUS || '').toUpperCase();
+            const sRel = (env.PROMO_RELEASE_STATUS || '').toUpperCase();
+
+            // Evidence statuses (available for STAGING gate in this workflow)
+            const evIac = (env.IAC_EVIDENCE_STATUS || 'N/A').toUpperCase();
+            const evPentest = (env.PENTEST_EVIDENCE_STATUS || 'N/A').toUpperCase();
+            const evChange = (env.CHANGEAPPROVAL_EVIDENCE_STATUS || 'N/A').toUpperCase();
+
+            function resultFor(stepStatus, evidenceStatuses){
+              const st = (stepStatus||'').toUpperCase();
+              if (st === 'FAILED' || st === 'FAILURE') return 'FAILURE';
+              if (evidenceStatuses && evidenceStatuses.some(s => (s||'').toUpperCase() === 'FAILED')) return 'WARNING';
+              if (!st) return 'SKIPPED';
+              return 'SUCCESS';
+            }
+
+            function evidenceLine(name, status){
+              const up = (status||'N/A').toUpperCase();
+              if (up === 'FAILED') return `  - ❌ ${name} (failed)`;
+              if (up === 'SUCCESS') return `  - ✅ ${name}`;
+              return `  - ${name} (n/a)`;
+            }
+
+            function stepSection(from, to, kind, constraints, evidences, stepStatus){
+              const outcome = resultFor(stepStatus, evidences.map(e => e.status));
+              const lines = [];
+              lines.push(`### Step: ${from} → ${to}`);
+              lines.push(`- **Type:** ${kind}`);
+              lines.push(`- **Constraints:** ${constraints || 'None'}`);
+              lines.push(`- **Evidence Used:**`);
+              if (!evidences.length) {
+                lines.push(`  - (none)`);
+              } else {
+                evidences.forEach(e => lines.push(evidenceLine(e.name, e.status)));
+              }
+              lines.push(`- **Result:** ${iconFor(outcome)} ${outcome}`);
+              return lines.join('\n');
+            }
+
+            // Executive Summary
+            const exec = [
+              `### Executive Summary`,
+              `- **Lifecycle:** ${lifecycleDefined}`,
+              `- **Application:** ${app}`,
+              `- **Version:** ${ver}`,
+              `- **From → To:** ${current} → ${target}`,
+              `- **Outcome:** ${iconFor(overall)} ${overall}`,
+            ].join('\n');
+
+            // Per-step sections
+            const sections = [];
+            sections.push(stepSection('UNASSIGNED','DEV',`Promote (${promoMethod})`, 'None', [
+              { name: 'SLSA Provenance (UNASSIGNED)', status: 'N/A' },
+              { name: 'Jira Release Notes (UNASSIGNED)', status: 'N/A' },
+            ], sUnassigned));
+            sections.push(stepSection('DEV','QA',`Promote (${promoMethod})`, 'None', [
+              { name: 'Coverage (pytest) [Package]', status: 'N/A' },
+              { name: 'SAST (Checkmarx) [Package]', status: 'N/A' },
+            ], sDev));
+            sections.push(stepSection('QA','STAGING',`Promote (${promoMethod})`, 'None', [
+              { name: 'DAST (Invicti)', status: 'N/A' },
+              { name: 'API Tests (Postman)', status: 'N/A' },
+            ], sQa));
+            sections.push(stepSection('STAGING','PROD','Release', 'None', [
+              { name: 'Snyk IaC', status: evIac },
+              { name: 'Cobalt Pentest', status: evPentest },
+              { name: 'ServiceNow Change Approval', status: evChange },
+            ], sRel));
+
+            const report = [exec, '', ...sections].join('\n\n');
+            process.stdout.write(report);
           })();
           NODE
