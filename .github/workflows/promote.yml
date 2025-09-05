@@ -84,9 +84,9 @@ jobs:
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
         with:
           version: latest
-          oidc-provider-name: github-bookverse-inventory
+          oidc-provider-name: bookverse-inventory-github
           disable-job-summary: true
-          oidc-audience: jfrog-github
+          oidc-audience: ${{ vars.JFROG_URL }}
 
       - name: Initialize promotion context
         run: |
