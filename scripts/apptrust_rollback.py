@@ -123,13 +123,18 @@ class AppTrustClient:
             body["delete_properties"] = delete_properties
         return self._request("PATCH", path, body=body)
 
-    def rollback_application_version(self, app_key: str, version: str) -> Dict[str, Any]:
-        """Invoke the dedicated AppTrust rollback endpoint for a version in PROD.
+    def get_version_content(self, app_key: str, version: str) -> Dict[str, Any]:
+        path = f"/applications/{urllib.parse.quote(app_key)}/versions/{urllib.parse.quote(version)}/content"
+        return self._request("GET", path)
+
+    def rollback_application_version(self, app_key: str, version: str, from_stage: str) -> Dict[str, Any]:
+        """Invoke dedicated rollback endpoint.
 
         POST /apptrust/api/v1/applications/{application_key}/versions/{version}/rollback
+        Body: {"from_stage": "<stage>"}
         """
         path = f"/applications/{urllib.parse.quote(app_key)}/versions/{urllib.parse.quote(version)}/rollback"
-        return self._request("POST", path)
+        return self._request("POST", path, body={"from_stage": from_stage})
 
 TRUSTED = "TRUSTED_RELEASE"
 RELEASED = "RELEASED"
@@ -188,12 +193,13 @@ def backup_tag_then_patch(client: AppTrustClient, app_key: str, version: str, ba
         return
     client.patch_application_version(app_key, version, tag=new_tag, properties=props)
 
-def rollback_in_prod(client: AppTrustClient, app_key: str, target_version: str, dry_run: bool = False) -> None:
-    if dry_run:
-        print(f"[DRY-RUN] Would rollback {app_key}@{target_version} via AppTrust rollback endpoint")
-        return
-    client.rollback_application_version(app_key, target_version)
-    print(f"Invoked AppTrust rollback for {app_key}@{target_version}")
+def rollback_in_prod(client: AppTrustClient, app_key: str, target_version: str) -> None:
+    content = client.get_version_content(app_key, target_version)
+    from_stage = str(content.get("current_stage") or "").strip()
+    if not from_stage or from_stage.upper() == "UNASSIGNED":
+        raise RuntimeError("Cannot rollback a version in UNASSIGNED or unknown stage")
+    client.rollback_application_version(app_key, target_version, from_stage)
+    print(f"Invoked AppTrust rollback for {app_key}@{target_version} from {from_stage}")
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -208,7 +214,6 @@ def main() -> int:
     parser.add_argument("--version", required=True, help="Target version to rollback (SemVer)")
     parser.add_argument("--base-url", default=_env("APPTRUST_BASE_URL"), help="Base API URL, e.g. https://<host>/apptrust/api/v1 (env: APPTRUST_BASE_URL)")
     parser.add_argument("--token", default=_env("APPTRUST_ACCESS_TOKEN"), help="Access token (env: APPTRUST_ACCESS_TOKEN)")
-    parser.add_argument("--dry-run", action="store_true", help="Log intended changes without mutating")
     args = parser.parse_args()
 
     if not args.base_url:
@@ -222,7 +227,7 @@ def main() -> int:
 
     try:
         start = time.time()
-        rollback_in_prod(client, args.app, args.version, dry_run=args.dry_run)
+        rollback_in_prod(client, args.app, args.version)
         elapsed = time.time() - start
         print(f"Done in {elapsed:.2f}s")
         return 0
