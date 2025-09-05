@@ -168,36 +168,6 @@ jobs:
             MSG="Validation failed: ${VALIDATION_ERRORS[*]}"
           fi
 
-          # If target is still at PROD, attempt a demotion to STAGING via Promote API
-          if [ "${CURR_STAGE_TARGET:-}" = "PROD" ]; then
-            PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-            API_STAGE="${PROJECT_KEY}-STAGING"
-            DEMOTE_BODY=$(printf '{"target_stage":"%s","promotion_type":"move"}' "$API_STAGE")
-            DEMOTE_RESP=$(mktemp)
-            DEMOTE_CODE=$(curl -sS -L -o "$DEMOTE_RESP" -w "%{http_code}" -X POST \
-              "$APPTRUST_BASE_URL/applications/$APP_KEY/versions/$TARGET_VERSION/promote?async=false" \
-              -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
-              -d "$DEMOTE_BODY")
-            if [[ "$DEMOTE_CODE" -lt 200 || "$DEMOTE_CODE" -ge 300 ]]; then
-              VALIDATION_ERRORS+=("Demote to STAGING failed (HTTP $DEMOTE_CODE)")
-            fi
-            rm -f "$DEMOTE_RESP"
-            # Re-fetch target stage post demotion attempt
-            CONTENT_TARGET2=$(mktemp)
-            CODE_T2=$(curl -sS -L -o "$CONTENT_TARGET2" -w "%{http_code}" \
-              "$APPTRUST_BASE_URL/applications/$APP_KEY/versions/$TARGET_VERSION/content" \
-              -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
-              -H "Accept: application/json" || echo 000)
-            if [[ "$CODE_T2" -ge 200 && "$CODE_T2" -lt 300 ]]; then
-              CURR_STAGE_TARGET=$(jq -r '.current_stage // empty' "$CONTENT_TARGET2" 2>/dev/null || echo "")
-            fi
-            rm -f "$CONTENT_TARGET2"
-            if [ "${CURR_STAGE_TARGET:-}" = "PROD" ]; then
-              VALIDATION_ERRORS+=("Target remained at current_stage=PROD after demotion attempt")
-            fi
-          fi
           if [ ${#VALIDATION_ERRORS[@]} -gt 0 ]; then
             STATUS="FAILED"
             MSG="Validation failed: ${VALIDATION_ERRORS[*]}"
