@@ -96,7 +96,7 @@ jobs:
 
           STATUS="SUCCESS"
           MSG=""
-          if python3 .github/scripts/apptrust_rollback.py \
+          if python3 scripts/apptrust_rollback.py \
             --app "$APP_KEY" \
             --version "$TARGET_VERSION"; then
             MSG="Rollback executed for $APP_KEY@$TARGET_VERSION"
@@ -120,7 +120,8 @@ jobs:
           # Determine lifecycle stages to compute expected previous stage
           PROJECT_KEY_ENV="${{ vars.PROJECT_KEY }}"
           LC_FILE=$(mktemp)
-          CODE_LC=$(curl -sS -L -o "$LC_FILE" -w "%{http_code}" "$${APPTRUST_BASE_URL%/apptrust/api/v1}/access/api/v2/lifecycle/?project_key=$PROJECT_KEY_ENV" -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" || echo 000)
+          PLATFORM_URL="${APPTRUST_BASE_URL%/apptrust/api/v1}"
+          CODE_LC=$(curl -sS -L -o "$LC_FILE" -w "%{http_code}" "$PLATFORM_URL/access/api/v2/lifecycle/?project_key=$PROJECT_KEY_ENV" -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" || echo 000)
           NORM_FILE=$(mktemp)
           if [[ "$CODE_LC" -ge 200 && "$CODE_LC" -lt 300 ]]; then
             jq -c 'if type=="array" then . elif has("lifecycles") then .lifecycles elif has("items") then .items elif has("results") then .results elif (has("name") and has("stages")) then [.] else [] end' "$LC_FILE" > "$NORM_FILE" 2>/dev/null || printf '[]' > "$NORM_FILE"
