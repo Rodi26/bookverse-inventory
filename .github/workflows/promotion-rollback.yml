@@ -1,5 +1,18 @@
 name: Promotion Rollback
 
+# Documentation:
+# This workflow performs a rollback of an application version using the
+# dedicated AppTrust rollback API. High-level flow:
+# 1) Resolve the target version (input or latest promoted)
+# 2) Capture BEFORE current_stage via Content API
+# 3) Execute rollback via scripts/apptrust_rollback.py, which calls:
+#    POST /apptrust/api/v1/applications/{app}/versions/{ver}/rollback
+#    with body { from_stage: <current_stage> }
+# 4) Capture AFTER current_stage and compute expected previous stage using the
+#    lifecycle definition (bookverse-lifecycle or default DEV→QA→STAGING→PROD)
+# 5) Validate: stage_after must equal previous(stage_before)
+# 6) Summarize and fail the job if validation fails
+
 on:
   workflow_dispatch:
     inputs:
@@ -49,6 +62,7 @@ jobs:
           APPTRUST_ACCESS_TOKEN: ${{ secrets.JFROG_ADMIN_TOKEN }}
         run: |
           set -euo pipefail
+          echo "🧭 Starting rollback workflow"
           if [ -z "${APPTRUST_BASE_URL:-}" ]; then
             echo "Missing vars.JFROG_URL to derive APPTRUST_BASE_URL" >&2
             exit 2
@@ -61,6 +75,7 @@ jobs:
           # Derive application key from repo name (e.g., bookverse-inventory -> bookverse-inventory)
           SERVICE_NAME=$(echo "${GITHUB_REPOSITORY#*/}" | sed 's/bookverse-//')
           APP_KEY="bookverse-$SERVICE_NAME"
+          echo "📦 Application: $APP_KEY"
 
           # Determine target version: use input if provided, else resolve latest promoted
           TARGET_VERSION="${{ inputs.version || '' }}"
@@ -93,9 +108,11 @@ jobs:
             CURRENT_STAGE_BEFORE=$(jq -r '.current_stage // empty' "$CONTENT_BEFORE" 2>/dev/null || echo "")
           fi
           rm -f "$CONTENT_BEFORE"
+          echo "📍 Stage BEFORE: ${CURRENT_STAGE_BEFORE:-unknown}"
 
           STATUS="SUCCESS"
           MSG=""
+          echo "🔁 Executing rollback via scripts/apptrust_rollback.py"
           if python3 scripts/apptrust_rollback.py \
             --app "$APP_KEY" \
             --version "$TARGET_VERSION"; then
@@ -116,6 +133,7 @@ jobs:
             CURR_STAGE_TARGET=$(jq -r '.current_stage // empty' "$CONTENT_TARGET" 2>/dev/null || echo "")
           fi
           rm -f "$CONTENT_TARGET"
+          echo "📍 Stage AFTER:  ${CURR_STAGE_TARGET:-unknown}"
 
           # Determine lifecycle stages to compute expected previous stage
           PROJECT_KEY_ENV="${{ vars.PROJECT_KEY }}"
@@ -143,6 +161,7 @@ jobs:
           if [[ ${#STAGES[@]} -eq 0 ]]; then
             STAGES=(DEV QA STAGING PROD)
           fi
+          echo "🧭 Lifecycle stages: ${STAGES[*]}"
           # Compute expected previous stage
           display_stage() {
             local x="$1"; local p="$PROJECT_KEY_ENV"; if [[ "$x" == "PROD" || "$x" == "$p-PROD" ]]; then echo "PROD"; elif [[ "$x" == "$p-"* ]]; then echo "${x#${p}-}"; else echo "$x"; fi
@@ -153,6 +172,7 @@ jobs:
           for i in "${!STAGES[@]}"; do if [[ "${STAGES[$i]}" == "$CURR_BEFORE_DISP" ]]; then idx_before=$i; break; fi; done
           EXPECTED_PREV="UNASSIGNED"
           if [[ $idx_before -gt 0 ]]; then EXPECTED_PREV="${STAGES[$((idx_before-1))]}"; elif [[ $idx_before -eq 0 ]]; then EXPECTED_PREV="UNASSIGNED"; fi
+          echo "🔎 Expected previous stage: ${EXPECTED_PREV}"
 
           VALIDATION_ERRORS=()
           if [[ -z "$CURRENT_STAGE_BEFORE" || "$CURR_BEFORE_DISP" == "UNASSIGNED" ]]; then

@@ -1,6 +1,29 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+"""
+AppTrust rollback utility
+
+Purpose:
+- Perform a rollback of an application version using the dedicated AppTrust API:
+  POST /apptrust/api/v1/applications/{application_key}/versions/{version}/rollback
+
+Behavior:
+- Fetches the version's current stage via the Content API and passes it as the
+  required "from_stage" in the rollback request body.
+- Fails fast if the version is UNASSIGNED (rollback not applicable).
+
+Inputs:
+- --app: application key (e.g., bookverse-inventory)
+- --version: semantic version to rollback (e.g., 1.2.3)
+- --base-url: base API URL (env APPTRUST_BASE_URL)
+- --token: bearer token (env APPTRUST_ACCESS_TOKEN)
+
+Notes:
+- This script does not print secrets.
+- Logs include a sanitized description of the endpoint and request body used.
+"""
+
 # This file is copied from bookverse-demo-init/scripts/apptrust_rollback.py
 # Keep the two in sync when updating.
 
@@ -198,6 +221,12 @@ def rollback_in_prod(client: AppTrustClient, app_key: str, target_version: str) 
     from_stage = str(content.get("current_stage") or "").strip()
     if not from_stage or from_stage.upper() == "UNASSIGNED":
         raise RuntimeError("Cannot rollback a version in UNASSIGNED or unknown stage")
+    # Sanitize and print an explicit, debuggable description of the call.
+    # Do not emit tokens or the absolute base URL; show only the relative API path and the body.
+    print(
+        "Calling AppTrust endpoint: POST /applications/"
+        f"{app_key}/versions/{target_version}/rollback with body {{from_stage: {from_stage}}}"
+    )
     client.rollback_application_version(app_key, target_version, from_stage)
     print(f"Invoked AppTrust rollback for {app_key}@{target_version} from {from_stage}")
 
