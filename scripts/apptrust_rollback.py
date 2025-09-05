@@ -123,6 +123,14 @@ class AppTrustClient:
             body["delete_properties"] = delete_properties
         return self._request("PATCH", path, body=body)
 
+    def rollback_application_version(self, app_key: str, version: str) -> Dict[str, Any]:
+        """Invoke the dedicated AppTrust rollback endpoint for a version in PROD.
+
+        POST /apptrust/api/v1/applications/{application_key}/versions/{version}/rollback
+        """
+        path = f"/applications/{urllib.parse.quote(app_key)}/versions/{urllib.parse.quote(version)}/rollback"
+        return self._request("POST", path)
+
 TRUSTED = "TRUSTED_RELEASE"
 RELEASED = "RELEASED"
 QUARANTINE_TAG = "quarantine"
@@ -181,28 +189,11 @@ def backup_tag_then_patch(client: AppTrustClient, app_key: str, version: str, ba
     client.patch_application_version(app_key, version, tag=new_tag, properties=props)
 
 def rollback_in_prod(client: AppTrustClient, app_key: str, target_version: str, dry_run: bool = False) -> None:
-    prod_versions = get_prod_versions(client, app_key)
-    by_version = {v["version"]: v for v in prod_versions}
-    target = by_version.get(target_version)
-    if target is None:
-        raise RuntimeError(f"Target version not found in PROD set: {target_version}")
-
-    current_tag = target.get("tag", "")
-    had_latest = current_tag == LATEST_TAG
-
-    backup_tag_then_patch(client, app_key, target_version, BACKUP_BEFORE_QUARANTINE, QUARANTINE_TAG, current_tag, dry_run)
-
-    if had_latest:
-        next_candidate = pick_next_latest(prod_versions, exclude_version=target_version)
-        if next_candidate is None:
-            print("No successor found for latest; system will have no 'latest' until next promote.")
-            return
-        cand_ver = next_candidate["version"]
-        cand_tag = next_candidate.get("tag", "")
-        backup_tag_then_patch(client, app_key, cand_ver, BACKUP_BEFORE_LATEST, LATEST_TAG, cand_tag, dry_run)
-        print(f"Reassigned latest to {cand_ver}")
-    else:
-        print("Rolled back non-latest version; 'latest' unchanged.")
+    if dry_run:
+        print(f"[DRY-RUN] Would rollback {app_key}@{target_version} via AppTrust rollback endpoint")
+        return
+    client.rollback_application_version(app_key, target_version)
+    print(f"Invoked AppTrust rollback for {app_key}@{target_version}")
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:

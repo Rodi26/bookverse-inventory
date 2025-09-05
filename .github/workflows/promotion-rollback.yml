@@ -125,26 +125,8 @@ jobs:
             fi
           fi
 
-          # If we had latest before (or we have a candidate after), ensure PROD 'current_stage' reflects rollback by releasing candidate to PROD
+          # After invoking dedicated rollback, recompute candidate latest
           CANDIDATE_VERSION="${AFTER_LATEST:-}"
-          if [ -n "$CANDIDATE_VERSION" ] && [ "$CANDIDATE_VERSION" != "$TARGET_VERSION" ]; then
-            SERVICE_NAME=${SERVICE_NAME:-$(echo "${GITHUB_REPOSITORY#*/}" | sed 's/bookverse-//')}
-            PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-            REPO_DOCKER="${PROJECT_KEY}-${SERVICE_NAME}-docker-release-local"
-            REPO_PYTHON="${PROJECT_KEY}-${SERVICE_NAME}-python-release-local"
-            RELEASE_PAYLOAD=$(printf '{"promotion_type":"move","included_repository_keys":["%s","%s"]}' "$REPO_DOCKER" "$REPO_PYTHON")
-            RESP_BODY=$(mktemp)
-            HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
-              "$APPTRUST_BASE_URL/applications/$APP_KEY/versions/$CANDIDATE_VERSION/release?async=false" \
-              -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json" \
-              -d "$RELEASE_PAYLOAD")
-            if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then
-              VALIDATION_ERRORS+=("Release candidate to PROD failed (HTTP $HTTP_STATUS)")
-            fi
-            rm -f "$RESP_BODY"
-          fi
 
           # Fetch content summaries for precise current_stage validation
           CONTENT_TARGET=$(mktemp)
