@@ -19,6 +19,12 @@ on:
         default: 'false'
         type: choice
         options: ['false', 'true']
+      summary_template_id:
+        description: 'Summary template (1, 2, or 3)'
+        required: false
+        default: '1'
+        type: choice
+        options: ['1', '2', '3']
 
 jobs:
   promote:
@@ -529,142 +535,115 @@ jobs:
 
       - name: Generate promotion summary
         if: always()
+        env:
+          SUMMARY_TEMPLATE_ID: ${{ inputs.summary_template_id }}
         run: |
-          # Derive display values
+          set -euo pipefail
+          # Prepare display stages
           CURRENT_DISPLAY="${CURRENT_STAGE_BEFORE:-UNASSIGNED}"
           CURRENT_DISPLAY="${CURRENT_DISPLAY#bookverse-}"
           TARGET_DISPLAY="${TARGET_NAME:-${FINAL_STAGE:-UNKNOWN}}"
-          # Build full lifecycle path for context
-          if [[ -n "${STAGES_STR:-}" ]]; then
-            LC_PATH="UNASSIGNED"
-            for s in ${STAGES_STR}; do LC_PATH+=" → ${s}"; done
+          # Build lifecycle path that emphasizes CURRENT_DISPLAY ➔ TARGET_DISPLAY
+          STAGES="${STAGES_STR:-DEV QA STAGING PROD}"
+          IFS=' ' read -r -a STAGE_ARR <<< "$STAGES"
+          idx_current=-1; idx_target=-1
+          for i in "${!STAGE_ARR[@]}"; do
+            if [[ "${STAGE_ARR[$i]}" == "$CURRENT_DISPLAY" ]]; then idx_current=$i; fi
+            if [[ "${STAGE_ARR[$i]}" == "$TARGET_DISPLAY" ]]; then idx_target=$i; fi
+          done
+          pre=""; post=""; sep=""
+          if [[ $idx_current -ge 0 && $idx_target -ge 0 ]]; then
+            for ((j=0;j<idx_current;j++)); do
+              if [[ -n "$pre" ]]; then sep=" → "; else sep=""; fi
+              pre+="$sep${STAGE_ARR[$j]}"
+            done
+            for ((j=idx_target+1;j<${#STAGE_ARR[@]};j++)); do
+              if [[ -n "$post" ]]; then sep=" → "; else sep=""; fi
+              post+="$sep${STAGE_ARR[$j]}"
+            done
+            LC_PATH="${pre:+$pre → }**${CURRENT_DISPLAY} ➔ ${TARGET_DISPLAY}**${post:+ → $post}"
           else
-            LC_PATH="UNASSIGNED → DEV → QA → STAGING → PROD"
+            LC_PATH="$STAGES"
           fi
-          # Determine scenario and type
-          SCENARIO="Promotion"
-          PROMOTION_TYPE="Promotion"
-          if [[ "${TARGET_DISPLAY}" == "PROD" ]]; then
-            SCENARIO="Release"
-            PROMOTION_TYPE="Release"
-          fi
-          # Determine failures and warnings
-          has_failed=false
+          # Determine OUTCOME
+          OUTCOME="SUCCESS"
           for s in "${PROMO_UNASSIGNED_STATUS:-}" "${PROMO_DEV_STATUS:-}" "${PROMO_QA_STATUS:-}" "${PROMO_STAGING_STATUS:-}" "${PROMO_RELEASE_STATUS:-}"; do
-            if [[ "$s" == "FAILED" ]]; then has_failed=true; fi
+            if [[ "$s" == "FAILED" ]]; then OUTCOME="FAILURE"; fi
           done
-          evidence_warn=false
-          for s in "${IAC_EVIDENCE_STATUS:-}" "${PENTEST_EVIDENCE_STATUS:-}" "${CHANGEAPPROVAL_EVIDENCE_STATUS:-}"; do
-            if [[ "$s" == "FAILED" ]]; then evidence_warn=true; fi
-          done
-          OVERALL_STATUS="Success"
-          STATUS_ICON="✅"
-          if $has_failed; then OVERALL_STATUS="Failure"; STATUS_ICON="❌"; elif $evidence_warn; then OVERALL_STATUS="Warning"; STATUS_ICON="⚠️"; fi
-          # --- TEMPLATE 1: Executive Summary ---
-          echo "# --- TEMPLATE 1: Executive Summary ---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [[ "$SCENARIO" == "Release" ]]; then
-            echo "### Release Summary: ${APPLICATION_KEY} ${APP_VERSION}" >> $GITHUB_STEP_SUMMARY
-            echo "**Path:** ${LC_PATH}" >> $GITHUB_STEP_SUMMARY
-            case "$OVERALL_STATUS" in
-              Success)
-                echo "* ✅ **Release Succeeded**: Successfully released to ${TARGET_DISPLAY}." >> $GITHUB_STEP_SUMMARY ;;
-              Warning)
-                echo "* ⚠️ **Release Succeeded with Warnings**: The application version was released to ${TARGET_DISPLAY}, but evidence attachment failed." >> $GITHUB_STEP_SUMMARY ;;
-              Failure)
-                echo "* ❌ **Release Failed**: Could not release to ${TARGET_DISPLAY}." >> $GITHUB_STEP_SUMMARY ;;
-            esac
-          else
-            echo "### Promotion Summary: ${APPLICATION_KEY} ${APP_VERSION}" >> $GITHUB_STEP_SUMMARY
-            echo "**Path:** ${LC_PATH}" >> $GITHUB_STEP_SUMMARY
-            case "$OVERALL_STATUS" in
-              Success)
-                echo "* ✅ **Promotion Succeeded**: Successfully promoted from ${CURRENT_DISPLAY} to ${TARGET_DISPLAY}." >> $GITHUB_STEP_SUMMARY ;;
-              Warning)
-                echo "* ⚠️ **Promotion Succeeded with Warnings**: The application version was promoted from ${CURRENT_DISPLAY} to ${TARGET_DISPLAY}, but evidence attachment failed." >> $GITHUB_STEP_SUMMARY ;;
-              Failure)
-                echo "* ❌ **Promotion Failed**: Could not promote from ${CURRENT_DISPLAY} to ${TARGET_DISPLAY}." >> $GITHUB_STEP_SUMMARY ;;
-            esac
+          if [[ "$OUTCOME" == "SUCCESS" ]]; then
+            for s in "${IAC_EVIDENCE_STATUS:-}" "${PENTEST_EVIDENCE_STATUS:-}" "${CHANGEAPPROVAL_EVIDENCE_STATUS:-}"; do
+              if [[ "$s" == "FAILED" ]]; then OUTCOME="WARNING"; fi
+            done
           fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          # --- TEMPLATE 2: Tabular Data ---
-          echo "# --- TEMPLATE 2: Tabular Data ---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [[ "$SCENARIO" == "Release" ]]; then
-            if [[ "$OVERALL_STATUS" == "Success" ]]; then
-              echo "### ✅ Release Summary for ${APPLICATION_KEY} ${APP_VERSION}" >> $GITHUB_STEP_SUMMARY
-            elif [[ "$OVERALL_STATUS" == "Warning" ]]; then
-              echo "### ⚠️ Release Summary for ${APPLICATION_KEY} ${APP_VERSION}" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "### ❌ Release Summary for ${APPLICATION_KEY} ${APP_VERSION}" >> $GITHUB_STEP_SUMMARY
-            fi
-            echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
-            echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
-            echo "| Lifecycle Path | ${LC_PATH} |" >> $GITHUB_STEP_SUMMARY
-            echo "| Action | Release to ${TARGET_DISPLAY} |" >> $GITHUB_STEP_SUMMARY
-            echo "| Type | ${PROMOTION_TYPE} |" >> $GITHUB_STEP_SUMMARY
-            if [[ "$OVERALL_STATUS" == "Failure" ]]; then
-              echo "| Outcome | **Critical failure** during release step. |" >> $GITHUB_STEP_SUMMARY
-            elif [[ "$OVERALL_STATUS" == "Warning" ]]; then
-              echo "| Outcome | Succeeded with **evidence attachment failure**. |" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "| Outcome | All operations completed successfully. |" >> $GITHUB_STEP_SUMMARY
-            fi
-          else
-            if [[ "$OVERALL_STATUS" == "Success" ]]; then
-              echo "### ✅ Promotion Summary for ${APPLICATION_KEY} ${APP_VERSION}" >> $GITHUB_STEP_SUMMARY
-            elif [[ "$OVERALL_STATUS" == "Warning" ]]; then
-              echo "### ⚠️ Promotion Summary for ${APPLICATION_KEY} ${APP_VERSION}" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "### ❌ Promotion Summary for ${APPLICATION_KEY} ${APP_VERSION}" >> $GITHUB_STEP_SUMMARY
-            fi
-            echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
-            echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
-            echo "| Lifecycle Path | ${LC_PATH} |" >> $GITHUB_STEP_SUMMARY
-            echo "| Action | Promote from ${CURRENT_DISPLAY} to ${TARGET_DISPLAY} |" >> $GITHUB_STEP_SUMMARY
-            echo "| Type | ${PROMOTION_TYPE} |" >> $GITHUB_STEP_SUMMARY
-            if [[ "$OVERALL_STATUS" == "Failure" ]]; then
-              echo "| Outcome | **Critical failure** during promotion step. |" >> $GITHUB_STEP_SUMMARY
-            elif [[ "$OVERALL_STATUS" == "Warning" ]]; then
-              echo "| Outcome | Succeeded with **evidence attachment failure**. |" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "| Outcome | All operations completed successfully. |" >> $GITHUB_STEP_SUMMARY
-            fi
-          fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          # --- TEMPLATE 3: Process Flow ---
-          echo "# --- TEMPLATE 3: Process Flow ---" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Application Version:** ${APPLICATION_KEY} \`${APP_VERSION}\`" >> $GITHUB_STEP_SUMMARY
-          if [[ "$SCENARIO" == "Release" ]]; then
-            if [[ "$OVERALL_STATUS" == "Success" ]]; then
-              echo "* ✅ ${LC_PATH} | **Status:** Release successful" >> $GITHUB_STEP_SUMMARY
-            elif [[ "$OVERALL_STATUS" == "Warning" ]]; then
-              echo "* ⚠️ ${LC_PATH} | **Status:** Release succeeded with warnings" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "* ❌ ${LC_PATH} | **Status:** Release failed" >> $GITHUB_STEP_SUMMARY
-            fi
-          else
-            if [[ "$OVERALL_STATUS" == "Success" ]]; then
-              echo "* ✅ ${LC_PATH} | **Status:** Promotion successful" >> $GITHUB_STEP_SUMMARY
-            elif [[ "$OVERALL_STATUS" == "Warning" ]]; then
-              echo "* ⚠️ ${LC_PATH} | **Status:** Promotion succeeded with warnings" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "* ❌ ${LC_PATH} | **Status:** Promotion failed" >> $GITHUB_STEP_SUMMARY
-            fi
-          fi
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ✅ Stage Results (expected vs actual)" >> $GITHUB_STEP_SUMMARY
-          if [ -n "${PROMO_SUMMARY_FILE:-}" ] && [ -f "${PROMO_SUMMARY_FILE}" ]; then
-            cat "${PROMO_SUMMARY_FILE}" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "(no per-stage details captured)" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🧾 Evidence during STAGING gate" >> $GITHUB_STEP_SUMMARY
-          echo "- IaC: ${IAC_EVIDENCE_STATUS:-N/A}" >> $GITHUB_STEP_SUMMARY
-          echo "- Pentest: ${PENTEST_EVIDENCE_STATUS:-N/A}" >> $GITHUB_STEP_SUMMARY
-          echo "- Change Approval: ${CHANGEAPPROVAL_EVIDENCE_STATUS:-N/A}" >> $GITHUB_STEP_SUMMARY
+          # Promotion method (best effort; default move)
+          PROMOTION_METHOD="move"
+          # Select template ID
+          TID="${SUMMARY_TEMPLATE_ID:-1}"
+          # Generate ONLY the markdown summary via Node using the provided templates
+          node - <<'NODE' | tee -a "$GITHUB_STEP_SUMMARY" >/dev/null
+          (function(){
+            function generateGitHubSummary(params){
+              const { templateId, outcome, applicationName, version, currentStage, targetStage, promotionType, lifecyclePath } = params;
+              const isRelease = targetStage === 'PROD';
+              switch (templateId) {
+                case 1: {
+                  if (isRelease) {
+                    switch (outcome) {
+                      case 'SUCCESS': return `### Release Summary: ${applicationName} ${version}\n**Path:** ${lifecyclePath}\n* ✅ **Release Succeeded**: Successfully released to ${targetStage}.`;
+                      case 'WARNING': return `### Release Summary: ${applicationName} ${version}\n**Path:** ${lifecyclePath}\n* ⚠️ **Release Succeeded with Warnings**: The application version was released to ${targetStage}, but evidence attachment failed.`;
+                      default: return `### Release Summary: ${applicationName} ${version}\n**Path:** ${lifecyclePath}\n* ❌ **Release Failed**: Could not release to ${targetStage}.`;
+                    }
+                  } else {
+                    switch (outcome) {
+                      case 'SUCCESS': return `### Promotion Summary: ${applicationName} ${version}\n**Path:** ${lifecyclePath}\n* ✅ **Promotion Succeeded**: Successfully promoted from ${currentStage} to ${targetStage}.`;
+                      case 'WARNING': return `### Promotion Summary: ${applicationName} ${version}\n**Path:** ${lifecyclePath}\n* ⚠️ **Promotion Succeeded with Warnings**: The application version was promoted from ${currentStage} to ${targetStage}, but evidence attachment failed.`;
+                      default: return `### Promotion Summary: ${applicationName} ${version}\n**Path:** ${lifecyclePath}\n* ❌ **Promotion Failed**: Could not promote from ${currentStage} to ${targetStage}.`;
+                    }
+                  }
+                }
+                case 2: {
+                  if (isRelease) {
+                    switch (outcome) {
+                      case 'SUCCESS': return `### ✅ Release Summary for ${applicationName} ${version}\n| Detail | Value |\n| :--- | :--- |\n| Lifecycle Path | ${lifecyclePath} |\n| Action | Release to ${targetStage} |\n| Type | ${promotionType} |\n| Outcome | All operations completed successfully. |`;
+                      case 'WARNING': return `### ⚠️ Release Summary for ${applicationName} ${version}\n| Detail | Value |\n| :--- | :--- |\n| Lifecycle Path | ${lifecyclePath} |\n| Action | Release to ${targetStage} |\n| Type | ${promotionType} |\n| Outcome | Succeeded with **evidence attachment failure**. |`;
+                      default: return `### ❌ Release Summary for ${applicationName} ${version}\n| Detail | Value |\n| :--- | :--- |\n| Lifecycle Path | ${lifecyclePath} |\n| Action | Release to ${targetStage} |\n| Type | ${promotionType} |\n| Outcome | **Critical failure** during release step. |`;
+                    }
+                  } else {
+                    switch (outcome) {
+                      case 'SUCCESS': return `### ✅ Promotion Summary for ${applicationName} ${version}\n| Detail | Value |\n| :--- | :--- |\n| Lifecycle Path | ${lifecyclePath} |\n| Action | Promote from ${currentStage} to ${targetStage} |\n| Type | ${promotionType} |\n| Outcome | All operations completed successfully. |`;
+                      case 'WARNING': return `### ⚠️ Promotion Summary for ${applicationName} ${version}\n| Detail | Value |\n| :--- | :--- |\n| Lifecycle Path | ${lifecyclePath} |\n| Action | Promote from ${currentStage} to ${targetStage} |\n| Type | ${promotionType} |\n| Outcome | Succeeded with **evidence attachment failure**. |`;
+                      default: return `### ❌ Promotion Summary for ${applicationName} ${version}\n| Detail | Value |\n| :--- | :--- |\n| Lifecycle Path | ${lifecyclePath} |\n| Action | Promote from ${currentStage} to ${targetStage} |\n| Type | ${promotionType} |\n| Outcome | **Critical failure** during promotion step. |`;
+                    }
+                  }
+                }
+                case 3:
+                default: {
+                  if (isRelease) {
+                    switch (outcome) {
+                      case 'SUCCESS': return `**Application Version:** ${applicationName} \`${version}\`\n* ✅ ${lifecyclePath} | **Status:** Release successful`;
+                      case 'WARNING': return `**Application Version:** ${applicationName} \`${version}\`\n* ⚠️ ${lifecyclePath} | **Status:** Release succeeded with warnings`;
+                      default: return `**Application Version:** ${applicationName} \`${version}\`\n* ❌ ${lifecyclePath} | **Status:** Release failed`;
+                    }
+                  } else {
+                    switch (outcome) {
+                      case 'SUCCESS': return `**Application Version:** ${applicationName} \`${version}\`\n* ✅ ${lifecyclePath} | **Status:** Promotion successful`;
+                      case 'WARNING': return `**Application Version:** ${applicationName} \`${version}\`\n* ⚠️ ${lifecyclePath} | **Status:** Promotion succeeded with warnings`;
+                      default: return `**Application Version:** ${applicationName} \`${version}\`\n* ❌ ${lifecyclePath} | **Status:** Promotion failed`;
+                    }
+                  }
+                }
+              }
+            }
+            const summary = generateGitHubSummary({
+              templateId: Number(process.env.SUMMARY_TEMPLATE_ID || '1'),
+              outcome: (process.env.OUTCOME || 'SUCCESS'),
+              applicationName: process.env.APPLICATION_KEY || '',
+              version: process.env.APP_VERSION || '',
+              currentStage: process.env.CURRENT_DISPLAY || '',
+              targetStage: process.env.TARGET_DISPLAY || '',
+              promotionType: process.env.PROMOTION_METHOD || 'move',
+              lifecyclePath: process.env.LIFECYCLE_PATH || ''
+            });
+            process.stdout.write(summary);
+          })();
+          NODE
