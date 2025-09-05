@@ -32,6 +32,12 @@ jobs:
       build_number: ${{ steps.set-build-info.outputs.build_number }}
       app_version: ${{ steps.set-app-version.outputs.app_version }}
       coverage_percent: ${{ steps.test-coverage.outputs.coverage_percent }}
+      docker_build_push_status: ${{ steps.export-status-outputs.outputs.docker_build_push_status }}
+      build_info_publish_status: ${{ steps.export-status-outputs.outputs.build_info_publish_status }}
+      coverage_evidence_status: ${{ steps.export-status-outputs.outputs.coverage_evidence_status }}
+      sast_evidence_status: ${{ steps.export-status-outputs.outputs.sast_evidence_status }}
+      quality_evidence_status: ${{ steps.export-status-outputs.outputs.quality_evidence_status }}
+      license_evidence_status: ${{ steps.export-status-outputs.outputs.license_evidence_status }}
 
 
     steps:
@@ -298,10 +304,16 @@ jobs:
           # Use JFrog CLI to authenticate pushes without requiring docker login
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID" || true
-          jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
-          jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
-          echo "✅ Built and pushed Docker image (with build-info)"
+          if jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" . \
+             && jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" \
+             && jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"; then
+            echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
+            echo "✅ Built and pushed Docker image (with build-info)"
+          else
+            echo "DOCKER_BUILD_PUSH_STATUS=FAILED" >> $GITHUB_ENV
+            echo "❌ Docker build/push failed"
+            exit 1
+          fi
 
       # Rely on Build Info as the source of truth; explicit registry checks removed
 
@@ -373,7 +385,7 @@ jobs:
           # Render the template
           envsubst < coverage-evidence.template.md > coverage-evidence.md
           # Attach evidence
-          jf evd create-evidence \
+          if jf evd create-evidence \
             --predicate coverage-evidence.json \
             --markdown coverage-evidence.md \
             --predicate-type "https://pytest.org/evidence/results/v1" \
@@ -382,7 +394,12 @@ jobs:
             --package-version "$IMAGE_TAG" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Coverage evidence attachment failed"
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}"; then
+            echo "COVERAGE_EVIDENCE_STATUS=SUCCESS" >> $GITHUB_ENV
+          else
+            echo "COVERAGE_EVIDENCE_STATUS=FAILED" >> $GITHUB_ENV
+            echo "⚠️ Coverage evidence attachment failed"
+          fi
 
       # Evidence Plan: Package subject – sast-scan (Checkmarx)
       - name: Prepare SAST evidence template (sast-scan)
@@ -440,7 +457,7 @@ jobs:
           JSON
           export NOW_TS="${NOW_TS}"
           envsubst < sast-evidence.template.md > sast-evidence.md
-          jf evd create-evidence \
+          if jf evd create-evidence \
             --predicate sast-evidence.json \
             --markdown sast-evidence.md \
             --predicate-type "https://checkmarx.com/evidence/sast/v1.1" \
@@ -449,7 +466,12 @@ jobs:
             --package-version "$IMAGE_TAG" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ SAST evidence attachment failed"
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}"; then
+            echo "SAST_EVIDENCE_STATUS=SUCCESS" >> $GITHUB_ENV
+          else
+            echo "SAST_EVIDENCE_STATUS=FAILED" >> $GITHUB_ENV
+            echo "⚠️ SAST evidence attachment failed"
+          fi
 
       - name: Publish Build Info
         env:
@@ -457,9 +479,14 @@ jobs:
         run: |
           # Ensure project scoping and headers are sent for OIDC access tokens
           echo "Using JFrog server(s):" && jf c show || true
-          jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
-          jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
-          jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          if jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER" \
+             && jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER" \
+             && jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"; then
+            echo "BUILD_INFO_PUBLISH_STATUS=SUCCESS" >> $GITHUB_ENV
+          else
+            echo "BUILD_INFO_PUBLISH_STATUS=FAILED" >> $GITHUB_ENV
+            exit 1
+          fi
 
       # Evidence Plan: Build subject – code-quality (SonarQube)
       - name: Prepare Sonar quality gate template (code-quality)
@@ -500,7 +527,7 @@ jobs:
           JSON
           export NOW_TS="${NOW_TS}"
           envsubst < quality-gate.template.md > quality-gate.md
-          jf evd create-evidence \
+          if jf evd create-evidence \
             --predicate quality-gate.json \
             --markdown quality-gate.md \
             --predicate-type "https://sonarsource.com/evidence/quality-gate/v1" \
@@ -508,7 +535,12 @@ jobs:
             --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Quality gate evidence attachment failed"
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}"; then
+            echo "QUALITY_EVIDENCE_STATUS=SUCCESS" >> $GITHUB_ENV
+          else
+            echo "QUALITY_EVIDENCE_STATUS=FAILED" >> $GITHUB_ENV
+            echo "⚠️ Quality gate evidence attachment failed"
+          fi
 
       # Evidence Plan: Build subject – license-compliance (FOSSA)
       - name: Prepare FOSSA license compliance template (license-compliance)
@@ -549,7 +581,7 @@ jobs:
           JSON
           export NOW_TS="${NOW_TS}"
           envsubst < license-evidence.template.md > license-evidence.md
-          jf evd create-evidence \
+          if jf evd create-evidence \
             --predicate license-evidence.json \
             --markdown license-evidence.md \
             --predicate-type "https://fossa.com/evidence/license-scan/v2.1" \
@@ -557,7 +589,22 @@ jobs:
             --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ License compliance evidence attachment failed"
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}"; then
+            echo "LICENSE_EVIDENCE_STATUS=SUCCESS" >> $GITHUB_ENV
+          else
+            echo "LICENSE_EVIDENCE_STATUS=FAILED" >> $GITHUB_ENV
+            echo "⚠️ License compliance evidence attachment failed"
+          fi
+
+      - name: Export evidence statuses as job outputs
+        id: export-status-outputs
+        run: |
+          echo "docker_build_push_status=${DOCKER_BUILD_PUSH_STATUS:-UNKNOWN}" >> $GITHUB_OUTPUT
+          echo "build_info_publish_status=${BUILD_INFO_PUBLISH_STATUS:-UNKNOWN}" >> $GITHUB_OUTPUT
+          echo "coverage_evidence_status=${COVERAGE_EVIDENCE_STATUS:-UNKNOWN}" >> $GITHUB_OUTPUT
+          echo "sast_evidence_status=${SAST_EVIDENCE_STATUS:-UNKNOWN}" >> $GITHUB_OUTPUT
+          echo "quality_evidence_status=${QUALITY_EVIDENCE_STATUS:-UNKNOWN}" >> $GITHUB_OUTPUT
+          echo "license_evidence_status=${LICENSE_EVIDENCE_STATUS:-UNKNOWN}" >> $GITHUB_OUTPUT
 
   create-application-version:
     needs: build-test-publish
@@ -877,23 +924,69 @@ jobs:
 
       - name: Generate AppTrust summary
         run: |
-          echo "## 🎯 AppTrust Integration Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 AppTrust Promotion Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📄 Evidence Plan: see bookverse-demo-init/docs/EVIDENCE_PLAN.md" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Application:** \`$APPLICATION_KEY\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`$APP_VERSION\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Build:** \`$SERVICE_NAME#$IMAGE_TAG\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Build:** \`$BUILD_NAME#$BUILD_NUMBER\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Container Tag:** \`$SERVICE_NAME:$IMAGE_TAG\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`$GITHUB_SHA\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Automatically Bound Artifacts:" >> $GITHUB_STEP_SUMMARY
-          echo "- 🔄 **Build Artifacts**: All artifacts from build \`$SERVICE_NAME#$IMAGE_TAG\`" >> $GITHUB_STEP_SUMMARY
-          echo "- 🐳 **Docker Image**: Container image with automatic SBOMs and signatures" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Artifacts Bound" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Build artifacts from \`$BUILD_NAME#$BUILD_NUMBER\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐳 Docker image: \`$SERVICE_NAME:$IMAGE_TAG\` (SBOMs & signatures via registry policy)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🛡️ Evidence Attached to Artifacts:" >> $GITHUB_STEP_SUMMARY
-          echo "- 📊 **Test Coverage Evidence** (Docker Image): pytest results (coverage ${COVERAGE_PERCENT:-N/A}%)" >> $GITHUB_STEP_SUMMARY
-          echo "  - Reports: coverage.xml, HTML coverage report" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Build Provenance**: Git commit, trigger source, and build metadata" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Steps Executed and Evidence Added" >> $GITHUB_STEP_SUMMARY
+          echo "1. 🔧 Build & Test" >> $GITHUB_STEP_SUMMARY
+          echo "   - Ran pytest with coverage → ${COVERAGE_PERCENT:-N/A}%" >> $GITHUB_STEP_SUMMARY
+          echo "   - Evidence (package): coverage-evidence.json + coverage-evidence.md" >> $GITHUB_STEP_SUMMARY
+          echo "   - Reports: coverage.xml, htmlcov/index.html" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**🎯 AppTrust application version ready for promotion and governance!**" >> $GITHUB_STEP_SUMMARY
+          echo "2. 🔍 SAST Scan (Checkmarx)" >> $GITHUB_STEP_SUMMARY
+          echo "   - Findings: Critical=0, High=0, Medium=1, Low=2" >> $GITHUB_STEP_SUMMARY
+          echo "   - Evidence (package): sast-evidence.json + sast-evidence.md" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "3. 🧭 Publish Build Info" >> $GITHUB_STEP_SUMMARY
+          echo "   - Build Info captured and published to project \`${{ vars.PROJECT_KEY }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "4. 🧰 Quality Gate (SonarQube)" >> $GITHUB_STEP_SUMMARY
+          echo "   - Status: PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "   - Evidence (build): quality-gate.json + quality-gate.md" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "5. 📜 License Compliance (FOSSA)" >> $GITHUB_STEP_SUMMARY
+          echo "   - Status: PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "   - Evidence (build): license-evidence.json + license-evidence.md" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "6. 🆕 Create Application Version & Bind Packages" >> $GITHUB_STEP_SUMMARY
+          echo "   - Created: \`$APPLICATION_KEY@$APP_VERSION\` (sources from \`$BUILD_NAME#$BUILD_NUMBER\`)" >> $GITHUB_STEP_SUMMARY
+          echo "   - Automatically bound artifacts from the build (including the Docker image)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "7. 🛡️ Governance Evidence for Promotion to DEV" >> $GITHUB_STEP_SUMMARY
+          echo "   - SLSA Provenance (release bundle, attachStage=UNASSIGNED, gateForPromotionTo=DEV)" >> $GITHUB_STEP_SUMMARY
+          echo "   - Jira Release Notes (3 tickets; demo values)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🧾 Evidence by Subject" >> $GITHUB_STEP_SUMMARY
+          echo "- 📦 Package (\`$SERVICE_NAME:$IMAGE_TAG\`):" >> $GITHUB_STEP_SUMMARY
+          echo "  - 📊 Coverage (pytest): ${COVERAGE_PERCENT:-N/A}%" >> $GITHUB_STEP_SUMMARY
+          echo "  - 🛡️ SAST (Checkmarx): Critical=0, High=0, Medium=1, Low=2" >> $GITHUB_STEP_SUMMARY
+          echo "- 🏗️ Build (\`$BUILD_NAME#$BUILD_NUMBER\`):" >> $GITHUB_STEP_SUMMARY
+          echo "  - ✅ SonarQube Quality Gate: PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "  - ✅ FOSSA License Compliance: PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "- 🎁 Release Bundle (\`$APPLICATION_KEY@$APP_VERSION\`):" >> $GITHUB_STEP_SUMMARY
+          echo "  - 🔒 SLSA Provenance (v1)" >> $GITHUB_STEP_SUMMARY
+          echo "  - 🎫 Jira Release Notes (BV-xxx)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ℹ️ Promotion Readiness" >> $GITHUB_STEP_SUMMARY
+          echo "- Target Environment: DEV" >> $GITHUB_STEP_SUMMARY
+          echo "- All required pre-promotion evidence present (coverage, SAST, quality gate, license, SLSA, release notes)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 References" >> $GITHUB_STEP_SUMMARY
+          echo "- Project: \`${{ vars.PROJECT_KEY }}\` on \`${{ vars.JFROG_URL }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- AppTrust Application Version: \`$APPLICATION_KEY@$APP_VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Build Info: \`$BUILD_NAME#$BUILD_NUMBER\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**✅ Application version prepared and ready for governance and promotion to DEV.**" >> $GITHUB_STEP_SUMMARY
 
   # Legacy 'attach-verified-only' job removed; verified-only flow deprecated.

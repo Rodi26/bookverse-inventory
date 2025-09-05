@@ -142,8 +142,14 @@ jobs:
           TARGET_NAME="$TS_INPUT"
           if [[ -z "$TARGET_NAME" ]]; then TARGET_NAME="$FINAL_STAGE"; fi
           echo "TARGET_NAME=$TARGET_NAME" >> $GITHUB_ENV
-            echo "PROMOTED_STAGES=" >> $GITHUB_ENV
-            echo "DID_RELEASE=false" >> $GITHUB_ENV
+          echo "PROMOTED_STAGES=" >> $GITHUB_ENV
+          echo "DID_RELEASE=false" >> $GITHUB_ENV
+          PROMO_SUMMARY_FILE=$(mktemp)
+          echo "PROMO_SUMMARY_FILE=$PROMO_SUMMARY_FILE" >> $GITHUB_ENV
+          {
+            echo "### 🧭 Stage-by-stage execution (expected vs actual)"
+            echo ""
+          } >> "$PROMO_SUMMARY_FILE"
 
       - name: Promote from UNASSIGNED → next
         env:
@@ -157,11 +163,32 @@ jobs:
           export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
           source .github/scripts/promote_lib.sh
           fetch_summary
-          if [[ -z "${CURRENT_STAGE:-}" || "$(display_stage_for "${CURRENT_STAGE}")" == "UNASSIGNED" ]]; then
+          # Compute expectation
+          CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
+          IFS=' ' read -r -a STAGES <<< "${STAGES_STR:-}"
+          EXPECTED_NEXT="${STAGES[0]:-UNKNOWN}"
+          echo "PROMO_UNASSIGNED_EXPECTED=$EXPECTED_NEXT" >> $GITHUB_ENV
+          if [[ -z "${CURRENT_STAGE:-}" || "$CURR_DISPLAY" == "UNASSIGNED" ]]; then
+            echo "PROMO_UNASSIGNED_ATTEMPTED=true" >> $GITHUB_ENV
             ALLOW_RELEASE=false
+            set +e
             advance_one_step
+            RC=$?
+            set -e
+            fetch_summary
+            AFTER_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
+            STATUS="FAILED"
+            if [[ "$RC" -eq 0 && "$AFTER_DISPLAY" == "$EXPECTED_NEXT" ]]; then STATUS="SUCCESS"; fi
+            echo "PROMO_UNASSIGNED_ACTUAL=$AFTER_DISPLAY" >> $GITHUB_ENV
+            echo "PROMO_UNASSIGNED_STATUS=$STATUS" >> $GITHUB_ENV
+            {
+              echo "- UNASSIGNED → ${EXPECTED_NEXT}: should promote; actual at ${AFTER_DISPLAY} — ${STATUS}"
+            } >> "$PROMO_SUMMARY_FILE"
           else
-            echo "Skipping: current stage is $(display_stage_for "${CURRENT_STAGE}")"
+            echo "PROMO_UNASSIGNED_ATTEMPTED=false" >> $GITHUB_ENV
+            {
+              echo "- UNASSIGNED: skipped (current=${CURR_DISPLAY})"
+            } >> "$PROMO_SUMMARY_FILE"
           fi
 
       - name: Promote from DEV → next
@@ -175,12 +202,36 @@ jobs:
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
           source .github/scripts/promote_lib.sh
-            fetch_summary
-          if [[ "$(display_stage_for "${CURRENT_STAGE:-}")" == "DEV" ]]; then
+          fetch_summary
+          CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
+          IFS=' ' read -r -a STAGES <<< "${STAGES_STR:-}"
+          # Find next after DEV
+          EXPECTED_NEXT="UNKNOWN"
+          for ((i=0; i<${#STAGES[@]}; i++)); do
+            if [[ "${STAGES[$i]}" == "DEV" && $i -lt $((${#STAGES[@]}-1)) ]]; then EXPECTED_NEXT="${STAGES[$i+1]}"; fi
+          done
+          echo "PROMO_DEV_EXPECTED=$EXPECTED_NEXT" >> $GITHUB_ENV
+          if [[ "$CURR_DISPLAY" == "DEV" ]]; then
+            echo "PROMO_DEV_ATTEMPTED=true" >> $GITHUB_ENV
             ALLOW_RELEASE=false
+            set +e
             advance_one_step
+            RC=$?
+            set -e
+            fetch_summary
+            AFTER_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
+            STATUS="FAILED"
+            if [[ "$RC" -eq 0 && "$AFTER_DISPLAY" == "$EXPECTED_NEXT" ]]; then STATUS="SUCCESS"; fi
+            echo "PROMO_DEV_ACTUAL=$AFTER_DISPLAY" >> $GITHUB_ENV
+            echo "PROMO_DEV_STATUS=$STATUS" >> $GITHUB_ENV
+            {
+              echo "- DEV → ${EXPECTED_NEXT}: should promote; actual at ${AFTER_DISPLAY} — ${STATUS}"
+            } >> "$PROMO_SUMMARY_FILE"
           else
-            echo "Skipping: current stage is $(display_stage_for "${CURRENT_STAGE:-UNASSIGNED}")"
+            echo "PROMO_DEV_ATTEMPTED=false" >> $GITHUB_ENV
+            {
+              echo "- DEV: skipped (current=${CURR_DISPLAY})"
+            } >> "$PROMO_SUMMARY_FILE"
           fi
 
       - name: Promote from QA → next
@@ -194,12 +245,36 @@ jobs:
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
           source .github/scripts/promote_lib.sh
-            fetch_summary
-          if [[ "$(display_stage_for "${CURRENT_STAGE:-}")" == "QA" ]]; then
+          fetch_summary
+          CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
+          IFS=' ' read -r -a STAGES <<< "${STAGES_STR:-}"
+          # Find next after QA
+          EXPECTED_NEXT="UNKNOWN"
+          for ((i=0; i<${#STAGES[@]}; i++)); do
+            if [[ "${STAGES[$i]}" == "QA" && $i -lt $((${#STAGES[@]}-1)) ]]; then EXPECTED_NEXT="${STAGES[$i+1]}"; fi
+          done
+          echo "PROMO_QA_EXPECTED=$EXPECTED_NEXT" >> $GITHUB_ENV
+          if [[ "$CURR_DISPLAY" == "QA" ]]; then
+            echo "PROMO_QA_ATTEMPTED=true" >> $GITHUB_ENV
             ALLOW_RELEASE=false
+            set +e
             advance_one_step
+            RC=$?
+            set -e
+            fetch_summary
+            AFTER_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
+            STATUS="FAILED"
+            if [[ "$RC" -eq 0 && "$AFTER_DISPLAY" == "$EXPECTED_NEXT" ]]; then STATUS="SUCCESS"; fi
+            echo "PROMO_QA_ACTUAL=$AFTER_DISPLAY" >> $GITHUB_ENV
+            echo "PROMO_QA_STATUS=$STATUS" >> $GITHUB_ENV
+            {
+              echo "- QA → ${EXPECTED_NEXT}: should promote; actual at ${AFTER_DISPLAY} — ${STATUS}"
+            } >> "$PROMO_SUMMARY_FILE"
           else
-            echo "Skipping: current stage is $(display_stage_for "${CURRENT_STAGE:-UNASSIGNED}")"
+            echo "PROMO_QA_ATTEMPTED=false" >> $GITHUB_ENV
+            {
+              echo "- QA: skipped (current=${CURR_DISPLAY})"
+            } >> "$PROMO_SUMMARY_FILE"
           fi
 
       - name: Promote from STAGING → next
@@ -215,11 +290,35 @@ jobs:
           export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
           source .github/scripts/promote_lib.sh
           fetch_summary
-          if [[ "$(display_stage_for "${CURRENT_STAGE:-}")" == "STAGING" ]]; then
+          CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
+          IFS=' ' read -r -a STAGES <<< "${STAGES_STR:-}"
+          # Expected next is the element after STAGING (usually PROD)
+          EXPECTED_NEXT="UNKNOWN"
+          for ((i=0; i<${#STAGES[@]}; i++)); do
+            if [[ "${STAGES[$i]}" == "STAGING" && $i -lt $((${#STAGES[@]}-1)) ]]; then EXPECTED_NEXT="${STAGES[$i+1]}"; fi
+          done
+          echo "PROMO_STAGING_EXPECTED=$EXPECTED_NEXT" >> $GITHUB_ENV
+          if [[ "$CURR_DISPLAY" == "STAGING" ]]; then
+            echo "PROMO_STAGING_ATTEMPTED=true" >> $GITHUB_ENV
             ALLOW_RELEASE=false
+            set +e
             advance_one_step
+            RC=$?
+            set -e
+            fetch_summary
+            AFTER_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
+            STATUS="FAILED"
+            if [[ "$RC" -eq 0 && "$AFTER_DISPLAY" == "$EXPECTED_NEXT" ]]; then STATUS="SUCCESS"; fi
+            echo "PROMO_STAGING_ACTUAL=$AFTER_DISPLAY" >> $GITHUB_ENV
+            echo "PROMO_STAGING_STATUS=$STATUS" >> $GITHUB_ENV
+            {
+              echo "- STAGING → ${EXPECTED_NEXT}: should promote (no release); actual at ${AFTER_DISPLAY} — ${STATUS}"
+            } >> "$PROMO_SUMMARY_FILE"
           else
-            echo "Skipping: current stage is $(display_stage_for "${CURRENT_STAGE:-UNASSIGNED}")"
+            echo "PROMO_STAGING_ATTEMPTED=false" >> $GITHUB_ENV
+            {
+              echo "- STAGING: skipped (current=${CURR_DISPLAY})"
+            } >> "$PROMO_SUMMARY_FILE"
           fi
 
       - name: Decide if STAGING evidence should attach
@@ -313,7 +412,7 @@ jobs:
           }
           JSON
           envsubst < iac-evidence.template.md > iac-evidence.md
-          jf evd create-evidence \
+          if jf evd create-evidence \
             --predicate iac-evidence.json \
             --markdown iac-evidence.md \
             --predicate-type "https://snyk.io/evidence/iac/v1" \
@@ -321,7 +420,12 @@ jobs:
             --release-bundle-version "$APP_VERSION" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ IaC evidence attachment failed"
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}"; then
+            IAC_EVIDENCE_STATUS=SUCCESS
+          else
+            IAC_EVIDENCE_STATUS=FAILED
+          fi
+          echo "IAC_EVIDENCE_STATUS=$IAC_EVIDENCE_STATUS" >> $GITHUB_ENV
 
           # Pentest predicate and markdown
           cat > pentest-evidence.json <<JSON
@@ -335,7 +439,7 @@ jobs:
           }
           JSON
           envsubst < pentest-evidence.template.md > pentest-evidence.md
-          jf evd create-evidence \
+          if jf evd create-evidence \
             --predicate pentest-evidence.json \
             --markdown pentest-evidence.md \
             --predicate-type "https://cobalt.io/evidence/pentest/v1" \
@@ -343,7 +447,12 @@ jobs:
             --release-bundle-version "$APP_VERSION" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Pentest evidence attachment failed"
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}"; then
+            PENTEST_EVIDENCE_STATUS=SUCCESS
+          else
+            PENTEST_EVIDENCE_STATUS=FAILED
+          fi
+          echo "PENTEST_EVIDENCE_STATUS=$PENTEST_EVIDENCE_STATUS" >> $GITHUB_ENV
 
           # Change approval predicate and markdown
           cat > change-approval.json <<JSON
@@ -358,7 +467,7 @@ jobs:
           }
           JSON
           envsubst < change-approval.template.md > change-approval.md
-          jf evd create-evidence \
+          if jf evd create-evidence \
             --predicate change-approval.json \
             --markdown change-approval.md \
             --predicate-type "https://servicenow.com/evidence/change-req/v1" \
@@ -366,7 +475,15 @@ jobs:
             --release-bundle-version "$APP_VERSION" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
-            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Change approval evidence attachment failed"
+            --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}"; then
+            CHANGEAPPROVAL_EVIDENCE_STATUS=SUCCESS
+          else
+            CHANGEAPPROVAL_EVIDENCE_STATUS=FAILED
+          fi
+          echo "CHANGEAPPROVAL_EVIDENCE_STATUS=$CHANGEAPPROVAL_EVIDENCE_STATUS" >> $GITHUB_ENV
+          {
+            echo "- STAGING evidence: IaC=${IAC_EVIDENCE_STATUS}, Pentest=${PENTEST_EVIDENCE_STATUS}, ChangeApproval=${CHANGEAPPROVAL_EVIDENCE_STATUS}"
+          } >> "$PROMO_SUMMARY_FILE"
 
       - name: Release to PROD
         env:
@@ -381,15 +498,37 @@ jobs:
           export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
           source .github/scripts/promote_lib.sh
           fetch_summary
-          if [[ "$(display_stage_for "${CURRENT_STAGE:-}")" == "STAGING" ]]; then
+          CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
+          echo "PROMO_RELEASE_EXPECTED=RELEASE to ${FINAL_STAGE}" >> $GITHUB_ENV
+          if [[ "$CURR_DISPLAY" == "STAGING" ]]; then
+            echo "PROMO_RELEASE_ATTEMPTED=true" >> $GITHUB_ENV
             ALLOW_RELEASE=true
+            set +e
             advance_one_step
+            RC=$?
+            set -e
+            fetch_summary
+            REL_STATUS="${RELEASE_STATUS:-UNKNOWN}"
+            STATUS="FAILED"
+            case "$REL_STATUS" in
+              RELEASED|TRUSTED_RELEASE|released|trusted_release) STATUS="SUCCESS" ;;
+            esac
+            if [[ "$RC" -ne 0 ]]; then STATUS="FAILED"; fi
+            echo "PROMO_RELEASE_ACTUAL=${REL_STATUS}" >> $GITHUB_ENV
+            echo "PROMO_RELEASE_STATUS=$STATUS" >> $GITHUB_ENV
+            {
+              echo "- PROD Release: should release; actual status ${REL_STATUS} — ${STATUS}"
+            } >> "$PROMO_SUMMARY_FILE"
           else
-            echo "Skipping release: current stage is $(display_stage_for "${CURRENT_STAGE:-UNASSIGNED}")"
+            echo "PROMO_RELEASE_ATTEMPTED=false" >> $GITHUB_ENV
+            {
+              echo "- PROD Release: skipped (current=${CURR_DISPLAY})"
+            } >> "$PROMO_SUMMARY_FILE"
           fi
 
 
       - name: Generate promotion summary
+        if: always()
         run: |
           echo "## 🚀 AppTrust Promotion Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -402,3 +541,15 @@ jobs:
           echo "**Released to ${FINAL_STAGE}:** ${DID_RELEASE}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Lifecycle final stage: ${FINAL_STAGE}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Stage Results (expected vs actual)" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${PROMO_SUMMARY_FILE:-}" ] && [ -f "${PROMO_SUMMARY_FILE}" ]; then
+            cat "${PROMO_SUMMARY_FILE}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "(no per-stage details captured)" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🧾 Evidence during STAGING gate" >> $GITHUB_STEP_SUMMARY
+          echo "- IaC: ${IAC_EVIDENCE_STATUS:-N/A}" >> $GITHUB_STEP_SUMMARY
+          echo "- Pentest: ${PENTEST_EVIDENCE_STATUS:-N/A}" >> $GITHUB_STEP_SUMMARY
+          echo "- Change Approval: ${CHANGEAPPROVAL_EVIDENCE_STATUS:-N/A}" >> $GITHUB_STEP_SUMMARY
