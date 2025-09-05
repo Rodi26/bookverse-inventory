@@ -19,12 +19,6 @@ on:
         default: 'false'
         type: choice
         options: ['false', 'true']
-      summary_template_id:
-        description: 'Summary template (1, 2, or 3)'
-        required: false
-        default: '1'
-        type: choice
-        options: ['1', '2', '3']
 
 jobs:
   promote:
@@ -535,8 +529,6 @@ jobs:
 
       - name: Generate promotion summary
         if: always()
-        env:
-          SUMMARY_TEMPLATE_ID: ${{ inputs.summary_template_id }}
         run: |
           set -euo pipefail
           # Prepare display stages
@@ -578,7 +570,7 @@ jobs:
           # Promotion method (best effort; default move)
           PROMOTION_METHOD="move"
           # Select template ID
-          TID="${SUMMARY_TEMPLATE_ID:-1}"
+          TID="1"
           # Generate ONLY the markdown summary via Node using the provided templates
           node - <<'NODE' | tee -a "$GITHUB_STEP_SUMMARY" >/dev/null
           (function(){
