@@ -1,5 +1,8 @@
 name: CI
 
+env:
+  DEMO_MODE: "false"
+
 # NOTE: Manual trigger only during development phase
 # Will be changed to automatic triggers (push/PR) when demo is ready
 on:
