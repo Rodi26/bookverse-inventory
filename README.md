@@ -87,3 +87,9 @@ Perfect for demonstrating a realistic bookshop inventory system!
 
 - `JFROG_ACCESS_TOKEN`: Access token used by CI to interact with JFrog Platform
 - `EVIDENCE_PRIVATE_KEY`: Private key PEM for evidence signing (mandatory)
+
+## Workflows
+
+- [`ci.yml`](.github/workflows/ci.yml) — CI: tests, package build, Docker build, publish artifacts/build-info, AppTrust version and evidence.
+- [`promote.yml`](.github/workflows/promote.yml) — Promote the inventory app version through stages with evidence.
+- [`promotion-rollback.yml`](.github/workflows/promotion-rollback.yml) — Roll back a promoted inventory application version (demo utility).

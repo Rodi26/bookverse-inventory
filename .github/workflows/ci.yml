@@ -26,6 +26,7 @@ on:
 
 jobs:
   build-test-publish:
+    name: CI
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,10 +45,10 @@ jobs:
 
 
     steps:
-      - name: Checkout
+      - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
-      - name: Apply DEMO_MODE settings
+      - name: "[Setup] DEMO_MODE"
         if: ${{ inputs.DEMO_MODE == 'true' || env.DEMO_MODE == 'true' }}
         run: |
           echo "🔔 DEMO_MODE enabled"
@@ -61,7 +62,7 @@ jobs:
           # Also useful for services using LOG_LEVEL env
           echo "LOG_LEVEL=DEBUG" >> $GITHUB_ENV
 
-      - name: Configure HTTP debug verbosity
+      - name: "[Setup] HTTP debug"
         run: |
           # HTTP_DEBUG_LEVEL: none|basic|verbose (default basic)
           case "${HTTP_DEBUG_LEVEL:-}" in
@@ -76,7 +77,7 @@ jobs:
               fi ;;
           esac
 
-      - name: Display manual trigger info
+      - name: "[Info] Manual trigger"
         run: |
           echo "🚀 Manual CI trigger initiated"
           echo "📝 Reason: ${{ inputs.reason || 'Manual testing' }}"
@@ -84,7 +85,7 @@ jobs:
           echo "👤 Triggered by: ${{ github.actor }}"
           echo "🕐 Timestamp: $(date -u)"
 
-      - name: Set Build Info (canonical)
+      - name: "[Setup] Build Info"
         id: set-build-info
         run: |
           BUILD_NAME="${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}"
@@ -94,7 +95,7 @@ jobs:
           echo "build_name=$BUILD_NAME" >> $GITHUB_OUTPUT
           echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
           
-      - name: Set build variables
+      - name: "[Setup] Build variables"
         run: |
           SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
           IMAGE_TAG=$(echo $GITHUB_SHA | head -c7)
@@ -109,7 +110,7 @@ jobs:
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "TESTS_PASSED=true" >> $GITHUB_ENV
 
-      - name: Determine SemVer image version
+      - name: "[Setup] Determine SemVer"
         run: |
           set -euo pipefail
           if [ -f .github/scripts/http_debug.sh ]; then source .github/scripts/http_debug.sh; fi
@@ -146,7 +147,7 @@ jobs:
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
 
-      - name: Determine SemVer image version
+      - name: "[Setup] Determine SemVer"
         id: set-app-version
         run: |
           set -euo pipefail
@@ -233,7 +234,7 @@ jobs:
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
 
-      - name: Setup JFrog CLI
+      - name: "[Setup] JFrog CLI"
         uses: jfrog/setup-jfrog-cli@v4
         env:
           JF_URL: ${{ vars.JFROG_URL }}
@@ -247,12 +248,12 @@ jobs:
           disable-auto-build-publish: true
           disable-auto-evidence-collection: false
           oidc-audience: ${{ vars.JFROG_URL }}
-      - name: Set up Python
+      - name: "[Setup] Python"
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Diagnose Python dependency resolution
+      - name: "[Diag] Python deps"
         run: |
           set -euo pipefail
           echo "🔎 Checking Artifactory connectivity and PyPI virtual repo"
@@ -271,7 +272,7 @@ jobs:
             && echo "✅ fastapi index accessible via virtual repo" \
             || echo "⚠️ Unable to access $PIP_INDEX_URL/fastapi/ (check repo and permissions)"
 
-      - name: Collect Python dependencies for Build Info
+      - name: "[Build Info] Collect Python deps"
         run: |
           python -m pip install --upgrade "pip<25"
           jf pipc --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
@@ -280,7 +281,7 @@ jobs:
             pip install -r requirements.txt -i https://pypi.org/simple
           fi
 
-      - name: Install test dependencies
+      - name: "[Test] Install deps"
         run: |
           set -euo pipefail
           jf pipc --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
@@ -288,7 +289,7 @@ jobs:
             pip install -U pytest pytest-cov httpx -i https://pypi.org/simple
           fi
 
-      - name: Run tests with coverage
+      - name: "[Test] Run with coverage"
         id: test-coverage
         run: |
           set -euo pipefail
@@ -301,7 +302,7 @@ jobs:
           echo "COVERAGE_PERCENT=$COV" >> $GITHUB_ENV
           echo "coverage_percent=$COV" >> $GITHUB_OUTPUT
 
-      - name: Build and push Docker image via JFrog CLI
+      - name: "[Build] API image"
         run: |
           set -euo pipefail
           # Use JFrog CLI to authenticate pushes without requiring docker login
@@ -331,7 +332,7 @@ jobs:
       # Rely on Build Info as the source of truth; explicit registry checks removed
 
       # Evidence Plan: Package subject – unit-tests (pytest)
-      - name: Prepare coverage evidence template (pytest)
+      - name: "[Evidence] Prepare coverage template"
         run: |
           set -euo pipefail
           echo "📄 Preparing pytest coverage evidence template"
@@ -371,7 +372,7 @@ jobs:
           <p align="right">⏰ Report Generated: <code>${NOW_TS}</code> (UTC)</p>
           EOF
 
-      - name: Populate coverage evidence and attach (pytest)
+      - name: "[Evidence] Attach coverage"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
@@ -415,7 +416,7 @@ jobs:
           fi
 
       # Evidence Plan: Package subject – sast-scan (Checkmarx)
-      - name: Prepare SAST evidence template (sast-scan)
+      - name: "[Evidence] Prepare SAST template"
         run: |
           set -euo pipefail
           echo "📄 Preparing SAST evidence template"
@@ -449,7 +450,7 @@ jobs:
           * **Scan Date (UTC)**: `${NOW_TS}`
           EOF
 
-      - name: Populate SAST evidence and attach (sast-scan)
+      - name: "[Evidence] Attach SAST"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
@@ -486,7 +487,7 @@ jobs:
             echo "⚠️ SAST evidence attachment failed"
           fi
 
-      - name: Publish Build Info
+      - name: "[Build Info] Publish"
         env:
           JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
@@ -502,7 +503,7 @@ jobs:
           fi
 
       # Evidence Plan: Build subject – code-quality (SonarQube)
-      - name: Prepare Sonar quality gate template (code-quality)
+      - name: "[Evidence] Prepare quality gate"
         run: |
           set -euo pipefail
           echo "📄 Preparing quality gate template"
@@ -522,7 +523,7 @@ jobs:
           * **Checked At (UTC)**: `${NOW_TS}`
           EOF
 
-      - name: Populate quality gate template and attach (code-quality)
+      - name: "[Evidence] Attach quality gate"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
@@ -556,7 +557,7 @@ jobs:
           fi
 
       # Evidence Plan: Build subject – license-compliance (FOSSA)
-      - name: Prepare FOSSA license compliance template (license-compliance)
+      - name: "[Evidence] Prepare license template"
         run: |
           set -euo pipefail
           echo "📄 Preparing license compliance template"
@@ -576,7 +577,7 @@ jobs:
           * **Checked At (UTC)**: `${NOW_TS}`
           EOF
 
-      - name: Populate license template and attach (license-compliance)
+      - name: "[Evidence] Attach license compliance"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
@@ -609,7 +610,7 @@ jobs:
             echo "⚠️ License compliance evidence attachment failed"
           fi
 
-      - name: Export evidence statuses as job outputs
+      - name: "[Evidence] Export statuses"
         id: export-status-outputs
         run: |
           echo "docker_build_push_status=${DOCKER_BUILD_PUSH_STATUS:-UNKNOWN}" >> $GITHUB_OUTPUT
@@ -630,10 +631,10 @@ jobs:
       JFROG_CLI_SIGNING_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
 
     steps:
-      - name: Checkout
+      - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
-      - name: Setup JFrog CLI
+      - name: "[Setup] JFrog CLI"
         uses: jfrog/setup-jfrog-cli@v4
         env:
           JF_URL: ${{ vars.JFROG_URL }}
@@ -648,12 +649,12 @@ jobs:
           disable-auto-evidence-collection: false
           oidc-audience: ${{ vars.JFROG_URL }}
 
-      - name: Configure JFrog CLI
+      - name: "[Setup] JFrog config"
         run: |
           jf c add bookverse-admin --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}"
           jf c use bookverse-admin
           jf c show
-      - name: Set AppTrust variables and determine version
+      - name: "[Setup] AppTrust variables"
         run: |
           SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
           APP_VERSION=${{ needs.build-test-publish.outputs.app_version }}
@@ -701,7 +702,7 @@ jobs:
           echo "   🏷️ Version: $APP_VERSION"
           echo "   🔨 Build: $SERVICE_NAME#$IMAGE_TAG"
 
-      - name: Debug build info contents
+      - name: "[Diag] Build Info contents"
         run: |
           set -euo pipefail
           echo "🔎 Fetching build info to confirm artifacts are present"
@@ -709,7 +710,7 @@ jobs:
           echo "GET $URL"
           curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$URL" | jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})'
 
-      - name: Create application version
+      - name: "[Release] Create application version"
         run: |
           echo "🚀 Creating AppTrust application version: $APP_VERSION"
           
@@ -823,7 +824,7 @@ jobs:
           echo "📦 Packages will be automatically bound from build sources"
 
       # Evidence Plan: App UNASSIGNED – slsa-provenance and jira-tickets (gate to DEV)
-      - name: Prepare UNASSIGNED evidence templates (SLSA, Jira)
+      - name: "[Evidence] Prepare UNASSIGNED templates"
         run: |
           set -euo pipefail
           echo "📄 Preparing SLSA and Jira templates"
@@ -857,7 +858,7 @@ jobs:
           - ${T3} — ${T3_TYPE}
           EOF
 
-      - name: Populate UNASSIGNED templates and attach (SLSA, Jira)
+      - name: "[Evidence] Attach UNASSIGNED (SLSA, Jira)"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
@@ -920,7 +921,7 @@ jobs:
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}" || echo "⚠️ Jira evidence attach failed"
 
-      - name: Add build evidence
+      - name: "[Evidence] Attach Build Info"
         run: |
           echo "🛡️ Complete evidence summary for AppTrust application version"
           echo "📋 Evidence Summary:"
@@ -935,7 +936,7 @@ jobs:
           echo ""
           echo "✅ Complete evidence trail documented and attached"
 
-      - name: Generate AppTrust summary
+      - name: "[Summary] AppTrust"
         run: |
           echo "## 🚀 AppTrust Promotion Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

@@ -22,23 +22,26 @@ on:
 
 jobs:
   promote:
+    name: Promote
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
+    env:
+      DEMO_MODE: "false"
 
     # Evidence signing configuration:
     # - secrets.EVIDENCE_PRIVATE_KEY: private key material (sensitive)
     # - vars.EVIDENCE_KEY_ALIAS: non-secret alias passed to --key-alias
     steps:
-      - name: Checkout
+      - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
-      - name: Ensure DEMO_MODE default
+      - name: "[Setup] DEMO_MODE default"
         run: |
           echo "DEMO_MODE=${DEMO_MODE:-false}" >> $GITHUB_ENV
 
-      - name: Apply DEMO_MODE settings
+      - name: "[Setup] DEMO_MODE"
         if: ${{ inputs.DEMO_MODE == 'true' || env.DEMO_MODE == 'true' }}
         run: |
           echo "🔔 DEMO_MODE enabled"
@@ -48,7 +51,7 @@ jobs:
           echo "BASH_XTRACE_ENABLED=1" >> $GITHUB_ENV
           echo "LOG_LEVEL=DEBUG" >> $GITHUB_ENV
 
-      - name: Resolve application and version
+      - name: "[Resolve] App & version"
         run: |
           set -euo pipefail
           SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
@@ -81,7 +84,7 @@ jobs:
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
           echo "TARGET_STAGE=$TARGET_STAGE" >> $GITHUB_ENV
 
-      - name: Setup JFrog CLI (for evidence attachments)
+      - name: "[Setup] JFrog CLI"
         uses: jfrog/setup-jfrog-cli@v4
         env:
           JF_URL: ${{ vars.JFROG_URL }}
@@ -92,7 +95,7 @@ jobs:
           disable-job-summary: true
           oidc-audience: ${{ vars.JFROG_URL }}
 
-      - name: Initialize promotion context
+      - name: "[Setup] Promotion context"
         run: |
           set -euo pipefail
           # This step resolves lifecycle, establishes CURRENT_STAGE, and prepares
@@ -155,7 +158,7 @@ jobs:
             echo ""
           } >> "$PROMO_SUMMARY_FILE"
 
-      - name: Promote from UNASSIGNED → next
+      - name: "[Promote] UNASSIGNED → next"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
@@ -195,7 +198,7 @@ jobs:
             } >> "$PROMO_SUMMARY_FILE"
           fi
 
-      - name: Promote from DEV → next
+      - name: "[Promote] DEV → next"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
@@ -238,7 +241,7 @@ jobs:
             } >> "$PROMO_SUMMARY_FILE"
           fi
 
-      - name: Promote from QA → next
+      - name: "[Promote] QA → next"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
@@ -281,7 +284,7 @@ jobs:
             } >> "$PROMO_SUMMARY_FILE"
           fi
 
-      - name: Promote from STAGING → next
+      - name: "[Promote] STAGING → next"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
@@ -325,7 +328,7 @@ jobs:
             } >> "$PROMO_SUMMARY_FILE"
           fi
 
-      - name: Decide if STAGING evidence should attach
+      - name: "[Evidence] Decide STAGING"
         id: decide-staging
         run: |
           set -euo pipefail
@@ -337,7 +340,7 @@ jobs:
           if [[ "$CS" == *"-STAGING" || "$CS" == "STAGING" ]]; then attach="true"; fi
           echo "attach=$attach" >> $GITHUB_OUTPUT
 
-      - name: Prepare STAGING evidence templates (IaC, Pentest, Change Approval)
+      - name: "[Evidence] Prepare STAGING templates"
         if: ${{ steps.decide-staging.outputs.attach == 'true' }}
         run: |
           set -euo pipefail
@@ -392,7 +395,7 @@ jobs:
           > Managerial approval for release promotion from STAGING to PROD.
           EOF
 
-      - name: Populate STAGING templates and attach evidence
+      - name: "[Evidence] Attach STAGING"
         if: ${{ steps.decide-staging.outputs.attach == 'true' }}
         run: |
           set -euo pipefail
@@ -489,7 +492,7 @@ jobs:
             echo "- STAGING evidence: IaC=${IAC_EVIDENCE_STATUS}, Pentest=${PENTEST_EVIDENCE_STATUS}, ChangeApproval=${CHANGEAPPROVAL_EVIDENCE_STATUS}"
           } >> "$PROMO_SUMMARY_FILE"
 
-      - name: Release to PROD
+      - name: "[Release] PROD"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
@@ -531,7 +534,7 @@ jobs:
           fi
 
 
-      - name: Generate promotion summary
+      - name: "[Summary] Promotion"
         if: always()
         run: |
           set -euo pipefail

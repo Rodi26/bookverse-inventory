@@ -1,4 +1,4 @@
-name: Promotion Rollback
+name: Rollback
 
 # Documentation:
 # This workflow performs a rollback of an application version using the
@@ -37,11 +37,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      DEMO_MODE: "false"
     steps:
-      - name: Checkout
+      - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
-      - name: Apply DEMO_MODE settings
+      - name: "[Setup] DEMO_MODE"
         if: ${{ inputs.DEMO_MODE == 'true' || env.DEMO_MODE == 'true' }}
         run: |
           echo "🔔 DEMO_MODE enabled"
@@ -50,12 +52,12 @@ jobs:
           echo "HTTP_DEBUG_LEVEL=verbose" >> $GITHUB_ENV
           echo "BASH_XTRACE_ENABLED=1" >> $GITHUB_ENV
 
-      - name: Setup Python
+      - name: "[Setup] Python"
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Execute rollback
+      - name: "[Rollback] Execute"
         shell: bash
         env:
           APPTRUST_BASE_URL: ${{ vars.JFROG_URL }}/apptrust/api/v1
