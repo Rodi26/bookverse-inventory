@@ -28,6 +28,9 @@ jobs:
   build-test-publish:
     name: CI
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: read
       id-token: write
@@ -252,6 +255,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: "[Diag] Python deps"
         run: |
