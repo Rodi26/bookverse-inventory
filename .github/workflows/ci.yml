@@ -103,8 +103,8 @@ jobs:
           SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
           IMAGE_TAG=$(echo $GITHUB_SHA | head -c7)
           REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
-          IMAGE_NAME="${REGISTRY_URL}/${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-docker-internal-local/${SERVICE_NAME}:${IMAGE_TAG}"
-          DOCKER_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-docker-internal-local"
+          IMAGE_NAME="${REGISTRY_URL}/${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local/${SERVICE_NAME}:${IMAGE_TAG}"
+          DOCKER_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
 
           echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
@@ -147,7 +147,7 @@ jobs:
           fi
           # Update tags to SemVer
           IMAGE_TAG="$APP_VERSION"
-          IMAGE_NAME="${REGISTRY_URL}/${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-docker-internal-local/${SERVICE_NAME}:${IMAGE_TAG}"
+          IMAGE_NAME="${REGISTRY_URL}/${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local/${SERVICE_NAME}:${IMAGE_TAG}"
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
@@ -234,7 +234,7 @@ jobs:
           # Update image tag/name to use SemVer
           REGISTRY_URL=${REGISTRY_URL:-${{ vars.DOCKER_REGISTRY }}}
           IMAGE_TAG="$APP_VERSION"
-          IMAGE_NAME="$REGISTRY_URL/${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local/$SERVICE_NAME:$IMAGE_TAG"
+          IMAGE_NAME="$REGISTRY_URL/${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local/$SERVICE_NAME:$IMAGE_TAG"
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
@@ -244,7 +244,7 @@ jobs:
           set -euo pipefail
           JF_URL='${{ vars.JFROG_URL }}'
           TOKEN='${{ secrets.JFROG_ADMIN_TOKEN }}'
-          REPO_KEY="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-docker-internal-local"
+          REPO_KEY="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
           IMG_NAME="$SERVICE_NAME"
           URL="$JF_URL/artifactory/api/docker/$REPO_KEY/v2/$IMG_NAME/tags/list"
           RESP=$(mktemp)
@@ -428,7 +428,7 @@ jobs:
             --markdown coverage-evidence.md \
             --predicate-type "https://pytest.org/evidence/results/v1" \
             --package-name "$SERVICE_NAME" \
-            --package-repo-name "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" \
+            --package-repo-name "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local" \
             --package-version "$API_IMAGE_TAG" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
@@ -500,7 +500,7 @@ jobs:
             --markdown sast-evidence.md \
             --predicate-type "https://checkmarx.com/evidence/sast/v1.1" \
             --package-name "$SERVICE_NAME" \
-            --package-repo-name "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-docker-internal-local" \
+            --package-repo-name "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local" \
             --package-version "$API_IMAGE_TAG" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
