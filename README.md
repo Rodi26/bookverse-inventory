@@ -85,7 +85,7 @@ Perfect for demonstrating a realistic bookshop inventory system!
 
 ## Required repository secrets
 
-- `JFROG_ACCESS_TOKEN`: Access token used by CI to interact with JFrog Platform
+- `JFROG_ACCESS_TOKEN` (optional): Only needed for AppTrust REST API calls in CI (e.g., creating application versions). With OIDC configured, the workflow runs without it.
 - `EVIDENCE_PRIVATE_KEY`: Private key PEM for evidence signing (mandatory)
 
 ## Workflows
