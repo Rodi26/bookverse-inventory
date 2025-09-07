@@ -550,6 +550,8 @@ jobs:
       - name: "[Evidence] Attach quality gate"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
+          EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           set -euo pipefail
           if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi
@@ -604,6 +606,8 @@ jobs:
       - name: "[Evidence] Attach license compliance"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
+          EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           set -euo pipefail
           if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi
@@ -646,6 +650,7 @@ jobs:
 
   create-application-version:
     needs: build-test-publish
+    if: ${{ !inputs.verified_only }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -885,6 +890,8 @@ jobs:
       - name: "[Evidence] Attach UNASSIGNED (SLSA, Jira)"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
+          EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           set -euo pipefail
           if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi

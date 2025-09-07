@@ -1,0 +1,121 @@
+name: Attach Verified Evidence (latest)
+
+on:
+  workflow_dispatch:
+    inputs:
+      application_version:
+        description: 'Application version (SemVer). Leave empty to use latest.'
+        required: false
+        type: string
+
+jobs:
+  attach-verified:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve application and version
+        run: |
+          set -euo pipefail
+          SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
+          APPLICATION_KEY="bookverse-$SERVICE_NAME"
+          APP_VERSION_INPUT="${{ inputs.application_version }}"
+          APP_VERSION=""
+          if [ -n "$APP_VERSION_INPUT" ]; then
+            APP_VERSION="$APP_VERSION_INPUT"
+          else
+            echo "🔎 Fetching latest application version for $APPLICATION_KEY"
+            RESP_FILE=$(mktemp)
+            HTTP_STATUS=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
+              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" \
+              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+              -H "Accept: application/json")
+            if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
+              if LATEST_VERSION=$(jq -er '.versions[0].version // empty' "$RESP_FILE" 2>/dev/null); then
+                APP_VERSION="$LATEST_VERSION"
+              fi
+            fi
+            rm -f "$RESP_FILE"
+            if [ -z "$APP_VERSION" ]; then
+              echo "❌ Could not determine latest application version for $APPLICATION_KEY" >&2
+              exit 1
+            fi
+          fi
+          echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
+          echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
+          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
+          echo "🎯 Target application: $APPLICATION_KEY"
+          echo "🏷️ Target version: $APP_VERSION"
+
+      - name: Setup JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v4
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
+        with:
+          version: latest
+          oidc-provider-name: github-bookverse-inventory
+          disable-job-summary: true
+          oidc-audience: jfrog-github
+
+      - name: Attach verified evidence to latest version
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
+          EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          KEY_ARGS=()
+          ALIAS="${EVIDENCE_KEY_ALIAS:-${EVIDENCE_KEY_ALIAS_VAR:-}}"
+          if [[ -n "${EVIDENCE_PRIVATE_KEY:-}" ]]; then
+            KEY_ARGS+=(--key "$EVIDENCE_PRIVATE_KEY")
+            if [[ -n "$ALIAS" ]]; then KEY_ARGS+=(--key-alias "$ALIAS"); fi
+          fi
+
+          cat > verified.json <<JSON
+          {
+            "verification": {
+              "status": "verified",
+              "verifiedAt": "${NOW_TS}",
+              "note": "Manual verification for demo purposes"
+            }
+          }
+          JSON
+
+          cat > verified.md <<MD
+          # ✅ Verification Evidence
+
+          > Status: verified  
+          > Verified At: ${NOW_TS}
+
+          Minimal verification evidence attached to the latest application version for demonstration.
+          MD
+
+          echo "🔐 Signing args: ${KEY_ARGS[*]:-<none>}"
+          set +e
+          jf evd create-evidence \
+            --predicate verified.json \
+            --markdown verified.md \
+            --predicate-type "https://bookverse.demo/evidence/verification/v1" \
+            --release-bundle "$APPLICATION_KEY" \
+            --release-bundle-version "$APP_VERSION" \
+            --project "${{ vars.PROJECT_KEY }}" \
+            "${KEY_ARGS[@]}"
+          RC=$?
+          set -e
+          if [[ $RC -eq 0 ]]; then
+            echo "✅ Verified evidence attached to $APPLICATION_KEY@$APP_VERSION"
+            echo "   Predicate type: https://bookverse.demo/evidence/verification/v1"
+            echo "   Predicate file: verified.json"
+            echo "   Markdown file: verified.md"
+          else
+            echo "❌ Verified evidence attachment failed for $APPLICATION_KEY@$APP_VERSION (exit $RC)" >&2
+            exit $RC
+          fi
+
+
