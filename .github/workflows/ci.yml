@@ -144,10 +144,10 @@ jobs:
             APP_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
           else
             echo "🆕 No existing versions found, starting fresh"
-            # Generate initial version between 1.0.0 to 2.5.9
-            MAJOR=1
-            MINOR=$((RANDOM % 6))  # 0-5
-            PATCH=$((RANDOM % 10)) # 0-9
+            # Generate initial random SemVer: major 1-5, minor 1-50, patch 1-50
+            MAJOR=$(( (RANDOM % 5) + 1 ))
+            MINOR=$(( (RANDOM % 50) + 1 ))
+            PATCH=$(( (RANDOM % 50) + 1 ))
             APP_VERSION="$MAJOR.$MINOR.$PATCH"
             echo "🎯 Generated initial version: $APP_VERSION"
           fi
@@ -233,10 +233,10 @@ jobs:
             echo "⬆️ Latest=$LATEST_VERSION → Next=$APP_VERSION"
           else
             echo "🆕 No existing versions found, starting fresh"
-            # Generate initial version between 1.0.0 to 2.5.9
-            MAJOR=1
-            MINOR=$((RANDOM % 6))  # 0-5
-            PATCH=$((RANDOM % 10)) # 0-9
+            # Generate initial random SemVer: major 1-5, minor 1-50, patch 1-50
+            MAJOR=$(( (RANDOM % 5) + 1 ))
+            MINOR=$(( (RANDOM % 50) + 1 ))
+            PATCH=$(( (RANDOM % 50) + 1 ))
             APP_VERSION="$MAJOR.$MINOR.$PATCH"
             echo "🎯 Generated initial version: $APP_VERSION"
           fi
@@ -865,7 +865,26 @@ jobs:
             exit 1
           fi
           
-          echo "✅ Application version created: $APPLICATION_KEY@$APP_VERSION"
+          # Robust validation: fetch content and require status == COMPLETED
+          CONTENT_FILE=$(mktemp)
+          CONTENT_STATUS=$(curl -sS -L -o "$CONTENT_FILE" -w "%{http_code}" \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+            -H "Accept: application/json")
+          if [[ "$CONTENT_STATUS" != "200" ]]; then
+            echo "❌ Version content endpoint returned HTTP $CONTENT_STATUS for $APPLICATION_KEY@$APP_VERSION" >&2
+            echo "📨 Response Body:"; cat "$CONTENT_FILE" || true; echo
+            rm -f "$CONTENT_FILE"
+            exit 1
+          fi
+          VERSION_STATE=$(jq -r '.status // empty' "$CONTENT_FILE" 2>/dev/null || echo "")
+          echo "📨 Version Content:"; cat "$CONTENT_FILE" || true; echo
+          rm -f "$CONTENT_FILE"
+          if [[ "$VERSION_STATE" != "COMPLETED" ]]; then
+            echo "❌ Application version not in COMPLETED state (status='$VERSION_STATE') for $APPLICATION_KEY@$APP_VERSION" >&2
+            exit 1
+          fi
+          echo "✅ Application version created and validated (COMPLETED): $APPLICATION_KEY@$APP_VERSION"
           echo "📦 Packages will be automatically bound from build sources"
 
       # Evidence Plan: App UNASSIGNED – slsa-provenance and jira-tickets (gate to DEV)
