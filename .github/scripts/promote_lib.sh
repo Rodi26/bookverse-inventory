@@ -81,16 +81,13 @@ display_stage_for() {
 fetch_summary() {
   local body
   body=$(mktemp)
-  local code
-  code=$(curl -sS -L -o "$body" -w "%{http_code}" \
-    "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/content" \
-    -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN}" \
-    -H "Accept: application/json" || echo 000)
-  if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
+  if jf curl -sS -L \
+    "/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/content" \
+    -H "Accept: application/json" > "$body"; then
     CURRENT_STAGE=$(jq -r '.current_stage // empty' "$body" 2>/dev/null || echo "")
     RELEASE_STATUS=$(jq -r '.release_status // empty' "$body" 2>/dev/null || echo "")
   else
-    echo "❌ Failed to fetch version summary (HTTP $code)" >&2
+    echo "❌ Failed to fetch version summary" >&2
     print_request_debug "GET" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/content"
     cat "$body" || true
     rm -f "$body"
@@ -107,35 +104,38 @@ fetch_summary() {
 # upon errors and for interpreting success/failure semantics.
 apptrust_post() {
   local path="${1:-}"; local data="${2:-}"; local out_file="${3:-}"
-  local status
-  status=$(curl -sS -L -o "$out_file" -w "%{http_code}" -X POST \
-    "${JFROG_URL}${path}" \
-    -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN}" \
+  if jf curl -sS -L -X POST \
+    "$path" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
-    -d "$data")
-  echo "$status"
+    -d "$data" > "$out_file"; then
+    return 0
+  else
+    return 1
+  fi
 }
 
 # Call the AppTrust Promote API to move the version to a non-final stage
 promote_to_stage() {
   local target_stage_display="${1:-}"
-  local resp_body http_status
+  local resp_body
   resp_body=$(mktemp)
   local api_stage
   api_stage=$(api_stage_for "$target_stage_display")
   echo "🚀 Promoting to ${target_stage_display} via AppTrust"
-  http_status=$(apptrust_post \
+  if apptrust_post \
     "/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/promote?async=false" \
     "{\"target_stage\": \"${api_stage}\", \"promotion_type\": \"move\"}" \
-    "$resp_body")
-  echo "HTTP $http_status"; cat "$resp_body" || true; echo
-  rm -f "$resp_body"
-  if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
-    echo "❌ Promotion to ${target_stage_display} failed (HTTP $http_status)" >&2
+    "$resp_body"; then
+    echo "HTTP OK"; cat "$resp_body" || true; echo
+  else
+    echo "❌ Promotion to ${target_stage_display} failed" >&2
     print_request_debug "POST" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/promote?async=false" "{\"target_stage\": \"${api_stage}\", \"promotion_type\": \"move\"}"
+    cat "$resp_body" || true; echo
+    rm -f "$resp_body"
     return 1
   fi
+  rm -f "$resp_body"
   PROMOTED_STAGES="${PROMOTED_STAGES:-}${PROMOTED_STAGES:+ }${target_stage_display}"
   echo "PROMOTED_STAGES=${PROMOTED_STAGES}" >> "$GITHUB_ENV"
   fetch_summary
@@ -153,7 +153,7 @@ promote_to_stage() {
 # - Otherwise, infer repository keys from APPLICATION_KEY and PROJECT_KEY.
 #   These should point to release-local repositories attached to PROD.
 release_version() {
-  local resp_body http_status
+  local resp_body
   resp_body=$(mktemp)
   echo "🚀 Releasing to ${FINAL_STAGE} via AppTrust Release API"
   # Build included repositories list if provided or infer from APPLICATION_KEY and PROJECT_KEY
@@ -170,15 +170,14 @@ release_version() {
     repo_python="${PROJECT_KEY}-${service_name}-internal-python-release-local"
     payload=$(printf '{"promotion_type":"move","included_repository_keys":["%s","%s"]}' "$repo_docker" "$repo_python")
   fi
-  http_status=$(curl -sS -L -o "$resp_body" -w "%{http_code}" -X POST \
-    "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" \
-    -H "Authorization: Bearer ${JFROG_ADMIN_TOKEN}" \
+  if jf curl -sS -L -X POST \
+    "/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
-    -d "$payload")
-  echo "HTTP $http_status"; cat "$resp_body" || true; echo
-  if [[ "$http_status" -lt 200 || "$http_status" -ge 300 ]]; then
-    echo "❌ Release to ${FINAL_STAGE} failed (HTTP $http_status)" >&2
+    -d "$payload" > "$resp_body"; then
+    echo "HTTP OK"; cat "$resp_body" || true; echo
+  else
+    echo "❌ Release to ${FINAL_STAGE} failed" >&2
     print_request_debug "POST" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" "{\"promotion_type\":\"move\"}"
     rm -f "$resp_body"
     return 1
