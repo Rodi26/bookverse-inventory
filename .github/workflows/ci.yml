@@ -794,7 +794,17 @@ jobs:
           echo "🔎 Fetching build info to confirm artifacts are present"
           URL="/api/build/$BUILD_NAME/$BUILD_NUMBER?project=${{ vars.PROJECT_KEY }}"
           echo "GET $URL"
-          jf curl -H "Accept: application/json" "$URL" | jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})'
+          # Fetch via jf curl with project header; don't fail job on diagnostics
+          RESP_FILE=$(mktemp)
+          CODE=$(jf curl -sS -L -H "Accept: application/json" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" "$URL" -o "$RESP_FILE" -w "%{http_code}" || echo 000)
+          echo "HTTP $CODE"
+          if [[ "$CODE" -ge 200 && "$CODE" -lt 300 ]] && jq -e . >/dev/null 2>&1 < "$RESP_FILE"; then
+            jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})' "$RESP_FILE" || true
+          else
+            echo "⚠️ Build info fetch returned non-JSON or HTTP error; body follows:" >&2
+            head -c 500 "$RESP_FILE" || true; echo
+          fi
+          rm -f "$RESP_FILE"
 
       - name: "[Release] Create application version"
         run: |

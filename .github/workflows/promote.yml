@@ -570,7 +570,7 @@ jobs:
           APP_KEY="$APPLICATION_KEY"
           VER="$APP_VERSION"
           BASE="/apptrust/api/v1"
-          RESP=$(jf curl -sS -L -H "Accept: application/json" "$BASE/applications/$APP_KEY/versions?limit=1000&order_by=created&order_asc=false" || true)
+          RESP=$(jf curl -sS -L -H "Accept: application/json" "$BASE/applications/$APP_KEY/versions?limit=1000" || true)
           if [[ "$code" -lt 200 || "$code" -ge 300 ]]; then
             echo "❌ Failed to list versions (HTTP $code)" >&2; cat "$RESP" || true; exit 1
           fi
