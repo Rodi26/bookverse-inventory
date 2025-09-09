@@ -80,31 +80,6 @@ jobs:
               fi ;;
           esac
 
-      - name: "[Info] Manual trigger"
-        run: |
-      - name: "[Setup] JFrog CLI"
-        # Temporary workaround: using forked action until upstream fix
-        # uses: jfrog/setup-jfrog-cli@v4
-        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
-        env:
-          JF_URL: ${{ vars.JFROG_URL }}
-          JF_PROJECT: ${{ vars.PROJECT_KEY }}
-          JFROG_CLI_BUILD_NAME: ${{ steps.set-build-info.outputs.build_name }}
-          JFROG_CLI_BUILD_NUMBER: ${{ steps.set-build-info.outputs.build_number }}
-        with:
-          version: latest
-          oidc-provider-name: bookverse-inventory-github
-          disable-job-summary: false
-          disable-auto-build-publish: true
-          disable-auto-evidence-collection: false
-          oidc-audience: ${{ vars.JFROG_URL }}
-
-          echo "🚀 Manual CI trigger initiated"
-          echo "📝 Reason: ${{ inputs.reason || 'Manual testing' }}"
-          echo "🎛️ DEMO_MODE: ${{ inputs.DEMO_MODE || env.DEMO_MODE || 'false' }}"
-          echo "👤 Triggered by: ${{ github.actor }}"
-          echo "🕐 Timestamp: $(date -u)"
-
       - name: "[Setup] Build Info"
         id: set-build-info
         run: |
@@ -114,7 +89,26 @@ jobs:
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
           echo "build_name=$BUILD_NAME" >> $GITHUB_OUTPUT
           echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
-          
+
+      - name: "[Info] Manual trigger"
+        run: |
+          echo "🚀 Manual CI trigger initiated"
+          echo "📝 Reason: ${{ inputs.reason }}"
+          echo "🎛️ DEMO_MODE: ${{ inputs.DEMO_MODE }}"
+          echo "👤 Triggered by: ${{ github.actor }}"
+          echo "🕐 Timestamp: $(date -u)"
+      - name: "[Setup] JFrog CLI"
+        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        with:
+          version: latest
+          oidc-provider-name: bookverse-inventory-github
+          oidc-audience: ${{ vars.JFROG_URL }}
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
+          JFROG_CLI_BUILD_NAME: ${{ steps.set-build-info.outputs.build_name }}
+          JFROG_CLI_BUILD_NUMBER: ${{ steps.set-build-info.outputs.build_number }}
+
       - name: "[Setup] Build variables"
         run: |
           SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
@@ -267,21 +261,16 @@ jobs:
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
 
       - name: "[Setup] JFrog CLI"
-        # Temporary workaround: using forked action until upstream fix
-        # uses: jfrog/setup-jfrog-cli@v4
         uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        with:
+          version: latest
+          oidc-provider-name: bookverse-inventory-github
+          oidc-audience: ${{ vars.JFROG_URL }}
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
           JFROG_CLI_BUILD_NAME: ${{ steps.set-build-info.outputs.build_name }}
           JFROG_CLI_BUILD_NUMBER: ${{ steps.set-build-info.outputs.build_number }}
-        with:
-          version: latest
-          oidc-provider-name: bookverse-inventory-github
-          disable-job-summary: false
-          disable-auto-build-publish: true
-          disable-auto-evidence-collection: false
-          oidc-audience: ${{ vars.JFROG_URL }}
       - name: "[Setup] Python"
         uses: actions/setup-python@v5
         with:
@@ -664,21 +653,16 @@ jobs:
         uses: actions/checkout@v4
 
       - name: "[Setup] JFrog CLI"
-        # Temporary workaround: using forked action until upstream fix
-        # uses: jfrog/setup-jfrog-cli@v4
         uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        with:
+          version: latest
+          oidc-provider-name: bookverse-inventory-github
+          oidc-audience: ${{ vars.JFROG_URL }}
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
           JFROG_CLI_BUILD_NAME: ${{ github.event.repository.name }}_${{ github.workflow }}_${{ github.job }}
           JFROG_CLI_BUILD_NUMBER: ${{ github.run_number }}
-        with:
-          version: latest
-          oidc-provider-name: bookverse-inventory-github
-          disable-job-summary: false
-          disable-auto-build-publish: true
-          disable-auto-evidence-collection: false
-          oidc-audience: ${{ vars.JFROG_URL }}
 
       - name: "[Setup] JFrog config"
         run: |
