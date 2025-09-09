@@ -14,6 +14,7 @@ Demo-ready FastAPI microservice for the BookVerse platform, showcasing JFrog App
 ## Quick Start
 
 ### Local Development
+
 ```bash
 # Install dependencies
 pip install -r requirements.txt
@@ -26,12 +27,14 @@ python -m pytest tests/ -v
 ```
 
 ### Docker
+
 ```bash
 docker build -t bookverse-inventory .
 docker run -p 8000:8000 bookverse-inventory
 ```
 
 ### Python Package
+
 ```bash
 # Build package
 python -m build
@@ -67,6 +70,7 @@ For the non-JFrog evidence plan and gates, see: `../bookverse-demo-init/docs/EVI
 ## Demo Data
 
 The service includes 20 professionally curated books with:
+
 - Real cover images from Goodreads
 - Proper metadata (authors, genres, descriptions)
 - Realistic inventory levels (some with low stock)
@@ -85,8 +89,12 @@ Perfect for demonstrating a realistic bookshop inventory system!
 
 ## Required repository secrets
 
-- `JFROG_ACCESS_TOKEN` (optional): Only needed for AppTrust REST API calls in CI (e.g., creating application versions). With OIDC configured, the workflow runs without it.
 - `EVIDENCE_PRIVATE_KEY`: Private key PEM for evidence signing (mandatory)
+
+Secrets intentionally removed:
+
+- `JFROG_ADMIN_TOKEN`: Not required in this repo. Admin operations are centralized in `bookverse-demo-init`.
+- `JFROG_ACCESS_TOKEN`: Not required for CI. Workflows authenticate to JFrog using OIDC with JFrog CLI.
 
 ### Mandatory OIDC application binding (.jfrog/config.yml)
 
@@ -108,4 +116,24 @@ application:
 
 - [`ci.yml`](.github/workflows/ci.yml) — CI: tests, package build, Docker build, publish artifacts/build-info, AppTrust version and evidence.
 - [`promote.yml`](.github/workflows/promote.yml) — Promote the inventory app version through stages with evidence.
-- [`promotion-rollback.yml`](.github/workflows/promotion-rollback.yml) — Roll back a promoted inventory application version (demo utility).
+- [`promotion-rollback.yml`](.github/workflows/promotion-rollback.yml) — Roll back a promoted inventory application version (demo utility). Uses JFrog CLI OIDC (`jf curl`) and does not require long‑lived tokens.
+
+### OIDC-based rollback (no tokens)
+
+The rollback utility `scripts/apptrust_rollback.py` supports OIDC via JFrog CLI:
+
+```bash
+# In GitHub Actions, OIDC is configured via jfrog/setup-jfrog-cli and server context,
+# so no secrets are needed.
+
+# Local preview (requires jf on PATH and configured URL; no token needed):
+jf c add --interactive=false --url "$JFROG_URL" --access-token ""
+python scripts/apptrust_rollback.py --app bookverse-inventory --version 1.2.3
+
+# Fallback for local/manual testing (token-based):
+python scripts/apptrust_rollback.py \
+  --app bookverse-inventory \
+  --version 1.2.3 \
+  --base-url "$APPTRUST_BASE_URL" \
+  --token "$APPTRUST_ACCESS_TOKEN"
+```

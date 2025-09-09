@@ -224,7 +224,7 @@ tests/fixtures/
 ### 🔄 Phase 3: Demo Readiness (Days 7-8)
 
 #### Task 3.1: CI/CD Integration
-**Goal**: Complete JFrog AppTrust integration for demo
+**Goal**: Complete JFrog AppTrust integration for demo (OIDC-only)
 
 **Features:**
 - ✅ GitHub Actions workflow optimization
@@ -242,6 +242,7 @@ tests/fixtures/
 - ✅ API integration examples for other services
 
 #### Task 3.3: Documentation & Polish
+
 **Goal**: Complete documentation for demo execution
 
 **Features:**
@@ -253,12 +254,14 @@ tests/fixtures/
 ## 📊 Success Criteria & Validation
 
 ### Technical Validation
+
 - ✅ **Test Coverage**: >80% code coverage with good test suite
 - ✅ **Performance**: <200ms response time for basic queries
 - ✅ **Reliability**: Stable operations during demo
 - ✅ **Functionality**: All core features working properly
 
 ### Demo Validation
+
 - ✅ **CI/CD Pipeline**: Complete build → test → SBOM → sign → publish cycle
 - ✅ **AppTrust Integration**: Full artifact lifecycle through DEV → QA → STAGING → PROD
 - ✅ **Traceability**: Basic audit trail from code commit to deployment
@@ -270,12 +273,14 @@ tests/fixtures/
 ## 🚀 Getting Started
 
 ### Immediate Next Steps
+
 1. **Review Simplified Design**: Understand the streamlined architecture focused on demo value
 2. **Set Up Development Environment**: Local Docker container for PostgreSQL
 3. **Begin Phase 1**: Start with basic project structure and database models
 4. **Focus on CI/CD Integration**: Prioritize JFrog AppTrust demonstration capabilities
 
 ### Development Environment Setup
+
 ```bash
 # Current directory: bookverse-inventory/
 cd /Users/yonatanp/playground/AppTrust-BookVerse/bookverse-demo/bookverse-inventory
@@ -291,6 +296,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### Key Simplifications for Demo Success
+
 - **8-day timeline** instead of 12 days
 - **No complex features** like search, reservations, or advanced caching
 - **Simple data models** focused on core book and inventory operations
@@ -299,3 +305,30 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 - **Online shop only** - no multiple locations or complex logistics
 
 This simplified plan provides a clear, executable roadmap for building a demo-ready inventory service that perfectly demonstrates JFrog AppTrust capabilities while remaining achievable and maintainable!
+
+---
+
+## 🔐 OIDC-Only Authentication Plan (Tokenless Services)
+
+### Goals
+
+- Remove `JFROG_ADMIN_TOKEN` and `JFROG_ACCESS_TOKEN` from this repository.
+- Use GitHub Actions OIDC + JFrog CLI for all CI authentication.
+- Keep admin/bootstrap operations centralized in `bookverse-demo-init`.
+
+### Changes
+
+- Rollback utility supports OIDC via `jf curl` and no longer requires tokens.
+- README updated: secrets list excludes JFROG tokens; documents OIDC rollback.
+- Future workflows should login via OIDC using `jfrog/setup-jfrog-cli` and configured server context.
+
+### Rollback Flow (OIDC)
+
+1. CI obtains an OIDC token automatically via `jfrog/setup-jfrog-cli`.
+2. `scripts/apptrust_rollback.py` uses JFrog CLI (`jf curl`) to call AppTrust APIs without a bearer token.
+3. No long-lived tokens exist in this repo or its Actions secrets.
+
+### Fallback for Local Testing
+
+- Developers may pass `--token` and `--base-url` to the rollback script when working outside CI.
+- This does not reintroduce tokens into the repository or CI; it's a local convenience only.

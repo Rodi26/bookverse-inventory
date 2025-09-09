@@ -13,11 +13,17 @@ Behavior:
   required "from_stage" in the rollback request body.
 - Fails fast if the version is UNASSIGNED (rollback not applicable).
 
+Authentication (no long-lived tokens required in CI):
+- Preferred: Use JFrog CLI with OIDC (GitHub Actions OIDC). When configured,
+  this script will call `jf curl` to perform authenticated REST calls without
+  needing a `JFROG_ACCESS_TOKEN`.
+- Fallback (local/manual): Provide `--token` or env `APPTRUST_ACCESS_TOKEN`.
+
 Inputs:
 - --app: application key (e.g., bookverse-inventory)
 - --version: semantic version to rollback (e.g., 1.2.3)
-- --base-url: base API URL (env APPTRUST_BASE_URL)
-- --token: bearer token (env APPTRUST_ACCESS_TOKEN)
+- --base-url: base API URL (env APPTRUST_BASE_URL) — required only when using --token
+- --token: bearer token (env APPTRUST_ACCESS_TOKEN) — optional; omit in CI with OIDC
 
 Notes:
 - This script does not print secrets.
@@ -38,6 +44,8 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
+import shutil
+import subprocess
 
 SEMVER_RE = re.compile(
     r"^\s*v?(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)"
@@ -159,6 +167,49 @@ class AppTrustClient:
         path = f"/applications/{urllib.parse.quote(app_key)}/versions/{urllib.parse.quote(version)}/rollback"
         return self._request("POST", path, body={"from_stage": from_stage})
 
+
+class AppTrustClientCLI:
+    """AppTrust client backed by JFrog CLI (OIDC-enabled).
+
+    Requires `jf` on PATH and a configured server context (e.g., via
+    `jf c add --interactive=false --url "$JFROG_URL" --access-token ""`).
+    """
+
+    def __init__(self, timeout_seconds: int = 30) -> None:
+        self.timeout_seconds = timeout_seconds
+
+    @staticmethod
+    def _ensure_cli_available() -> None:
+        if shutil.which("jf") is None:
+            raise RuntimeError("JFrog CLI (jf) not found on PATH. Either install/configure it for OIDC or provide --token.")
+
+    @staticmethod
+    def _run_jf(method: str, path: str, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        AppTrustClientCLI._ensure_cli_available()
+        args: List[str] = ["jf", "curl", "-X", method.upper(), path]
+        if body is not None:
+            args += ["-H", "Content-Type: application/json", "-d", json.dumps(body)]
+        try:
+            proc = subprocess.run(args, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            # Surface stderr while keeping output concise
+            raise RuntimeError(f"jf curl failed: {e.stderr.strip() or e}")
+        raw = (proc.stdout or "").strip()
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {"raw": raw}
+
+    def get_version_content(self, app_key: str, version: str) -> Dict[str, Any]:
+        path = f"/apptrust/api/v1/applications/{urllib.parse.quote(app_key)}/versions/{urllib.parse.quote(version)}/content"
+        return self._run_jf("GET", path)
+
+    def rollback_application_version(self, app_key: str, version: str, from_stage: str) -> Dict[str, Any]:
+        path = f"/apptrust/api/v1/applications/{urllib.parse.quote(app_key)}/versions/{urllib.parse.quote(version)}/rollback"
+        return self._run_jf("POST", path, body={"from_stage": from_stage})
+
 TRUSTED = "TRUSTED_RELEASE"
 RELEASED = "RELEASED"
 QUARANTINE_TAG = "quarantine"
@@ -241,18 +292,23 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="AppTrust PROD rollback utility")
     parser.add_argument("--app", required=True, help="Application key")
     parser.add_argument("--version", required=True, help="Target version to rollback (SemVer)")
-    parser.add_argument("--base-url", default=_env("APPTRUST_BASE_URL"), help="Base API URL, e.g. https://<host>/apptrust/api/v1 (env: APPTRUST_BASE_URL)")
-    parser.add_argument("--token", default=_env("APPTRUST_ACCESS_TOKEN"), help="Access token (env: APPTRUST_ACCESS_TOKEN)")
+    parser.add_argument("--base-url", default=_env("APPTRUST_BASE_URL"), help="Base API URL, e.g. https://<host>/apptrust/api/v1 (env: APPTRUST_BASE_URL). Required with --token; ignored with OIDC.")
+    parser.add_argument("--token", default=_env("APPTRUST_ACCESS_TOKEN"), help="Access token (env: APPTRUST_ACCESS_TOKEN). Optional if JFrog CLI OIDC is configured.")
     args = parser.parse_args()
 
-    if not args.base_url:
-        print("Missing --base-url or APPTRUST_BASE_URL", file=sys.stderr)
-        return 2
-    if not args.token:
-        print("Missing --token or APPTRUST_ACCESS_TOKEN", file=sys.stderr)
-        return 2
-
-    client = AppTrustClient(args.base_url, args.token)
+    client: Any
+    if args.token:
+        if not args.base_url:
+            print("Missing --base-url or APPTRUST_BASE_URL for token-based auth", file=sys.stderr)
+            return 2
+        client = AppTrustClient(args.base_url, args.token)
+    else:
+        # OIDC via JFrog CLI
+        try:
+            client = AppTrustClientCLI()
+        except Exception as e:
+            print(f"OIDC (CLI) auth not available and no token provided: {e}", file=sys.stderr)
+            return 2
 
     try:
         start = time.time()
