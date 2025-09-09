@@ -360,12 +360,28 @@ jobs:
           echo "COVERAGE_PERCENT=$COV" >> $GITHUB_ENV
           echo "coverage_percent=$COV" >> $GITHUB_OUTPUT
 
+      - name: "[Setup] Docker login"
+        run: |
+          set -euo pipefail
+          # Use JFrog CLI to perform docker login without exposing credentials
+          SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
+          jf c use "$SERVER_ID"
+          jf docker-login "$REGISTRY_URL" --project "${{ vars.PROJECT_KEY }}"
+
       - name: "[Build] API image"
         run: |
           set -euo pipefail
           # Use JFrog CLI to authenticate pushes without requiring docker login
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID" || true
+          # Ensure project header is sent for OIDC-based commands like `jf docker`
+          export JF_PROJECT="${{ vars.PROJECT_KEY }}"
+
+          # Ensure authenticated server with admin token is available to avoid project-header OIDC issues during docker push
+          if [[ -n "${{ secrets.JFROG_ADMIN_TOKEN }}" ]]; then
+            jf c add ci-admin --url "${{ vars.JFROG_URL }}" --interactive=false --overwrite=true --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}" || true
+            jf c use ci-admin || true
+          fi
 
           # Compute per-image next SemVer tag by listing existing tags and bumping patch (align with checkout)
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
@@ -891,13 +907,11 @@ jobs:
           fi
           DEBUG_INCLUDE_PROJECT_HEADER=false print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" "$APP_VERSION_PAYLOAD"
 
-          # Create the application version with status/body capture
-          RESP_BODY=$(mktemp)
-          HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-            -H "Content-Type: application/json" \
+          # Create the application version using authenticated JFrog CLI
+          RESP=$(jf rt curl -sS -L -X POST \
+            "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+            -H "Content-Type: application/json" \
             -H "Accept: application/json" \
             -d "$APP_VERSION_PAYLOAD" || true)
           echo "📨 Response Body:"; echo "$RESP" | cat; echo
@@ -907,20 +921,17 @@ jobs:
           fi
           
           # Robust validation: fetch content and require status == COMPLETED
-          CONTENT_FILE=$(mktemp)
-          CONTENT_STATUS=$(curl -sS -L -o "$CONTENT_FILE" -w "%{http_code}" \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-            -H "Accept: application/json")
-          if [[ "$CONTENT_STATUS" != "200" ]]; then
-            echo "❌ Version content endpoint returned HTTP $CONTENT_STATUS for $APPLICATION_KEY@$APP_VERSION" >&2
-            echo "📨 Response Body:"; cat "$CONTENT_FILE" || true; echo
-            rm -f "$CONTENT_FILE"
+          CONTENT=$(jf rt curl -sS -L \
+            "/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content" \
+            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+            -H "Accept: application/json" || true)
+          if [[ -z "$CONTENT" ]] || ! echo "$CONTENT" | jq -e . >/dev/null 2>&1; then
+            echo "❌ Version content endpoint returned empty/non-JSON for $APPLICATION_KEY@$APP_VERSION" >&2
+            echo "📨 Response Body:"; echo "$CONTENT" | cat || true; echo
             exit 1
           fi
-          VERSION_STATE=$(jq -r '.status // empty' "$CONTENT_FILE" 2>/dev/null || echo "")
-          echo "📨 Version Content:"; cat "$CONTENT_FILE" || true; echo
-          rm -f "$CONTENT_FILE"
+          VERSION_STATE=$(echo "$CONTENT" | jq -r '.status // empty' 2>/dev/null || echo "")
+          echo "📨 Version Content:"; echo "$CONTENT" | cat || true; echo
           if [[ "$VERSION_STATE" != "COMPLETED" ]]; then
             echo "❌ Application version not in COMPLETED state (status='$VERSION_STATE') for $APPLICATION_KEY@$APP_VERSION" >&2
             exit 1
