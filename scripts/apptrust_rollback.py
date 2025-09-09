@@ -13,17 +13,14 @@ Behavior:
   required "from_stage" in the rollback request body.
 - Fails fast if the version is UNASSIGNED (rollback not applicable).
 
-Authentication (no long-lived tokens required in CI):
-- Preferred: Use JFrog CLI with OIDC (GitHub Actions OIDC). When configured,
-  this script will call `jf curl` to perform authenticated REST calls without
-  needing a `JFROG_ACCESS_TOKEN`.
-- Fallback (local/manual): Provide `--token` or env `APPTRUST_ACCESS_TOKEN`.
+Authentication:
+- Uses JFrog CLI with OIDC. Requires `jf` on PATH and a configured server context
+  (e.g., `jf c add --interactive=false --url "$JFROG_URL" --access-token ""`).
+- No token-based mode is supported.
 
 Inputs:
 - --app: application key (e.g., bookverse-inventory)
 - --version: semantic version to rollback (e.g., 1.2.3)
-- --base-url: base API URL (env APPTRUST_BASE_URL) — required only when using --token
-- --token: bearer token (env APPTRUST_ACCESS_TOKEN) — optional; omit in CI with OIDC
 
 Notes:
 - This script does not print secrets.
@@ -292,23 +289,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="AppTrust PROD rollback utility")
     parser.add_argument("--app", required=True, help="Application key")
     parser.add_argument("--version", required=True, help="Target version to rollback (SemVer)")
-    parser.add_argument("--base-url", default=_env("APPTRUST_BASE_URL"), help="Base API URL, e.g. https://<host>/apptrust/api/v1 (env: APPTRUST_BASE_URL). Required with --token; ignored with OIDC.")
-    parser.add_argument("--token", default=_env("APPTRUST_ACCESS_TOKEN"), help="Access token (env: APPTRUST_ACCESS_TOKEN). Optional if JFrog CLI OIDC is configured.")
+    # OIDC-only path: no base-url or token arguments
     args = parser.parse_args()
 
-    client: Any
-    if args.token:
-        if not args.base_url:
-            print("Missing --base-url or APPTRUST_BASE_URL for token-based auth", file=sys.stderr)
-            return 2
-        client = AppTrustClient(args.base_url, args.token)
-    else:
-        # OIDC via JFrog CLI
-        try:
-            client = AppTrustClientCLI()
-        except Exception as e:
-            print(f"OIDC (CLI) auth not available and no token provided: {e}", file=sys.stderr)
-            return 2
+    # OIDC via JFrog CLI
+    try:
+        client = AppTrustClientCLI()
+    except Exception as e:
+        print(f"OIDC (CLI) auth not available: {e}", file=sys.stderr)
+        return 2
 
     try:
         start = time.time()

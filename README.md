@@ -91,11 +91,6 @@ Perfect for demonstrating a realistic bookshop inventory system!
 
 - `EVIDENCE_PRIVATE_KEY`: Private key PEM for evidence signing (mandatory)
 
-Secrets intentionally removed:
-
-- `JFROG_ADMIN_TOKEN`: Not required in this repo. Admin operations are centralized in `bookverse-demo-init`.
-- `JFROG_ACCESS_TOKEN`: Not required for CI. Workflows authenticate to JFrog using OIDC with JFrog CLI.
-
 ### Mandatory OIDC application binding (.jfrog/config.yml)
 
 This repository must include a committed, non-sensitive `.jfrog/config.yml` declaring the AppTrust application key. This is mandatory for package binding.
@@ -120,20 +115,13 @@ application:
 
 ### OIDC-based rollback (no tokens)
 
-The rollback utility `scripts/apptrust_rollback.py` supports OIDC via JFrog CLI:
+The rollback utility `scripts/apptrust_rollback.py` uses OIDC via JFrog CLI (no long‑lived tokens):
 
 ```bash
 # In GitHub Actions, OIDC is configured via jfrog/setup-jfrog-cli and server context,
 # so no secrets are needed.
 
-# Local preview (requires jf on PATH and configured URL; no token needed):
+# Local usage (requires jf on PATH and configured URL; no token needed):
 jf c add --interactive=false --url "$JFROG_URL" --access-token ""
 python scripts/apptrust_rollback.py --app bookverse-inventory --version 1.2.3
-
-# Fallback for local/manual testing (token-based):
-python scripts/apptrust_rollback.py \
-  --app bookverse-inventory \
-  --version 1.2.3 \
-  --base-url "$APPTRUST_BASE_URL" \
-  --token "$APPTRUST_ACCESS_TOKEN"
 ```

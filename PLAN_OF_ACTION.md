@@ -312,7 +312,6 @@ This simplified plan provides a clear, executable roadmap for building a demo-re
 
 ### Goals
 
-- Remove `JFROG_ADMIN_TOKEN` and `JFROG_ACCESS_TOKEN` from this repository.
 - Use GitHub Actions OIDC + JFrog CLI for all CI authentication.
 - Keep admin/bootstrap operations centralized in `bookverse-demo-init`.
 
