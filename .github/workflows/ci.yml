@@ -373,9 +373,41 @@ jobs:
           # Use JFrog CLI to authenticate pushes without requiring docker login
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID" || true
-          # Build image using modern command
+
+          # Compute per-image next SemVer tag by listing existing tags and bumping patch (align with checkout)
+          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
+          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
+          API_IMAGE_NAME="$SERVICE_NAME"
+          TAGS_URL="${{ vars.JFROG_URL }}/artifactory/api/docker/$REPO_KEY/v2/$API_IMAGE_NAME/tags/list"
+          RESP=$(mktemp)
+          code=$(curl -sS -L -o "$RESP" -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$TAGS_URL" || echo 000)
+          if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
+            LAST=$(jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)' "$RESP")
+          else
+            LAST=""
+          fi
+          if [[ -n "$LAST" ]]; then
+            IFS='.' read -r MA MI PA <<<"$LAST"; PA=$((PA+1)); API_TAG="$MA.$MI.$PA"
+          else
+            # Generate a random initial image tag (independent of APP_VERSION)
+            random_first_semver() { local Mj=$(( (RANDOM % 5) + 1 )); local Mn=$(( (RANDOM % 50) + 1 )); local Pt=$(( (RANDOM % 50) + 1 )); printf "%d.%d.%d" "$Mj" "$Mn" "$Pt"; }
+            attempt=0
+            while :; do
+              candidate=$(random_first_semver)
+              if ! jq -e --arg t "$candidate" '.tags[]? | select(. == $t)' "$RESP" >/dev/null 2>&1; then
+                API_TAG="$candidate"; break
+              fi
+              attempt=$((attempt+1))
+              if [[ $attempt -ge 10 ]]; then API_TAG="$IMAGE_TAG"; break; fi
+            done
+          fi
+          rm -f "$RESP"
+          echo "API_TAG=$API_TAG" >> $GITHUB_ENV
+          IMAGE_NAME="$REGISTRY_URL/$REPO_KEY/$API_IMAGE_NAME:$API_TAG"
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+
+          # Build image and push via Artifactory legacy docker-push (align with checkout)
           jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
-          # Push via Artifactory legacy docker-push (align with checkout)
           jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
           echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
           echo "✅ Built and pushed Docker image (with build-info)"
