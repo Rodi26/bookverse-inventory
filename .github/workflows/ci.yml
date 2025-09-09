@@ -368,7 +368,7 @@ jobs:
           # Use JFrog CLI to perform docker login without exposing credentials
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID"
-          jf docker-login "$REGISTRY_URL" --project "${{ vars.PROJECT_KEY }}"
+          jf docker login "$REGISTRY_URL"
 
       - name: "[Build] API image"
         run: |
