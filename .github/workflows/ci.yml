@@ -114,8 +114,10 @@ jobs:
           SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
           IMAGE_TAG=$(echo $GITHUB_SHA | head -c7)
           REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
-          IMAGE_NAME="${REGISTRY_URL}/${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local/${SERVICE_NAME}:${IMAGE_TAG}"
           DOCKER_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
+          IMAGE_NAME_PATH="${REGISTRY_URL}/${DOCKER_REPO}/${SERVICE_NAME}:${IMAGE_TAG}"
+          IMAGE_NAME_SUBDOMAIN="${DOCKER_REPO}.${REGISTRY_URL}/${SERVICE_NAME}:${IMAGE_TAG}"
+          IMAGE_NAME="$IMAGE_NAME_PATH"
 
           echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
@@ -123,6 +125,8 @@ jobs:
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "REGISTRY_URL=$REGISTRY_URL" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "IMAGE_NAME_PATH=$IMAGE_NAME_PATH" >> $GITHUB_ENV
+          echo "IMAGE_NAME_SUBDOMAIN=$IMAGE_NAME_SUBDOMAIN" >> $GITHUB_ENV
           echo "DOCKER_REPO=$DOCKER_REPO" >> $GITHUB_ENV
           echo "TESTS_PASSED=true" >> $GITHUB_ENV
 
@@ -155,10 +159,15 @@ jobs:
           fi
           # Update tags to SemVer
           IMAGE_TAG="$APP_VERSION"
-          IMAGE_NAME="${REGISTRY_URL}/${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local/${SERVICE_NAME}:${IMAGE_TAG}"
+          DOCKER_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
+          IMAGE_NAME_PATH="${REGISTRY_URL}/${DOCKER_REPO}/${SERVICE_NAME}:${IMAGE_TAG}"
+          IMAGE_NAME_SUBDOMAIN="${DOCKER_REPO}.${REGISTRY_URL}/${SERVICE_NAME}:${IMAGE_TAG}"
+          IMAGE_NAME="$IMAGE_NAME_PATH"
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "IMAGE_NAME_PATH=$IMAGE_NAME_PATH" >> $GITHUB_ENV
+          echo "IMAGE_NAME_SUBDOMAIN=$IMAGE_NAME_SUBDOMAIN" >> $GITHUB_ENV
 
       - name: "[Setup] Determine SemVer"
         id: set-app-version
@@ -245,7 +254,15 @@ jobs:
           REPO_KEY="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
           IMG_NAME="$SERVICE_NAME"
           RESP=$(jf curl -H "Accept: application/json" "/api/docker/$REPO_KEY/v2/$IMG_NAME/tags/list" || true)
-          next_tag=$(echo "$RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty) ')
+          # Validate that RESP is JSON before parsing with jq
+          if ! echo "$RESP" | jq -e . >/dev/null 2>&1; then
+            echo "⚠️ Non-JSON response when listing tags for $REPO_KEY/$IMG_NAME"
+            echo "Response:"
+            echo "$RESP"
+            next_tag=""
+          else
+            next_tag=$(echo "$RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty) ')
+          fi
           if [[ -n "$next_tag" ]]; then
             IFS='.' read -r ma mi pa <<<"$next_tag" || true
             pa=$((pa+1))
@@ -257,8 +274,12 @@ jobs:
             API_IMAGE_TAG="1.${base_minor}.${base_patch}"
           fi
           echo "API_IMAGE_TAG=$API_IMAGE_TAG" >> $GITHUB_ENV
-          IMAGE_NAME="$REGISTRY_URL/$REPO_KEY/$IMG_NAME:$API_IMAGE_TAG"
+          IMAGE_NAME_PATH="$REGISTRY_URL/$REPO_KEY/$IMG_NAME:$API_IMAGE_TAG"
+          IMAGE_NAME_SUBDOMAIN="$REPO_KEY.$REGISTRY_URL/$IMG_NAME:$API_IMAGE_TAG"
+          IMAGE_NAME="$IMAGE_NAME_PATH"
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "IMAGE_NAME_PATH=$IMAGE_NAME_PATH" >> $GITHUB_ENV
+          echo "IMAGE_NAME_SUBDOMAIN=$IMAGE_NAME_SUBDOMAIN" >> $GITHUB_ENV
 
       - name: "[Setup] JFrog CLI"
         uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
@@ -329,16 +350,26 @@ jobs:
       - name: "[Build] API image"
         run: |
           set -euo pipefail
+          # Disable BuildKit to produce Docker v2 schema manifests for older registries
+          export DOCKER_BUILDKIT=0
+          export BUILDKIT_PROGRESS=plain
+          export JFROG_CLI_LOG_LEVEL=DEBUG
           # Use JFrog CLI to authenticate pushes without requiring docker login
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID" || true
           # Build image using modern command
-          jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
-          # TEMP: Artifactory < 7.33.3 doesn't support 'jf docker push'.
-          # Re-enable the original push line below once Artifactory is upgraded.
-          # jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-          # Using deprecated fallback below: 'jf rt docker-push' (alias: 'jf rt dp').
-          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          jf docker build --pull -t "$IMAGE_NAME_PATH" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
+          # Try modern push first; fallback to legacy docker-push if needed
+          if jf docker push "$IMAGE_NAME_PATH" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"; then
+            :
+          else
+            echo "⚠️ jf docker push failed; falling back to legacy docker-push"
+            jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME_PATH" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          fi
+          # Optional: also push subdomain style if registry expects it
+          if ! jf docker push "$IMAGE_NAME_SUBDOMAIN" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"; then
+            echo "ℹ️ Subdomain-style push skipped or failed; continuing"
+          fi
           echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
           echo "✅ Built and pushed Docker image (with build-info)"
 
