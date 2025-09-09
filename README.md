@@ -88,6 +88,22 @@ Perfect for demonstrating a realistic bookshop inventory system!
 - `JFROG_ACCESS_TOKEN` (optional): Only needed for AppTrust REST API calls in CI (e.g., creating application versions). With OIDC configured, the workflow runs without it.
 - `EVIDENCE_PRIVATE_KEY`: Private key PEM for evidence signing (mandatory)
 
+### Mandatory OIDC application binding (.jfrog/config.yml)
+
+This repository must include a committed, non-sensitive `.jfrog/config.yml` declaring the AppTrust application key. This is mandatory for package binding.
+
+- During an OIDC-authenticated CI session, JFrog CLI reads the key so packages uploaded by the workflow are automatically bound to the correct AppTrust application.
+- Contains no secrets and must be versioned. If the key changes, commit the update.
+
+Path: `bookverse-inventory/.jfrog/config.yml`
+
+Example:
+
+```yaml
+application:
+  key: "bookverse-inventory"
+```
+
 ## Workflows
 
 - [`ci.yml`](.github/workflows/ci.yml) — CI: tests, package build, Docker build, publish artifacts/build-info, AppTrust version and evidence.
