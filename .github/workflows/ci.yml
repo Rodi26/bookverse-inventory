@@ -122,21 +122,12 @@ jobs:
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
-          RESP_FILE=$(mktemp)
-          HTTP_STATUS=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-            -H "Accept: application/json")
-          if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
-            if LATEST_VERSION=$(jq -er '.versions[0].version // empty' "$RESP_FILE" 2>/dev/null); then
-              :
-            else
-              LATEST_VERSION=""
-            fi
+          RESP=$(jf curl "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "Accept: application/json" || true)
+          if LATEST_VERSION=$(echo "$RESP" | jq -er '.versions[0].version // empty' 2>/dev/null); then
+            :
           else
             LATEST_VERSION=""
           fi
-          rm -f "$RESP_FILE"
           if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "null" ]]; then
             MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
             MINOR=$(echo "$LATEST_VERSION" | cut -d. -f2)
@@ -202,29 +193,15 @@ jobs:
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
-          RESP_FILE=$(mktemp)
-          HTTP_STATUS=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-            -H "Accept: application/json")
-          echo "🔢 Versions GET status: $HTTP_STATUS"
-          if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then
-            DEBUG_INCLUDE_PROJECT_HEADER=true PROJECT_KEY='${{ vars.PROJECT_KEY }}' print_request_debug "GET" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/"
-          fi
-          if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
-            # Attempt to parse JSON; if parsing fails, fall back
-            if LATEST_VERSION=$(jq -er '.versions[0].version // empty' "$RESP_FILE" 2>/dev/null); then
-              :
-            else
-              echo "⚠️ Non-JSON or unexpected response from versions API; falling back to 1.0.0"
-              LATEST_VERSION=""
-            fi
+          RESP=$(jf curl "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "Accept: application/json" || true)
+          echo "🔢 Versions GET via jf curl"
+          # Attempt to parse JSON; if parsing fails, fall back
+          if LATEST_VERSION=$(echo "$RESP" | jq -er '.versions[0].version // empty' 2>/dev/null); then
+            :
           else
-            PROJECT_KEY='${{ vars.PROJECT_KEY }}' print_request_debug "GET" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/"
-            echo "⚠️ Versions API returned non-2xx. Body:"; cat "$RESP_FILE" || true
+            echo "⚠️ Non-JSON or unexpected response from versions API; falling back to 1.0.0"
             LATEST_VERSION=""
           fi
-          rm -f "$RESP_FILE"
           if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "null" ]]; then
             MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
             MINOR=$(echo "$LATEST_VERSION" | cut -d. -f2)
@@ -254,17 +231,10 @@ jobs:
         run: |
           set -euo pipefail
           JF_URL='${{ vars.JFROG_URL }}'
-          TOKEN='${{ secrets.JFROG_ADMIN_TOKEN }}'
           REPO_KEY="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
           IMG_NAME="$SERVICE_NAME"
-          URL="$JF_URL/artifactory/api/docker/$REPO_KEY/v2/$IMG_NAME/tags/list"
-          RESP=$(mktemp)
-          code=$(curl -sS -L -o "$RESP" -w "%{http_code}" -H "Authorization: Bearer $TOKEN" -H "Accept: application/json" "$URL" || echo 000)
-          next_tag=""
-          if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
-            next_tag=$(jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty) ' "$RESP")
-          fi
-          rm -f "$RESP"
+          RESP=$(jf rt curl -H "Accept: application/json" "/api/docker/$REPO_KEY/v2/$IMG_NAME/tags/list" || true)
+          next_tag=$(echo "$RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty) ')
           if [[ -n "$next_tag" ]]; then
             IFS='.' read -r ma mi pa <<<"$next_tag" || true
             pa=$((pa+1))
@@ -315,8 +285,8 @@ jobs:
           python -m pip debug -v || true
           echo "🔎 Checking fastapi availability via virtual index"
           PIP_INDEX_URL="${{ vars.JFROG_URL }}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple"
-          # Avoid interactive pip; probe with authenticated curl instead
-          curl -fsSL -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" "$PIP_INDEX_URL/fastapi/" >/dev/null \
+          # Avoid interactive pip; probe with authenticated jfrog CLI instead
+          jf rt curl -XGET "/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple/fastapi/" >/dev/null 2>&1 \
             && echo "✅ fastapi index accessible via virtual repo" \
             || echo "⚠️ Unable to access $PIP_INDEX_URL/fastapi/ (check repo and permissions)"
 
@@ -695,9 +665,8 @@ jobs:
 
       - name: "[Setup] JFrog config"
         run: |
-          jf c add bookverse-admin --interactive=false --url "${{ vars.JFROG_URL }}" --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}"
-          jf c use bookverse-admin
-          jf c show
+          # Use the server configured by setup-jfrog-cli with OIDC
+          jf c show || true
       - name: "[Setup] AppTrust variables"
         run: |
           SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
@@ -714,10 +683,7 @@ jobs:
           
           if [[ -z "$APP_VERSION" || "$APP_VERSION" == "" ]]; then
             # Compute next SemVer if not provided by build job
-          LATEST_VERSION=$(curl -s \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-              -H "Content-Type: application/json" | jq -r '.versions[0].version // empty')
+          LATEST_VERSION=$(jf curl "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "Accept: application/json" | jq -r '.versions[0].version // empty')
           if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "null" ]]; then
               MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
               MINOR=$(echo "$LATEST_VERSION" | cut -d. -f2)
@@ -755,9 +721,9 @@ jobs:
         run: |
           set -euo pipefail
           echo "🔎 Fetching build info to confirm artifacts are present"
-          URL="${{ vars.JFROG_URL }}/artifactory/api/build/$BUILD_NAME/$BUILD_NUMBER?project=${{ vars.PROJECT_KEY }}"
+          URL="/api/build/$BUILD_NAME/$BUILD_NUMBER?project=${{ vars.PROJECT_KEY }}"
           echo "GET $URL"
-          curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$URL" | jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})'
+          jf rt curl -H "Accept: application/json" "$URL" | jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})'
 
       - name: "[Release] Create application version"
         run: |
@@ -855,9 +821,8 @@ jobs:
 
           # Create the application version with status/body capture
           RESP_BODY=$(mktemp)
-          HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+          HTTP_STATUS=$(jf curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
+            "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
             -d "$APP_VERSION_PAYLOAD")
@@ -871,9 +836,8 @@ jobs:
           
           # Robust validation: fetch content and require status == COMPLETED
           CONTENT_FILE=$(mktemp)
-          CONTENT_STATUS=$(curl -sS -L -o "$CONTENT_FILE" -w "%{http_code}" \
-            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
+          CONTENT_STATUS=$(jf curl -sS -L -o "$CONTENT_FILE" -w "%{http_code}" \
+            "/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content" \
             -H "Accept: application/json")
           if [[ "$CONTENT_STATUS" != "200" ]]; then
             echo "❌ Version content endpoint returned HTTP $CONTENT_STATUS for $APPLICATION_KEY@$APP_VERSION" >&2

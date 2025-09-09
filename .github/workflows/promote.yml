@@ -103,17 +103,10 @@ jobs:
             APP_VERSION="$APP_VERSION_INPUT"
           else
             echo "🔎 Fetching latest application version for $APPLICATION_KEY"
-            RESP_FILE=$(mktemp)
-            HTTP_STATUS=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
-              "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" \
-              -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
-              -H "Accept: application/json")
-            if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
-              if LATEST_VERSION=$(jq -er '.versions[0].version // empty' "$RESP_FILE" 2>/dev/null); then
-                APP_VERSION="$LATEST_VERSION"
-              fi
+            RESP=$(jf curl "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "Accept: application/json" || true)
+            if LATEST_VERSION=$(echo "$RESP" | jq -er '.versions[0].version // empty' 2>/dev/null); then
+              APP_VERSION="$LATEST_VERSION"
             fi
-            rm -f "$RESP_FILE"
             if [ -z "$APP_VERSION" ]; then
               echo "❌ Could not determine latest application version for $APPLICATION_KEY" >&2
               exit 1
@@ -146,7 +139,6 @@ jobs:
           if [[ -n "${HTTP_DEBUG_LEVEL:-}" ]]; then :; else export HTTP_DEBUG_LEVEL=basic; fi
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-          export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
           source .github/scripts/promote_lib.sh
           echo "📦 Application: $APPLICATION_KEY"
           echo "🏷️ Version: $APP_VERSION"
@@ -154,7 +146,7 @@ jobs:
           echo "CURRENT_STAGE_BEFORE=${CURRENT_STAGE:-UNASSIGNED}" >> $GITHUB_ENV
           echo "RELEASE_STATUS_BEFORE=${RELEASE_STATUS:-UNKNOWN}" >> $GITHUB_ENV
           LC_FILE=$(mktemp)
-          CODE=$(curl -sS -L -o "$LC_FILE" -w "%{http_code}" "$JFROG_URL/access/api/v2/lifecycle/?project_key=$PROJECT_KEY" -H "Authorization: Bearer $JFROG_ADMIN_TOKEN" -H "Accept: application/json" || echo 000)
+          CODE=$(jf rt curl -sS -L -o "$LC_FILE" -w "%{http_code}" "/api/v2/lifecycle/?project_key=$PROJECT_KEY" -H "Accept: application/json" || echo 000)
           if [[ "$CODE" -lt 200 || "$CODE" -ge 300 ]]; then
             echo "❌ Failed to fetch lifecycles list for project '$PROJECT_KEY' (HTTP $CODE)" >&2
             print_request_debug "GET" "$JFROG_URL/access/api/v2/lifecycle/?project_key=$PROJECT_KEY"
@@ -209,7 +201,6 @@ jobs:
           # move to the first lifecycle stage. Release is never attempted here.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-          export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
           source .github/scripts/promote_lib.sh
           fetch_summary
           # Compute expectation
@@ -249,7 +240,6 @@ jobs:
           # attached by the library immediately after promote.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-          export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
           source .github/scripts/promote_lib.sh
             fetch_summary
           CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
@@ -292,7 +282,6 @@ jobs:
           # attached during this transition.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-          export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
           source .github/scripts/promote_lib.sh
             fetch_summary
           CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
@@ -336,7 +325,6 @@ jobs:
           # ALLOW_RELEASE=false here.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-          export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
           source .github/scripts/promote_lib.sh
           fetch_summary
           CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
@@ -582,12 +570,8 @@ jobs:
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
           APP_KEY="$APPLICATION_KEY"
           VER="$APP_VERSION"
-          BASE="${{ vars.JFROG_URL }}/apptrust/api/v1"
-          TOKEN='${{ secrets.JFROG_ADMIN_TOKEN }}'
-          RESP=$(mktemp)
-          code=$(curl -sS -L -o "$RESP" -w "%{http_code}" \
-            "$BASE/applications/$APP_KEY/versions?limit=1000&order_by=created&order_asc=false" \
-            -H "Authorization: Bearer $TOKEN" -H "Accept: application/json" || echo 000)
+          BASE="/apptrust/api/v1"
+          RESP=$(jf curl -sS -L -H "Accept: application/json" "$BASE/applications/$APP_KEY/versions?limit=1000&order_by=created&order_asc=false" || true)
           if [[ "$code" -lt 200 || "$code" -ge 300 ]]; then
             echo "❌ Failed to list versions (HTTP $code)" >&2; cat "$RESP" || true; exit 1
           fi
@@ -610,14 +594,14 @@ jobs:
           # Assign latest to DESIRED: back up current tag value first
           CURR_TAG=$(jq -r --arg v "$DESIRED" '.versions[] | select(.version==$v) | (.tag // "")' "$RESP")
           jq -n --arg ct "$CURR_TAG" '{tag:"latest", properties:{original_tag_before_latest:[$ct]}}' > body.json
-          curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$DESIRED" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @body.json | cat
+          jf curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$DESIRED" -H "Content-Type: application/json" -d @body.json | cat
           # For any other version currently tagged latest, restore its original tag
           mapfile -t OTHERS < <(jq -r --arg v "$DESIRED" '.versions[] | select(.tag=="latest" and .version!=$v) | .version' "$RESP")
           for ov in "${OTHERS[@]:-}"; do
             [ -z "$ov" ] && continue
             restore=$(jq -r --arg v "$ov" '.versions[] | select(.version==$v) | (.properties.original_tag_before_latest[0] // .version // "")' "$RESP")
             printf '{"tag":"%s","delete_properties":["original_tag_before_latest"]}' "$restore" > body.json
-            curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$ov" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @body.json | cat
+            jf curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$ov" -H "Content-Type: application/json" -d @body.json | cat
           done
           rm -f "$RESP" body.json || true
 
