@@ -337,6 +337,10 @@ jobs:
       - name: "[Build] API image"
         run: |
           set -euo pipefail
+          # Disable BuildKit to produce Docker v2 schema manifests for older registries
+          export DOCKER_BUILDKIT=0
+          export BUILDKIT_PROGRESS=plain
+          export JFROG_CLI_LOG_LEVEL=DEBUG
           # Use JFrog CLI to authenticate pushes without requiring docker login
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID" || true
