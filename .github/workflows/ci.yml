@@ -103,6 +103,9 @@ jobs:
           version: latest
           oidc-provider-name: bookverse-inventory-github
           oidc-audience: ${{ vars.JFROG_URL }}
+          disable-job-summary: false
+          disable-auto-build-publish: true
+          disable-auto-evidence-collection: false
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
@@ -301,6 +304,9 @@ jobs:
           version: latest
           oidc-provider-name: bookverse-inventory-github
           oidc-audience: ${{ vars.JFROG_URL }}
+          disable-job-summary: false
+          disable-auto-build-publish: true
+          disable-auto-evidence-collection: false
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
@@ -364,26 +370,13 @@ jobs:
       - name: "[Build] API image"
         run: |
           set -euo pipefail
-          # Disable BuildKit to produce Docker v2 schema manifests for older registries
-          export DOCKER_BUILDKIT=0
-          export BUILDKIT_PROGRESS=plain
-          export JFROG_CLI_LOG_LEVEL=DEBUG
           # Use JFrog CLI to authenticate pushes without requiring docker login
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID" || true
           # Build image using modern command
-          jf docker build --pull -t "$IMAGE_NAME_PATH" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
-          # Try modern push first; fallback to legacy docker-push if needed
-          if jf docker push "$IMAGE_NAME_PATH" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"; then
-            :
-          else
-            echo "⚠️ jf docker push failed; falling back to legacy docker-push"
-            jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME_PATH" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-          fi
-          # Optional: also push subdomain style if registry expects it
-          if ! jf docker push "$IMAGE_NAME_SUBDOMAIN" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"; then
-            echo "ℹ️ Subdomain-style push skipped or failed; continuing"
-          fi
+          jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
+          # Push via Artifactory legacy docker-push (align with checkout)
+          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
           echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
           echo "✅ Built and pushed Docker image (with build-info)"
 
