@@ -253,7 +253,9 @@ jobs:
           JF_URL='${{ vars.JFROG_URL }}'
           REPO_KEY="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
           IMG_NAME="$SERVICE_NAME"
-          RESP=$(jf curl -H "Accept: application/json" "/api/docker/$REPO_KEY/v2/$IMG_NAME/tags/list" || true)
+          # Ensure jq present and use Artifactory-prefixed API with project header (align with checkout)
+          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
+          RESP=$(jf curl -H "Accept: application/json" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" "/artifactory/api/docker/$REPO_KEY/v2/$IMG_NAME/tags/list" || true)
           # Validate that RESP is JSON before parsing with jq
           if ! echo "$RESP" | jq -e . >/dev/null 2>&1; then
             echo "⚠️ Non-JSON response when listing tags for $REPO_KEY/$IMG_NAME"
