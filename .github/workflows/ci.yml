@@ -819,35 +819,29 @@ jobs:
           fi
           DEBUG_INCLUDE_PROJECT_HEADER=false print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" "$APP_VERSION_PAYLOAD"
 
-          # Create the application version with status/body capture
-          RESP_BODY=$(mktemp)
-          HTTP_STATUS=$(jf curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
+          # Create the application version and inspect response
+          RESP=$(jf curl -sS -L -X POST \
             "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
-            -d "$APP_VERSION_PAYLOAD")
-          echo "🔢 HTTP Status: $HTTP_STATUS"
-          echo "📨 Response Body:"; cat "$RESP_BODY"; echo
-          rm -f "$RESP_BODY"
-          if [[ "$HTTP_STATUS" -lt 200 || "$HTTP_STATUS" -ge 300 ]]; then
-            echo "❌ Failed to create application version" >&2
+            -d "$APP_VERSION_PAYLOAD" || true)
+          echo "📨 Response Body:"; echo "$RESP" | cat; echo
+          if [[ -z "$RESP" ]] || ! echo "$RESP" | jq -e . >/dev/null 2>&1; then
+            echo "❌ Failed to create application version (empty or non-JSON response)" >&2
             exit 1
           fi
           
           # Robust validation: fetch content and require status == COMPLETED
-          CONTENT_FILE=$(mktemp)
-          CONTENT_STATUS=$(jf curl -sS -L -o "$CONTENT_FILE" -w "%{http_code}" \
+          CONTENT=$(jf curl -sS -L \
             "/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content" \
-            -H "Accept: application/json")
-          if [[ "$CONTENT_STATUS" != "200" ]]; then
-            echo "❌ Version content endpoint returned HTTP $CONTENT_STATUS for $APPLICATION_KEY@$APP_VERSION" >&2
-            echo "📨 Response Body:"; cat "$CONTENT_FILE" || true; echo
-            rm -f "$CONTENT_FILE"
+            -H "Accept: application/json" || true)
+          if [[ -z "$CONTENT" ]] || ! echo "$CONTENT" | jq -e . >/dev/null 2>&1; then
+            echo "❌ Version content endpoint returned empty/non-JSON for $APPLICATION_KEY@$APP_VERSION" >&2
+            echo "📨 Response Body:"; echo "$CONTENT" | cat || true; echo
             exit 1
           fi
-          VERSION_STATE=$(jq -r '.status // empty' "$CONTENT_FILE" 2>/dev/null || echo "")
-          echo "📨 Version Content:"; cat "$CONTENT_FILE" || true; echo
-          rm -f "$CONTENT_FILE"
+          VERSION_STATE=$(echo "$CONTENT" | jq -r '.status // empty' 2>/dev/null || echo "")
+          echo "📨 Version Content:"; echo "$CONTENT" | cat || true; echo
           if [[ "$VERSION_STATE" != "COMPLETED" ]]; then
             echo "❌ Application version not in COMPLETED state (status='$VERSION_STATE') for $APPLICATION_KEY@$APP_VERSION" >&2
             exit 1
