@@ -253,17 +253,29 @@ jobs:
           JF_URL='${{ vars.JFROG_URL }}'
           REPO_KEY="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
           IMG_NAME="$SERVICE_NAME"
-          # Ensure jq present and use Artifactory-prefixed API with project header (align with checkout)
+          # Ensure jq present and align behavior with checkout: prefer admin-token curl with status capture; fallback to jf curl
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
-          RESP=$(jf curl -H "Accept: application/json" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" "/artifactory/api/docker/$REPO_KEY/v2/$IMG_NAME/tags/list" || true)
-          # Validate that RESP is JSON before parsing with jq
-          if ! echo "$RESP" | jq -e . >/dev/null 2>&1; then
-            echo "⚠️ Non-JSON response when listing tags for $REPO_KEY/$IMG_NAME"
-            echo "Response:"
-            echo "$RESP"
-            next_tag=""
+          TOKEN='${{ secrets.JFROG_ADMIN_TOKEN }}'
+          if [[ -n "$TOKEN" ]]; then
+            RESP_FILE=$(mktemp)
+            CODE=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
+              -H "Authorization: Bearer $TOKEN" -H "Accept: application/json" \
+              "$JF_URL/artifactory/api/docker/$REPO_KEY/v2/$IMG_NAME/tags/list" || echo 000)
+            if [[ "$CODE" -ge 200 && "$CODE" -lt 300 ]]; then
+              next_tag=$(jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)' "$RESP_FILE")
+            else
+              echo "⚠️ Tag list HTTP $CODE for $REPO_KEY/$IMG_NAME"
+              next_tag=""
+            fi
+            rm -f "$RESP_FILE"
           else
-            next_tag=$(echo "$RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty) ')
+            RESP=$(jf curl -H "Accept: application/json" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" "/artifactory/api/docker/$REPO_KEY/v2/$IMG_NAME/tags/list" || true)
+            if ! echo "$RESP" | jq -e . >/dev/null 2>&1; then
+              echo "⚠️ Non-JSON response when listing tags for $REPO_KEY/$IMG_NAME"
+              next_tag=""
+            else
+              next_tag=$(echo "$RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty) ')
+            fi
           fi
           if [[ -n "$next_tag" ]]; then
             IFS='.' read -r ma mi pa <<<"$next_tag" || true
