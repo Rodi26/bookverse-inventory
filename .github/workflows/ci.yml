@@ -366,7 +366,7 @@ jobs:
           # Use JFrog CLI to perform docker login without exposing credentials
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID"
-          jf docker-login "$REGISTRY_URL" --project "${{ vars.PROJECT_KEY }}"
+          jf docker login --server-id-resolve "$SERVER_ID" "$REGISTRY_URL"
 
       - name: "[Build] API image"
         run: |
@@ -906,7 +906,6 @@ jobs:
             }
           fi
           DEBUG_INCLUDE_PROJECT_HEADER=false print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" "$APP_VERSION_PAYLOAD"
-
           # Create the application version using authenticated JFrog CLI
           RESP=$(jf rt curl -sS -L -X POST \
             "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
@@ -914,9 +913,9 @@ jobs:
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
             -d "$APP_VERSION_PAYLOAD" || true)
-          echo "📨 Response Body:"; echo "$RESP" | cat; echo
+          echo "📨 Response Body:"; echo "$RESP" | cat || true; echo
           if [[ -z "$RESP" ]] || ! echo "$RESP" | jq -e . >/dev/null 2>&1; then
-            echo "❌ Failed to create application version (empty or non-JSON response)" >&2
+            echo "❌ Failed to create application version (empty/non-JSON response)" >&2
             exit 1
           fi
           
