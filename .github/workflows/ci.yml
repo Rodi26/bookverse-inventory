@@ -346,11 +346,13 @@ jobs:
           jf c use "$SERVER_ID" || true
           # Build image using modern command
           jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
-          # TEMP: Artifactory < 7.33.3 doesn't support 'jf docker push'.
-          # Re-enable the original push line below once Artifactory is upgraded.
-          # jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-          # Using deprecated fallback below: 'jf rt docker-push' (alias: 'jf rt dp').
-          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          # Try modern push first; fallback to legacy docker-push if needed
+          if jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"; then
+            :
+          else
+            echo "⚠️ jf docker push failed; falling back to legacy docker-push"
+            jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          fi
           echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
           echo "✅ Built and pushed Docker image (with build-info)"
 
