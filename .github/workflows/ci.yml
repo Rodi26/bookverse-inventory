@@ -306,7 +306,7 @@ jobs:
           set -euo pipefail
           echo "🔎 Checking Artifactory connectivity and PyPI virtual repo"
           jf rt ping || true
-          jf rt curl -XGET "/api/repositories/${{ vars.PROJECT_KEY }}-pypi-virtual" || true
+          jf curl -XGET "/api/repositories/${{ vars.PROJECT_KEY }}-pypi-virtual" || true
           # Configure pip to use the virtual repo and disable prompts/version check
           jf pipc --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
           export PIP_DISABLE_PIP_VERSION_CHECK=1
