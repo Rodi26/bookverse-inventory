@@ -133,7 +133,7 @@ jobs:
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
-          RESP=$(jf curl "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "Accept: application/json" || true)
+          RESP=$(jf rt curl "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "Accept: application/json" || true)
           if LATEST_VERSION=$(echo "$RESP" | jq -er '.versions[0].version // empty' 2>/dev/null); then
             :
           else
@@ -204,7 +204,7 @@ jobs:
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
-          RESP=$(jf curl "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "Accept: application/json" || true)
+          RESP=$(jf rt curl "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "Accept: application/json" || true)
           echo "🔢 Versions GET via jf curl"
           # Attempt to parse JSON; if parsing fails, fall back
           if LATEST_VERSION=$(echo "$RESP" | jq -er '.versions[0].version // empty' 2>/dev/null); then
@@ -821,7 +821,7 @@ jobs:
           DEBUG_INCLUDE_PROJECT_HEADER=false print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" "$APP_VERSION_PAYLOAD"
 
           # Create the application version and inspect response
-          RESP=$(jf curl -sS -L -X POST \
+          RESP=$(jf rt curl -sS -L -X POST \
             "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
@@ -833,7 +833,7 @@ jobs:
           fi
           
           # Robust validation: fetch content and require status == COMPLETED
-          CONTENT=$(jf curl -sS -L \
+          CONTENT=$(jf rt curl -sS -L \
             "/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content" \
             -H "Accept: application/json" || true)
           if [[ -z "$CONTENT" ]] || ! echo "$CONTENT" | jq -e . >/dev/null 2>&1; then
