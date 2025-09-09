@@ -900,9 +900,11 @@ jobs:
           fi
           DEBUG_INCLUDE_PROJECT_HEADER=false print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" "$APP_VERSION_PAYLOAD"
 
-          # Create the application version and inspect response
-          RESP=$(jf rt curl -sS -L -X POST \
-            "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
+          # Create the application version with status/body capture
+          RESP_BODY=$(mktemp)
+          HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
+            "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" \
             -H "Content-Type: application/json" \
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             -H "Accept: application/json" \
