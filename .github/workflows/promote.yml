@@ -19,6 +19,46 @@ on:
         default: 'false'
         type: choice
         options: ['false', 'true']
+      service_name:
+        description: 'Service name override (optional)'
+        required: false
+        type: string
+      oidc_provider_name:
+        description: 'OIDC provider name for jfrog/setup-jfrog-cli'
+        required: false
+        type: string
+        default: 'bookverse-inventory-github'
+      evidence_key_alias:
+        description: 'Evidence key alias (optional)'
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      target_stage:
+        description: 'Target stage (DEV, QA, STAGING, PROD)'
+        required: true
+        type: string
+      application_version:
+        description: 'Application version (SemVer) to promote (leave empty for latest)'
+        required: false
+        type: string
+      DEMO_MODE:
+        description: 'Enable demo mode (verbose logs, request tracing)'
+        required: false
+        type: string
+        default: 'false'
+      service_name:
+        description: 'Service name (e.g., inventory, checkout, recommendations, web)'
+        required: false
+        type: string
+      oidc_provider_name:
+        description: 'OIDC provider name for jfrog/setup-jfrog-cli'
+        required: false
+        type: string
+      evidence_key_alias:
+        description: 'Evidence key alias (if server-side aliasing is used)'
+        required: false
+        type: string
 
 jobs:
   promote:
