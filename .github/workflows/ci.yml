@@ -133,7 +133,7 @@ jobs:
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
-          RESP=$(jf rt curl "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" || true)
+          RESP=$(jf curl "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" || true)
           if LATEST_VERSION=$(echo "$RESP" | jq -er '.versions[0].version // empty' 2>/dev/null); then
             :
           else
@@ -204,7 +204,7 @@ jobs:
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
-          RESP=$(jf rt curl "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" || true)
+          RESP=$(jf curl "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" || true)
           echo "🔢 Versions GET via jf curl"
           # Attempt to parse JSON; if parsing fails, fall back
           if LATEST_VERSION=$(echo "$RESP" | jq -er '.versions[0].version // empty' 2>/dev/null); then
@@ -244,7 +244,7 @@ jobs:
           JF_URL='${{ vars.JFROG_URL }}'
           REPO_KEY="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
           IMG_NAME="$SERVICE_NAME"
-          RESP=$(jf rt curl -H "Accept: application/json" "/api/docker/$REPO_KEY/v2/$IMG_NAME/tags/list" || true)
+          RESP=$(jf curl -H "Accept: application/json" "/api/docker/$REPO_KEY/v2/$IMG_NAME/tags/list" || true)
           next_tag=$(echo "$RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty) ')
           if [[ -n "$next_tag" ]]; then
             IFS='.' read -r ma mi pa <<<"$next_tag" || true
@@ -282,7 +282,7 @@ jobs:
           set -euo pipefail
           echo "🔎 Checking Artifactory connectivity and PyPI virtual repo"
           jf rt ping || true
-          jf rt curl -XGET "/api/repositories/${{ vars.PROJECT_KEY }}-pypi-virtual" || true
+          jf curl -XGET "/api/repositories/${{ vars.PROJECT_KEY }}-pypi-virtual" || true
           # Configure pip to use the virtual repo and disable prompts/version check
           jf pipc --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
           export PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -292,7 +292,7 @@ jobs:
           echo "🔎 Checking fastapi availability via virtual index"
           PIP_INDEX_URL="${{ vars.JFROG_URL }}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple"
           # Avoid interactive pip; probe with authenticated jfrog CLI instead
-          jf rt curl -XGET "/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple/fastapi/" >/dev/null 2>&1 \
+          jf curl -XGET "/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple/fastapi/" >/dev/null 2>&1 \
             && echo "✅ fastapi index accessible via virtual repo" \
             || echo "⚠️ Unable to access $PIP_INDEX_URL/fastapi/ (check repo and permissions)"
 
@@ -684,7 +684,7 @@ jobs:
           
           if [[ -z "$APP_VERSION" || "$APP_VERSION" == "" ]]; then
             # Compute next SemVer if not provided by build job
-          LATEST_VERSION=$(jf rt curl "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" | jq -r '.versions[0].version // empty')
+          LATEST_VERSION=$(jf curl "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" | jq -r '.versions[0].version // empty')
           if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "null" ]]; then
               MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
               MINOR=$(echo "$LATEST_VERSION" | cut -d. -f2)
@@ -724,7 +724,7 @@ jobs:
           echo "🔎 Fetching build info to confirm artifacts are present"
           URL="/api/build/$BUILD_NAME/$BUILD_NUMBER?project=${{ vars.PROJECT_KEY }}"
           echo "GET $URL"
-          jf rt curl -H "Accept: application/json" "$URL" | jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})'
+          jf curl -H "Accept: application/json" "$URL" | jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})'
 
       - name: "[Release] Create application version"
         run: |
@@ -821,7 +821,7 @@ jobs:
           DEBUG_INCLUDE_PROJECT_HEADER=false print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" "$APP_VERSION_PAYLOAD"
 
           # Create the application version and inspect response
-          RESP=$(jf rt curl -sS -L -X POST \
+          RESP=$(jf curl -sS -L -X POST \
             "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
             -H "Content-Type: application/json" \
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
@@ -834,7 +834,7 @@ jobs:
           fi
           
           # Robust validation: fetch content and require status == COMPLETED
-          CONTENT=$(jf rt curl -sS -L \
+          CONTENT=$(jf curl -sS -L \
             "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content" \
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             -H "Accept: application/json" || true)

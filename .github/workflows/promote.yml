@@ -146,7 +146,7 @@ jobs:
           echo "CURRENT_STAGE_BEFORE=${CURRENT_STAGE:-UNASSIGNED}" >> $GITHUB_ENV
           echo "RELEASE_STATUS_BEFORE=${RELEASE_STATUS:-UNKNOWN}" >> $GITHUB_ENV
           LC_FILE=$(mktemp)
-          CODE=$(jf rt curl -sS -L -o "$LC_FILE" -w "%{http_code}" "/api/v2/lifecycle/?project_key=$PROJECT_KEY" -H "Accept: application/json" || echo 000)
+          CODE=$(jf curl -sS -L -o "$LC_FILE" -w "%{http_code}" "/api/v2/lifecycle/?project_key=$PROJECT_KEY" -H "Accept: application/json" || echo 000)
           if [[ "$CODE" -lt 200 || "$CODE" -ge 300 ]]; then
             echo "❌ Failed to fetch lifecycles list for project '$PROJECT_KEY' (HTTP $CODE)" >&2
             print_request_debug "GET" "$JFROG_URL/access/api/v2/lifecycle/?project_key=$PROJECT_KEY"

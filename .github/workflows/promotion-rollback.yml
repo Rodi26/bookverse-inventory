@@ -155,7 +155,7 @@ jobs:
           PROJECT_KEY_ENV="${{ vars.PROJECT_KEY }}"
           LC_FILE=$(mktemp)
           PLATFORM_URL="${{ vars.JFROG_URL }}"
-          CODE_LC=$(jf rt curl -sS -L -o "$LC_FILE" -w "%{http_code}" "/api/v2/lifecycle/?project_key=$PROJECT_KEY_ENV" -H "Accept: application/json" || echo 000)
+          CODE_LC=$(jf curl -sS -L -o "$LC_FILE" -w "%{http_code}" "/api/v2/lifecycle/?project_key=$PROJECT_KEY_ENV" -H "Accept: application/json" || echo 000)
           NORM_FILE=$(mktemp)
           if [[ "$CODE_LC" -ge 200 && "$CODE_LC" -lt 300 ]]; then
             jq -c 'if type=="array" then . elif has("lifecycles") then .lifecycles elif has("items") then .items elif has("results") then .results elif (has("name") and has("stages")) then [.] else [] end' "$LC_FILE" > "$NORM_FILE" 2>/dev/null || printf '[]' > "$NORM_FILE"
