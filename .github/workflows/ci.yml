@@ -114,8 +114,10 @@ jobs:
           SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
           IMAGE_TAG=$(echo $GITHUB_SHA | head -c7)
           REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
-          IMAGE_NAME="${REGISTRY_URL}/${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local/${SERVICE_NAME}:${IMAGE_TAG}"
           DOCKER_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
+          IMAGE_NAME_PATH="${REGISTRY_URL}/${DOCKER_REPO}/${SERVICE_NAME}:${IMAGE_TAG}"
+          IMAGE_NAME_SUBDOMAIN="${DOCKER_REPO}.${REGISTRY_URL}/${SERVICE_NAME}:${IMAGE_TAG}"
+          IMAGE_NAME="$IMAGE_NAME_PATH"
 
           echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
@@ -123,6 +125,8 @@ jobs:
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "REGISTRY_URL=$REGISTRY_URL" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "IMAGE_NAME_PATH=$IMAGE_NAME_PATH" >> $GITHUB_ENV
+          echo "IMAGE_NAME_SUBDOMAIN=$IMAGE_NAME_SUBDOMAIN" >> $GITHUB_ENV
           echo "DOCKER_REPO=$DOCKER_REPO" >> $GITHUB_ENV
           echo "TESTS_PASSED=true" >> $GITHUB_ENV
 
@@ -155,10 +159,15 @@ jobs:
           fi
           # Update tags to SemVer
           IMAGE_TAG="$APP_VERSION"
-          IMAGE_NAME="${REGISTRY_URL}/${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local/${SERVICE_NAME}:${IMAGE_TAG}"
+          DOCKER_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
+          IMAGE_NAME_PATH="${REGISTRY_URL}/${DOCKER_REPO}/${SERVICE_NAME}:${IMAGE_TAG}"
+          IMAGE_NAME_SUBDOMAIN="${DOCKER_REPO}.${REGISTRY_URL}/${SERVICE_NAME}:${IMAGE_TAG}"
+          IMAGE_NAME="$IMAGE_NAME_PATH"
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "IMAGE_NAME_PATH=$IMAGE_NAME_PATH" >> $GITHUB_ENV
+          echo "IMAGE_NAME_SUBDOMAIN=$IMAGE_NAME_SUBDOMAIN" >> $GITHUB_ENV
 
       - name: "[Setup] Determine SemVer"
         id: set-app-version
@@ -265,8 +274,12 @@ jobs:
             API_IMAGE_TAG="1.${base_minor}.${base_patch}"
           fi
           echo "API_IMAGE_TAG=$API_IMAGE_TAG" >> $GITHUB_ENV
-          IMAGE_NAME="$REGISTRY_URL/$REPO_KEY/$IMG_NAME:$API_IMAGE_TAG"
+          IMAGE_NAME_PATH="$REGISTRY_URL/$REPO_KEY/$IMG_NAME:$API_IMAGE_TAG"
+          IMAGE_NAME_SUBDOMAIN="$REPO_KEY.$REGISTRY_URL/$IMG_NAME:$API_IMAGE_TAG"
+          IMAGE_NAME="$IMAGE_NAME_PATH"
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "IMAGE_NAME_PATH=$IMAGE_NAME_PATH" >> $GITHUB_ENV
+          echo "IMAGE_NAME_SUBDOMAIN=$IMAGE_NAME_SUBDOMAIN" >> $GITHUB_ENV
 
       - name: "[Setup] JFrog CLI"
         uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
@@ -345,13 +358,17 @@ jobs:
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           jf c use "$SERVER_ID" || true
           # Build image using modern command
-          jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
+          jf docker build --pull -t "$IMAGE_NAME_PATH" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
           # Try modern push first; fallback to legacy docker-push if needed
-          if jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"; then
+          if jf docker push "$IMAGE_NAME_PATH" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"; then
             :
           else
             echo "⚠️ jf docker push failed; falling back to legacy docker-push"
-            jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+            jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME_PATH" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          fi
+          # Optional: also push subdomain style if registry expects it
+          if ! jf docker push "$IMAGE_NAME_SUBDOMAIN" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"; then
+            echo "ℹ️ Subdomain-style push skipped or failed; continuing"
           fi
           echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
           echo "✅ Built and pushed Docker image (with build-info)"
