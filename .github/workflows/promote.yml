@@ -532,7 +532,6 @@ jobs:
           # release_version(), which invokes the AppTrust Release API.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-          export JFROG_ADMIN_TOKEN="${{ secrets.JFROG_ADMIN_TOKEN }}"
           source .github/scripts/promote_lib.sh
           fetch_summary
           CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")

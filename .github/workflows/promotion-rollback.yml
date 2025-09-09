@@ -57,22 +57,23 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: "[Setup] JFrog CLI"
+        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
+        with:
+          version: latest
+          oidc-provider-name: bookverse-inventory-github
+          disable-job-summary: true
+          oidc-audience: ${{ vars.JFROG_URL }}
+
       - name: "[Rollback] Execute"
         shell: bash
-        env:
-          APPTRUST_BASE_URL: ${{ vars.JFROG_URL }}/apptrust/api/v1
-          APPTRUST_ACCESS_TOKEN: ${{ secrets.JFROG_ADMIN_TOKEN }}
         run: |
           set -euo pipefail
           echo "🧭 Starting rollback workflow"
-          if [ -z "${APPTRUST_BASE_URL:-}" ]; then
-            echo "Missing vars.JFROG_URL to derive APPTRUST_BASE_URL" >&2
-            exit 2
-          fi
-          if [ -z "${APPTRUST_ACCESS_TOKEN:-}" ]; then
-            echo "Missing secret JFROG_ADMIN_TOKEN" >&2
-            exit 2
-          fi
+          APPTRUST_BASE_URL="/apptrust/api/v1"
 
           # Derive application key from repo name (e.g., bookverse-inventory -> bookverse-inventory)
           SERVICE_NAME=$(echo "${GITHUB_REPOSITORY#*/}" | sed 's/bookverse-//')
@@ -83,15 +84,8 @@ jobs:
           TARGET_VERSION="${{ inputs.version || '' }}"
           if [ -z "$TARGET_VERSION" ]; then
             echo "🔎 Resolving latest promoted version for $APP_KEY"
-            RESP_FILE=$(mktemp)
-            HTTP_STATUS=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
-              "$APPTRUST_BASE_URL/applications/$APP_KEY/versions?limit=20&order_by=created&order_asc=false" \
-              -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
-              -H "Accept: application/json")
-            if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
-              TARGET_VERSION=$(jq -r '.versions[] | select(.release_status == "RELEASED" or .release_status == "TRUSTED_RELEASE") | .version' "$RESP_FILE" | head -n1)
-            fi
-            rm -f "$RESP_FILE"
+            RESP=$(jf curl "$APPTRUST_BASE_URL/applications/$APP_KEY/versions?limit=20&order_by=created&order_asc=false" -H "Accept: application/json" || true)
+            TARGET_VERSION=$(echo "$RESP" | jq -r '.versions[] | select((.release_status|tostring|ascii_upcase)=="RELEASED" or (.release_status|tostring|ascii_upcase)=="TRUSTED_RELEASE") | .version' | head -n1)
             if [ -z "${TARGET_VERSION:-}" ] || [ "$TARGET_VERSION" = "null" ]; then
               echo "❌ Could not resolve latest promoted version for $APP_KEY" >&2
               exit 1
@@ -101,9 +95,8 @@ jobs:
 
           # Snapshot BEFORE stage via content API
           CONTENT_BEFORE=$(mktemp)
-          CODE_B=$(curl -sS -L -o "$CONTENT_BEFORE" -w "%{http_code}" \
+          CODE_B=$(jf curl -sS -L -o "$CONTENT_BEFORE" -w "%{http_code}" \
             "$APPTRUST_BASE_URL/applications/$APP_KEY/versions/$TARGET_VERSION/content" \
-            -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
             -H "Accept: application/json" || echo 000)
           CURRENT_STAGE_BEFORE=""
           if [[ "$CODE_B" -ge 200 && "$CODE_B" -lt 300 ]]; then
@@ -126,9 +119,8 @@ jobs:
 
           # Fetch AFTER stage via content API
           CONTENT_TARGET=$(mktemp)
-          CODE_T=$(curl -sS -L -o "$CONTENT_TARGET" -w "%{http_code}" \
+          CODE_T=$(jf curl -sS -L -o "$CONTENT_TARGET" -w "%{http_code}" \
             "$APPTRUST_BASE_URL/applications/$APP_KEY/versions/$TARGET_VERSION/content" \
-            -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
             -H "Accept: application/json" || echo 000)
           CURR_STAGE_TARGET=""
           if [[ "$CODE_T" -ge 200 && "$CODE_T" -lt 300 ]]; then
@@ -142,35 +134,28 @@ jobs:
           set -euo pipefail
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
           APP_KEY="$APPLICATION_KEY"
-          BASE="${{ vars.JFROG_URL }}/apptrust/api/v1"
-          TOKEN='${{ secrets.JFROG_ADMIN_TOKEN }}'
-          RESP=$(mktemp)
-          code=$(curl -sS -L -o "$RESP" -w "%{http_code}" \
-            "$BASE/applications/$APP_KEY/versions?limit=1000&order_by=created&order_asc=false" \
-            -H "Authorization: Bearer $TOKEN" -H "Accept: application/json" || echo 000)
-          if [[ "$code" -lt 200 || "$code" -ge 300 ]]; then
-            echo "❌ Failed to list versions (HTTP $code)" >&2; cat "$RESP" || true; exit 1
-          fi
+          BASE="/apptrust/api/v1"
+          RESP=$(jf curl -sS -L -H "Accept: application/json" "$BASE/applications/$APP_KEY/versions?limit=1000&order_by=created&order_asc=false" || true)
           DESIRED=$(jq -r '[.versions[] | select((.release_status|tostring|ascii_upcase)=="RELEASED" or (.release_status|tostring|ascii_upcase)=="TRUSTED_RELEASE") | .version] | unique | map(select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))) | sort_by(split(".")|map(tonumber)) | last // empty' "$RESP")
           if [[ -n "$DESIRED" ]]; then
             CURR_TAG=$(jq -r --arg v "$DESIRED" '.versions[] | select(.version==$v) | (.tag // "")' "$RESP")
             jq -n --arg ct "$CURR_TAG" '{tag:"latest", properties:{original_tag_before_latest:[$ct]}}' > body.json
-            curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$DESIRED" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @body.json | cat
+            jf curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$DESIRED" -H "Content-Type: application/json" -d @body.json | cat
           fi
           mapfile -t OTHERS < <(jq -r --arg v "$DESIRED" '.versions[] | select(.tag=="latest" and .version!=$v) | .version' "$RESP")
           for ov in "${OTHERS[@]:-}"; do
             [ -z "$ov" ] && continue
             restore=$(jq -r --arg v "$ov" '.versions[] | select(.version==$v) | (.properties.original_tag_before_latest[0] // .version // "")' "$RESP")
             printf '{"tag":"%s","delete_properties":["original_tag_before_latest"]}' "$restore" > body.json
-            curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$ov" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @body.json | cat
+            jf curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$ov" -H "Content-Type: application/json" -d @body.json | cat
           done
           rm -f "$RESP" body.json || true
 
           # Determine lifecycle stages to compute expected previous stage
           PROJECT_KEY_ENV="${{ vars.PROJECT_KEY }}"
           LC_FILE=$(mktemp)
-          PLATFORM_URL="${APPTRUST_BASE_URL%/apptrust/api/v1}"
-          CODE_LC=$(curl -sS -L -o "$LC_FILE" -w "%{http_code}" "$PLATFORM_URL/access/api/v2/lifecycle/?project_key=$PROJECT_KEY_ENV" -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" || echo 000)
+          PLATFORM_URL="${{ vars.JFROG_URL }}"
+          CODE_LC=$(jf rt curl -sS -L -o "$LC_FILE" -w "%{http_code}" "/api/v2/lifecycle/?project_key=$PROJECT_KEY_ENV" -H "Accept: application/json" || echo 000)
           NORM_FILE=$(mktemp)
           if [[ "$CODE_LC" -ge 200 && "$CODE_LC" -lt 300 ]]; then
             jq -c 'if type=="array" then . elif has("lifecycles") then .lifecycles elif has("items") then .items elif has("results") then .results elif (has("name") and has("stages")) then [.] else [] end' "$LC_FILE" > "$NORM_FILE" 2>/dev/null || printf '[]' > "$NORM_FILE"
