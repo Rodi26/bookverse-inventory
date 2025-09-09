@@ -362,14 +362,6 @@ jobs:
           echo "COVERAGE_PERCENT=$COV" >> $GITHUB_ENV
           echo "coverage_percent=$COV" >> $GITHUB_OUTPUT
 
-      - name: "[Setup] Docker login"
-        run: |
-          set -euo pipefail
-          # Use JFrog CLI to perform docker login without exposing credentials
-          SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
-          jf c use "$SERVER_ID"
-          jf docker login "$REGISTRY_URL"
-
       - name: "[Build] API image"
         run: |
           set -euo pipefail
