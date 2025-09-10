@@ -245,7 +245,9 @@ jobs:
           # Update image tag/name to use SemVer
           REGISTRY_URL=${REGISTRY_URL:-${{ vars.DOCKER_REGISTRY }}}
           IMAGE_TAG="$APP_VERSION"
-          IMAGE_NAME="$REGISTRY_URL/${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local/$SERVICE_NAME:$IMAGE_TAG"
+          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
+          IMAGE_NAME_PATH="$REGISTRY_URL/$REPO_KEY/$SERVICE_NAME:$IMAGE_TAG"
+          IMAGE_NAME="$IMAGE_NAME_PATH"
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
@@ -277,7 +279,6 @@ jobs:
           fi
           echo "API_IMAGE_TAG=$API_IMAGE_TAG" >> $GITHUB_ENV
           IMAGE_NAME_PATH="$REGISTRY_URL/$REPO_KEY/$IMG_NAME:$API_IMAGE_TAG"
-          IMAGE_NAME_SUBDOMAIN="$REPO_KEY.$REGISTRY_URL/$IMG_NAME:$API_IMAGE_TAG"
           IMAGE_NAME="$IMAGE_NAME_PATH"
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
                 
@@ -362,7 +363,7 @@ jobs:
           GH_ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
           if [[ -z "$GH_ID_TOKEN" || "$GH_ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
-          # 2) Exchange at JFrog Access for JAS access token
+          # 2) Exchange at JFrog Access for access token
           PAYLOAD=$(jq -n --arg jwt "$GH_ID_TOKEN" \
             --arg provider_name "$PROVIDER_NAME" \
             --arg project_key "$PROJECT" \
@@ -386,7 +387,19 @@ jobs:
           TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
           if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
           # 3) Docker login to the registry using access token
-          echo "$TOKEN" | docker login "$REGISTRY_URL" -u "oauth2" --password-stdin
+          # Derive username from token payload (sub/username), fallback to oauth2_access_token
+          b64pad() { local l=${#1}; local m=$((l % 4)); if [ $m -eq 2 ]; then echo "$1=="; elif [ $m -eq 3 ]; then echo "$1="; else echo "$1"; fi; }
+          PAY=$(echo "$TOKEN" | cut -d. -f2 || true)
+          PAY_PAD=$(b64pad "$PAY")
+          CLAIMS=$(echo "$PAY_PAD" | tr '_-' '/+' | base64 -d 2>/dev/null || true)
+          DOCKER_USER=$(echo "$CLAIMS" | jq -r '.username // .sub // .subject // empty' 2>/dev/null || true)
+          # If sub is in the form jfac@.../users/<username>, extract the trailing <username>
+          if [[ "$DOCKER_USER" == *"/users/"* ]]; then
+            DOCKER_USER=${DOCKER_USER##*/users/}
+          fi
+          if [[ -z "$DOCKER_USER" || "$DOCKER_USER" == "null" ]]; then DOCKER_USER="oauth2_access_token"; fi
+          echo "Using docker username: $DOCKER_USER"
+          echo "$TOKEN" | docker login "$REGISTRY_URL" -u "$DOCKER_USER" --password-stdin
 
       - name: "[Build] API image"
         run: |
@@ -430,19 +443,11 @@ jobs:
           IMAGE_NAME="$REGISTRY_URL/$REPO_KEY/$API_IMAGE_NAME:$API_TAG"
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
 
-          # Build image and push using plain docker (avoid JFrog CLI version probe)
+          # Build and push (plain docker) using subdomain host; then create build-info
           jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
           docker push "$IMAGE_NAME"
 
-          # Create build-info for the pushed image via build-docker-create
-          DIGEST=$(docker inspect "$IMAGE_NAME" | jq -r '.[0].RepoDigests[0]')
-          if [[ -z "$DIGEST" || "$DIGEST" == "null" ]]; then echo "❌ Missing RepoDigest after push" >&2; exit 1; fi
-          echo "$DIGEST" > build-metadata-jfrog-cli.txt
-          jf rt build-docker-create "$DOCKER_REPO" \
-            --image-file build-metadata-jfrog-cli.txt \
-            --build-name "$BUILD_NAME" \
-            --build-number "$BUILD_NUMBER" \
-            --project "${{ vars.PROJECT_KEY }}"
+          # Build-info will be published in a later step via bag/bce/bp
 
           echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
           echo "✅ Built and pushed Docker image (OIDC docker push + build-info)"
@@ -609,11 +614,48 @@ jobs:
         env:
           JFROG_CLI_LOG_LEVEL: DEBUG
         run: |
-          # Ensure project scoping and headers are sent for OIDC access tokens
+          set -euo pipefail
+          # Ensure jq
+          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
+          # Proactively mint an access token for this step and force CLI to use it
+          export JF_URL='${{ vars.JFROG_URL }}'
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
+          GH_ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
+          if [[ -z "$GH_ID_TOKEN" || "$GH_ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
+          PAYLOAD=$(jq -n --arg jwt "$GH_ID_TOKEN" \
+            --arg provider_name "bookverse-inventory-github" \
+            --arg project_key "${{ vars.PROJECT_KEY }}" \
+            --arg job_id "${{ github.job }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg repo "https://github.com/${{ github.repository }}" \
+            --arg revision "${{ github.sha }}" \
+            --arg branch "${{ github.ref_name }}" \
+            '{
+              grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
+              subject_token_type:"urn:ietf:params:oauth:token-type:id_token",
+              subject_token:$jwt,
+              provider_name:$provider_name,
+              project_key:$project_key,
+              job_id:$job_id,
+              run_id:$run_id,
+              repo:$repo,
+              revision:$revision,
+              branch:$branch
+            }')
+          TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
+          if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token for build-info publish" >&2; exit 1; fi
+          export JF_ACCESS_TOKEN="$TOKEN"
+          export JF_PROJECT='${{ vars.PROJECT_KEY }}'
+          # Add and use a temp server tied to this access token
+          TMP_SERVER_ID="ci-token-server"
+          jf c add "$TMP_SERVER_ID" --interactive=false --overwrite=true --url "$JF_URL" --access-token "$TOKEN"
+          jf c use "$TMP_SERVER_ID"
           echo "Using JFrog server(s):" && jf c show || true
           if jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER" \
              && jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER" \
-             && jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"; then
+             && jf rt bp  --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"; then
             echo "BUILD_INFO_PUBLISH_STATUS=SUCCESS" >> $GITHUB_ENV
           else
             echo "BUILD_INFO_PUBLISH_STATUS=FAILED" >> $GITHUB_ENV
