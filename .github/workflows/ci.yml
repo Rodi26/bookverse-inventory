@@ -648,17 +648,14 @@ jobs:
           if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token for build-info publish" >&2; exit 1; fi
           export JF_ACCESS_TOKEN="$TOKEN"
           export JF_PROJECT='${{ vars.PROJECT_KEY }}'
+          # Add and use a temp server tied to this access token
+          TMP_SERVER_ID="ci-token-server"
+          jf c add "$TMP_SERVER_ID" --interactive=false --overwrite=true --url "$JF_URL" --access-token "$TOKEN"
+          jf c use "$TMP_SERVER_ID"
           echo "Using JFrog server(s):" && jf c show || true
-          # Associate the pushed Docker image with the build-info before publishing
-          REPO_KEY="${DOCKER_REPO:-${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local}"
-          echo "🔗 Adding docker image to build-info: image=$IMAGE_NAME repo=$REPO_KEY"
-          jf rt build-docker-create "$IMAGE_NAME" "$REPO_KEY" \
-            --build-name "$BUILD_NAME" \
-            --build-number "$BUILD_NUMBER" \
-            --project "${{ vars.PROJECT_KEY }}"
-          if jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER" \
-             && jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER" \
-             && jf rt bp  --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"; then
+          if jf rt bag --server-id "$TMP_SERVER_ID" --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER" \
+             && jf rt bce --server-id "$TMP_SERVER_ID" --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER" \
+             && jf rt bp  --server-id "$TMP_SERVER_ID" --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"; then
             echo "BUILD_INFO_PUBLISH_STATUS=SUCCESS" >> $GITHUB_ENV
           else
             echo "BUILD_INFO_PUBLISH_STATUS=FAILED" >> $GITHUB_ENV
