@@ -81,7 +81,7 @@ display_stage_for() {
 fetch_summary() {
   local body
   body=$(mktemp)
-  if jf curl -sS -L \
+  if jf rt curl -sS -L \
     "/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/content" \
     -H "Accept: application/json" > "$body"; then
     CURRENT_STAGE=$(jq -r '.current_stage // empty' "$body" 2>/dev/null || echo "")
@@ -104,7 +104,7 @@ fetch_summary() {
 # upon errors and for interpreting success/failure semantics.
 apptrust_post() {
   local path="${1:-}"; local data="${2:-}"; local out_file="${3:-}"
-  if jf curl -sS -L -X POST \
+  if jf rt curl -sS -L -X POST \
     "$path" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
@@ -170,7 +170,7 @@ release_version() {
     repo_python="${PROJECT_KEY}-${service_name}-internal-python-release-local"
     payload=$(printf '{"promotion_type":"move","included_repository_keys":["%s","%s"]}' "$repo_docker" "$repo_python")
   fi
-  if jf curl -sS -L -X POST \
+  if jf rt curl -sS -L -X POST \
     "/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
