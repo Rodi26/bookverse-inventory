@@ -655,12 +655,8 @@ jobs:
           echo "Using JFrog server(s):" && jf c show || true
           # Associate the pushed Docker image with the build-info before publishing
           REPO_KEY="${DOCKER_REPO:-${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local}"
-          IMG_NAME="${SERVICE_NAME}"
-          IMG_TAG="${API_TAG:-${IMAGE_TAG:-latest}}"
-          IMG_REF="$IMG_NAME:$IMG_TAG"
-          echo "🔗 Adding docker image to build-info: repo=$REPO_KEY image=$IMG_REF"
-          jf rt build-docker-create "$REPO_KEY" \
-            --image "$IMG_REF" \
+          echo "🔗 Adding docker image to build-info: image=$IMAGE_NAME repo=$REPO_KEY"
+          jf rt build-docker-create "$IMAGE_NAME" "$REPO_KEY" \
             --build-name "$BUILD_NAME" \
             --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}"
