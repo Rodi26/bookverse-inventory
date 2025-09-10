@@ -447,16 +447,7 @@ jobs:
           jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
           docker push "$IMAGE_NAME"
 
-          # Create build-info for the pushed image via build-docker-create
-          INSPECT=$(docker inspect "$IMAGE_NAME")
-          DIGEST=$(echo "$INSPECT" | jq -r '.[0].RepoDigests[0]' | awk -F@ '{print $2}')
-          if [[ -z "$DIGEST" || "$DIGEST" == "null" ]]; then echo "❌ Missing RepoDigest after push" >&2; exit 1; fi
-          echo "${IMAGE_NAME%@*}@${DIGEST}" > build-metadata-jfrog-cli.txt
-          jf rt build-docker-create "$REPO_KEY" \
-            --image-file build-metadata-jfrog-cli.txt \
-            --build-name "$BUILD_NAME" \
-            --build-number "$BUILD_NUMBER" \
-            --project "${{ vars.PROJECT_KEY }}"
+          # Build-info will be published in a later step via bag/bce/bp
 
           echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
           echo "✅ Built and pushed Docker image (OIDC docker push + build-info)"
