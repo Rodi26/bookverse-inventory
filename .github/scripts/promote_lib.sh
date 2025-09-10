@@ -79,16 +79,19 @@ display_stage_for() {
 # CURRENT_STAGE in API form (e.g., bookverse-STAGING, PROD). Callers should wrap
 # it with display_stage_for when comparing against human readable names.
 fetch_summary() {
-  local body
+  local body url code
   body=$(mktemp)
-  if jf rt curl -sS -L \
-    "/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/content" \
-    -H "Accept: application/json" > "$body"; then
+  url="${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/content"
+  code=$(curl -sS -L -o "$body" -w "%{http_code}" \
+    -H "Authorization: Bearer ${APPTRUST_ACCESS_TOKEN}" \
+    -H "Accept: application/json" \
+    "$url" || echo 000)
+  if [[ "$code" -ge 200 && "$code" -lt 300 ]] && jq -e . >/dev/null 2>&1 < "$body"; then
     CURRENT_STAGE=$(jq -r '.current_stage // empty' "$body" 2>/dev/null || echo "")
     RELEASE_STATUS=$(jq -r '.release_status // empty' "$body" 2>/dev/null || echo "")
   else
     echo "❌ Failed to fetch version summary" >&2
-    print_request_debug "GET" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/content"
+    print_request_debug "GET" "$url"
     cat "$body" || true
     rm -f "$body"
     return 1
@@ -104,11 +107,14 @@ fetch_summary() {
 # upon errors and for interpreting success/failure semantics.
 apptrust_post() {
   local path="${1:-}"; local data="${2:-}"; local out_file="${3:-}"
-  if jf rt curl -sS -L -X POST \
-    "$path" \
+  local url="${JFROG_URL}${path}"
+  local code
+  code=$(curl -sS -L -X POST -o "$out_file" -w "%{http_code}" \
+    -H "Authorization: Bearer ${APPTRUST_ACCESS_TOKEN}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
-    -d "$data" > "$out_file"; then
+    -d "$data" "$url" || echo 000)
+  if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
     return 0
   else
     return 1
@@ -170,11 +176,10 @@ release_version() {
     repo_python="${PROJECT_KEY}-${service_name}-internal-python-release-local"
     payload=$(printf '{"promotion_type":"move","included_repository_keys":["%s","%s"]}' "$repo_docker" "$repo_python")
   fi
-  if jf rt curl -sS -L -X POST \
+  if apptrust_post \
     "/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" \
-    -H "Content-Type: application/json" \
-    -H "Accept: application/json" \
-    -d "$payload" > "$resp_body"; then
+    "$payload" \
+    "$resp_body"; then
     echo "HTTP OK"; cat "$resp_body" || true; echo
   else
     echo "❌ Release to ${FINAL_STAGE} failed" >&2
