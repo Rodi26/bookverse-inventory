@@ -91,10 +91,19 @@ jobs:
           echo "BASH_XTRACE_ENABLED=1" >> $GITHUB_ENV
           echo "LOG_LEVEL=DEBUG" >> $GITHUB_ENV
 
+      - name: "[Setup] Prereqs (jq)"
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq
+
       - name: "[Resolve] App & version"
         run: |
           set -euo pipefail
-          SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
+          if [[ -n "${{ inputs.service_name }}" ]]; then
+            SERVICE_NAME="${{ inputs.service_name }}"
+          else
+            SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
+          fi
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           TARGET_STAGE=${{ inputs.target_stage }}
           APP_VERSION_INPUT="${{ inputs.application_version }}"
@@ -103,10 +112,8 @@ jobs:
             APP_VERSION="$APP_VERSION_INPUT"
           else
             echo "🔎 Fetching latest application version for $APPLICATION_KEY"
-            RESP=$(jf curl "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "Accept: application/json" || true)
-            if LATEST_VERSION=$(echo "$RESP" | jq -er '.versions[0].version // empty' 2>/dev/null); then
-              APP_VERSION="$LATEST_VERSION"
-            fi
+            RESP=$(curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" || true)
+            if LATEST_VERSION=$(echo "$RESP" | jq -er '.versions[0].version // empty' 2>/dev/null); then APP_VERSION="$LATEST_VERSION"; fi
             if [ -z "$APP_VERSION" ]; then
               echo "❌ Could not determine latest application version for $APPLICATION_KEY" >&2
               exit 1
@@ -126,7 +133,7 @@ jobs:
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
         with:
           version: latest
-          oidc-provider-name: bookverse-inventory-github
+          oidc-provider-name: ${{ inputs.oidc_provider_name }}
           disable-job-summary: true
           oidc-audience: ${{ vars.JFROG_URL }}
 
@@ -522,6 +529,70 @@ jobs:
             echo "- STAGING evidence: IaC=${IAC_EVIDENCE_STATUS}, Pentest=${PENTEST_EVIDENCE_STATUS}, ChangeApproval=${CHANGEAPPROVAL_EVIDENCE_STATUS}"
           } >> "$PROMO_SUMMARY_FILE"
 
+      - name: "[Setup] Ensure release repos exist"
+        run: |
+          set -euo pipefail
+          JF_URL='${{ vars.JFROG_URL }}'
+          TOKEN='${{ secrets.JFROG_ADMIN_TOKEN }}'
+          PROJECT='${{ vars.PROJECT_KEY }}'
+          # SERVICE_NAME is provided via GITHUB_ENV by the resolve step
+          : "${SERVICE_NAME:?SERVICE_NAME not set}"
+          DOCKER_REPO="${PROJECT}-${SERVICE_NAME}-internal-docker-release-local"
+          GENERIC_REPO="${PROJECT}-${SERVICE_NAME}-internal-generic-release-local"
+          echo "Ensuring repos exist: $DOCKER_REPO, $GENERIC_REPO"
+          repo_exists() {
+            local repo_key="$1"
+            curl -sS -H "Authorization: Bearer ${TOKEN}" -H "Accept: application/json" -H "X-JFrog-Project: ${PROJECT}" "$JF_URL/artifactory/api/repositories" | jq -e --arg k "$repo_key" '.[] | select(.key == $k) | .key' >/dev/null 2>&1
+          }
+          create_repo() {
+            local repo_key="$1"; local pkg="$2"
+            local body
+            if [[ "$pkg" == "docker" ]]; then
+              body='{"rclass":"local","packageType":"docker","dockerApiVersion":"V2","environments":["PROD"],"blackedOut":false,"xrayIndex":false}'
+            else
+              body='{"rclass":"local","packageType":"generic","environments":["PROD"],"blackedOut":false,"xrayIndex":false}'
+            fi
+            echo "Creating $repo_key (packageType=$pkg)"
+            curl -sS -L -X PUT "$JF_URL/artifactory/api/repositories/$repo_key" -H "Authorization: Bearer ${TOKEN}" -H "X-JFrog-Project: ${PROJECT}" -H "Content-Type: application/json" -d "$body" | cat
+          }
+          patch_envs() {
+            local repo_key="$1"
+            echo "Patching $repo_key environments via v2 API"
+            local resp
+            resp=$(curl -sS -L -w '\n%{http_code}' -X PATCH "$JF_URL/artifactory/api/v2/repositories/$repo_key" -H "Authorization: Bearer ${TOKEN}" -H "X-JFrog-Project: ${PROJECT}" -H "Content-Type: application/json" -d '{"environments":["PROD"],"blackedOut":false}')
+            local body="${resp%$'\n'*}"; local code="${resp##*$'\n'}"
+            echo "$body" | cat
+            echo "HTTP $code"
+            if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then return 0; fi
+            echo "v2 PATCH failed (HTTP $code). Falling back to v1 POST update"
+            local cfg="$(mktemp)"; local upd
+            local get_code
+            get_code=$(curl -sS -L -o "$cfg" -w "%{http_code}" -H "Authorization: Bearer ${TOKEN}" -H "X-JFrog-Project: ${PROJECT}" -H "Accept: application/json" "$JF_URL/artifactory/api/repositories/$repo_key" || echo 000)
+            if [[ "$get_code" -ge 200 && "$get_code" -lt 300 ]]; then
+              upd=$(jq -c '.environments = ["PROD"] | .blackedOut = false' "$cfg")
+            else
+              echo "WARN: failed to fetch current config for $repo_key (HTTP $get_code). Posting minimal config."
+              if [[ "$repo_key" == *"-docker-"* ]]; then
+                upd='{"rclass":"local","packageType":"docker","dockerApiVersion":"V2","environments":["PROD"],"blackedOut":false}'
+              else
+                upd='{"rclass":"local","packageType":"generic","environments":["PROD"],"blackedOut":false}'
+              fi
+            fi
+            rm -f "$cfg"
+            curl -sS -L -X POST "$JF_URL/artifactory/api/repositories/$repo_key" -H "Authorization: Bearer ${TOKEN}" -H "X-JFrog-Project: ${PROJECT}" -H "Content-Type: application/json" -d "$upd" | cat
+          }
+          ensure_repo_and_envs() {
+            local repo_key="$1"; local pkg="$2"
+            if repo_exists "$repo_key"; then
+              echo "$repo_key exists"
+            else
+              create_repo "$repo_key" "$pkg"
+            fi
+            patch_envs "$repo_key" || true
+          }
+          ensure_repo_and_envs "$GENERIC_REPO" generic
+          ensure_repo_and_envs "$DOCKER_REPO" docker
+
       - name: "[Release] PROD"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
@@ -539,6 +610,11 @@ jobs:
           if [[ "$CURR_DISPLAY" == "STAGING" ]]; then
             echo "PROMO_RELEASE_ATTEMPTED=true" >> $GITHUB_ENV
             ALLOW_RELEASE=true
+            # Explicitly set included repositories for release and ensure they exist
+            svc_name="${SERVICE_NAME}"
+            docker_repo="${{ vars.PROJECT_KEY }}-${svc_name}-internal-docker-release-local"
+            generic_repo="${{ vars.PROJECT_KEY }}-${svc_name}-internal-generic-release-local"
+            export RELEASE_INCLUDED_REPO_KEYS=$(printf '["%s","%s"]' "$docker_repo" "$generic_repo")
             set +e
             advance_one_step
             RC=$?
@@ -563,25 +639,28 @@ jobs:
           fi
 
       - name: "[Tags] Enforce PROD 'latest' invariants"
-        if: ${{ env.PROMO_RELEASE_STATUS == 'SUCCESS' }}
         run: |
           set -euo pipefail
+          if [[ "${PROMO_RELEASE_STATUS:-}" != "SUCCESS" ]]; then
+            echo "Skipping latest tag enforcement; release not successful"
+            exit 0
+          fi
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
           APP_KEY="$APPLICATION_KEY"
-          VER="$APP_VERSION"
-          BASE="/apptrust/api/v1"
-          RESP=$(jf curl -sS -L -H "Accept: application/json" "$BASE/applications/$APP_KEY/versions?limit=1000" || true)
+          BASE='${{ vars.JFROG_URL }}/apptrust/api/v1'
+          TOKEN='${{ secrets.JFROG_ADMIN_TOKEN }}'
+          RESP=$(mktemp)
+          code=$(curl -sS -L -o "$RESP" -w "%{http_code}" \
+            "$BASE/applications/$APP_KEY/versions?limit=1000&order_by=created&order_asc=false" \
+            -H "Authorization: Bearer $TOKEN" -H "Accept: application/json" || echo 000)
           if [[ "$code" -lt 200 || "$code" -ge 300 ]]; then
             echo "❌ Failed to list versions (HTTP $code)" >&2; cat "$RESP" || true; exit 1
           fi
-          # Determine desired latest = SemVer max among PROD (RELEASED/TRUSTED_RELEASE)
           DESIRED=$(jq -r '[.versions[] | select((.release_status|tostring|ascii_upcase)=="RELEASED" or (.release_status|tostring|ascii_upcase)=="TRUSTED_RELEASE") | .version] | unique | map(select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))) | sort_by(split(".")|map(tonumber)) | last // empty' "$RESP")
           if [[ -z "$DESIRED" ]]; then
-            echo "ℹ️ No PROD versions found; clearing any existing 'latest' tags"
             mapfile -t PREV_LATEST < <(jq -r '.versions[] | select(.tag=="latest") | .version' "$RESP")
             for pv in "${PREV_LATEST[@]:-}"; do
               [ -z "$pv" ] && continue
-              # Restore previous tag from property when available; else use version
               restore=$(jq -r --arg v "$pv" '.versions[] | select(.version==$v) | (.properties.original_tag_before_latest[0] // .version // "")' "$RESP")
               printf '{"tag":"%s","delete_properties":["original_tag_before_latest"]}' "$restore" > body.json
               curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$pv" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @body.json | cat
@@ -589,18 +668,15 @@ jobs:
             rm -f "$RESP" body.json
             exit 0
           fi
-          echo "Desired latest in PROD: $DESIRED"
-          # Assign latest to DESIRED: back up current tag value first
           CURR_TAG=$(jq -r --arg v "$DESIRED" '.versions[] | select(.version==$v) | (.tag // "")' "$RESP")
           jq -n --arg ct "$CURR_TAG" '{tag:"latest", properties:{original_tag_before_latest:[$ct]}}' > body.json
-          jf curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$DESIRED" -H "Content-Type: application/json" -d @body.json | cat
-          # For any other version currently tagged latest, restore its original tag
+          curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$DESIRED" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @body.json | cat
           mapfile -t OTHERS < <(jq -r --arg v "$DESIRED" '.versions[] | select(.tag=="latest" and .version!=$v) | .version' "$RESP")
           for ov in "${OTHERS[@]:-}"; do
             [ -z "$ov" ] && continue
             restore=$(jq -r --arg v "$ov" '.versions[] | select(.version==$v) | (.properties.original_tag_before_latest[0] // .version // "")' "$RESP")
             printf '{"tag":"%s","delete_properties":["original_tag_before_latest"]}' "$restore" > body.json
-            jf curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$ov" -H "Content-Type: application/json" -d @body.json | cat
+            curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$ov" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @body.json | cat
           done
           rm -f "$RESP" body.json || true
 

@@ -38,6 +38,7 @@ jobs:
       build_name: ${{ steps.set-build-info.outputs.build_name }}
       build_number: ${{ steps.set-build-info.outputs.build_number }}
       app_version: ${{ steps.set-app-version.outputs.app_version }}
+      image_tag: ${{ steps.set-app-version.outputs.image_tag }}
       coverage_percent: ${{ steps.test-coverage.outputs.coverage_percent }}
       docker_build_push_status: ${{ steps.export-status-outputs.outputs.docker_build_push_status }}
       build_info_publish_status: ${{ steps.export-status-outputs.outputs.build_info_publish_status }}
@@ -134,45 +135,6 @@ jobs:
           echo "TESTS_PASSED=true" >> $GITHUB_ENV
 
       - name: "[Setup] Determine SemVer"
-        run: |
-          set -euo pipefail
-          if [ -f .github/scripts/http_debug.sh ]; then source .github/scripts/http_debug.sh; fi
-          SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
-          APPLICATION_KEY="bookverse-$SERVICE_NAME"
-          echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
-          RESP=$(jf rt curl "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "Accept: application/json" || true)
-          if LATEST_VERSION=$(echo "$RESP" | jq -er '.versions[0].version // empty' 2>/dev/null); then
-            :
-          else
-            LATEST_VERSION=""
-          fi
-          if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "null" ]]; then
-            MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
-            MINOR=$(echo "$LATEST_VERSION" | cut -d. -f2)
-            PATCH=$(echo "$LATEST_VERSION" | cut -d. -f3 | cut -d- -f1)
-            APP_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
-          else
-            echo "🆕 No existing versions found, starting fresh"
-            # Generate initial version between 1.0.0 to 2.5.9
-            MAJOR=1
-            MINOR=$((RANDOM % 6))  # 0-5
-            PATCH=$((RANDOM % 10)) # 0-9
-            APP_VERSION="$MAJOR.$MINOR.$PATCH"
-            echo "🎯 Generated initial version: $APP_VERSION"
-          fi
-          # Update tags to SemVer
-          IMAGE_TAG="$APP_VERSION"
-          DOCKER_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
-          IMAGE_NAME_PATH="${REGISTRY_URL}/${DOCKER_REPO}/${SERVICE_NAME}:${IMAGE_TAG}"
-          IMAGE_NAME_SUBDOMAIN="${DOCKER_REPO}.${REGISTRY_URL}/${SERVICE_NAME}:${IMAGE_TAG}"
-          IMAGE_NAME="$IMAGE_NAME_PATH"
-          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
-          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
-          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
-          echo "IMAGE_NAME_PATH=$IMAGE_NAME_PATH" >> $GITHUB_ENV
-          echo "IMAGE_NAME_SUBDOMAIN=$IMAGE_NAME_SUBDOMAIN" >> $GITHUB_ENV
-
-      - name: "[Setup] Determine SemVer"
         id: set-app-version
         run: |
           set -euo pipefail
@@ -215,72 +177,54 @@ jobs:
           fi
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
-          echo "🔎 Resolving next SemVer for $APPLICATION_KEY"
-          RESP=$(jf rt curl "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "Accept: application/json" || true)
-          echo "🔢 Versions GET via jf curl"
-          # Attempt to parse JSON; if parsing fails, fall back
-          if LATEST_VERSION=$(echo "$RESP" | jq -er '.versions[0].version // empty' 2>/dev/null); then
-            :
+          REGISTRY_URL=${REGISTRY_URL:-${{ vars.DOCKER_REGISTRY }}}
+          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
+
+          echo "🔎 Resolving next Application SemVer for $APPLICATION_KEY (SemVer sort)"
+          APP_RESP=$(jf rt curl "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1000" -H "Accept: application/json" || true)
+          if ! echo "$APP_RESP" | jq -e . >/dev/null 2>&1; then
+            APP_LATEST=""
           else
-            echo "⚠️ Non-JSON or unexpected response from versions API; falling back to 1.0.0"
-            LATEST_VERSION=""
+            # Take all versions, strip any pre-release suffix, keep strict X.Y.Z, sort numerically and pick last
+            APP_LATEST=$(echo "$APP_RESP" | jq -r '[.versions[]?.version? | gsub("-.*$"; "") | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)')
           fi
-          if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "null" ]]; then
-            MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
-            MINOR=$(echo "$LATEST_VERSION" | cut -d. -f2)
-            PATCH=$(echo "$LATEST_VERSION" | cut -d. -f3 | cut -d- -f1)
-            APP_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
-            echo "⬆️ Latest=$LATEST_VERSION → Next=$APP_VERSION"
+          if [[ -n "${APP_LATEST}" ]]; then
+            IFS='.' read -r A_MAJ A_MIN A_PAT <<<"${APP_LATEST}"; A_PAT=$((A_PAT+1)); APP_VERSION="${A_MAJ}.${A_MIN}.${A_PAT}"
           else
-            echo "🆕 No existing versions found, starting fresh"
-            # Generate initial version between 1.0.0 to 2.5.9
-            MAJOR=1
-            MINOR=$((RANDOM % 6))  # 0-5
-            PATCH=$((RANDOM % 10)) # 0-9
-            APP_VERSION="$MAJOR.$MINOR.$PATCH"
-            echo "🎯 Generated initial version: $APP_VERSION"
+            # Initial range: 1.0.0–2.15.29
+            A_MAJ=$(( (RANDOM % 2) + 1 ))
+            A_MIN=$(( RANDOM % 16 ))
+            A_PAT=$(( RANDOM % 30 ))
+            APP_VERSION="${A_MAJ}.${A_MIN}.${A_PAT}"
           fi
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
           echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
-          # Update image tag/name to use SemVer
-          REGISTRY_URL=${REGISTRY_URL:-${{ vars.DOCKER_REGISTRY }}}
-          IMAGE_TAG="$APP_VERSION"
-          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
+
+          echo "🔎 Resolving next Image SemVer for docker:$REPO_KEY/$SERVICE_NAME (SemVer sort)"
+          IMG_RESP=$(jf rt curl -H "Accept: application/json" "/api/docker/$REPO_KEY/v2/$SERVICE_NAME/tags/list" || true)
+          if ! echo "$IMG_RESP" | jq -e . >/dev/null 2>&1; then
+            IMG_LATEST=""
+          else
+            IMG_LATEST=$(echo "$IMG_RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)')
+          fi
+          if [[ -n "${IMG_LATEST}" ]]; then
+            IFS='.' read -r I_MAJ I_MIN I_PAT <<<"${IMG_LATEST}"; I_PAT=$((I_PAT+1)); IMAGE_TAG="${I_MAJ}.${I_MIN}.${I_PAT}"
+          else
+            # Initial range: 1.0.0–2.15.29
+            I_MAJ=$(( (RANDOM % 2) + 1 ))
+            I_MIN=$(( RANDOM % 16 ))
+            I_PAT=$(( RANDOM % 30 ))
+            IMAGE_TAG="${I_MAJ}.${I_MIN}.${I_PAT}"
+          fi
+
           IMAGE_NAME_PATH="$REGISTRY_URL/$REPO_KEY/$SERVICE_NAME:$IMAGE_TAG"
           IMAGE_NAME="$IMAGE_NAME_PATH"
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
 
-      - name: "[Setup] Next Docker tag (per-image SemVer)"
-        run: |
-          set -euo pipefail
-          JF_URL='${{ vars.JFROG_URL }}'
-          REPO_KEY="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
-          IMG_NAME="$SERVICE_NAME"
-          # Ensure jq present
-          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
-          RESP=$(jf rt curl -H "Accept: application/json" "/api/docker/$REPO_KEY/v2/$IMG_NAME/tags/list" || true)
-          if ! echo "$RESP" | jq -e . >/dev/null 2>&1; then
-            echo "⚠️ Non-JSON response when listing tags for $REPO_KEY/$IMG_NAME"
-            next_tag=""
-          else
-            next_tag=$(echo "$RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty) ')
-          fi
-          if [[ -n "$next_tag" ]]; then
-            IFS='.' read -r ma mi pa <<<"$next_tag" || true
-            pa=$((pa+1))
-            API_IMAGE_TAG="$ma.$mi.$pa"
-          else
-            seed=$(printf '%s' "$REPO_KEY/$IMG_NAME" | sha256sum | cut -c1-4 | tr -d '\n' || true)
-            base_minor=$(( (0x${seed:0:2} % 3) ))
-            base_patch=$(( (0x${seed:2:2} % 9) + 1 ))
-            API_IMAGE_TAG="1.${base_minor}.${base_patch}"
-          fi
-          echo "API_IMAGE_TAG=$API_IMAGE_TAG" >> $GITHUB_ENV
-          IMAGE_NAME_PATH="$REGISTRY_URL/$REPO_KEY/$IMG_NAME:$API_IMAGE_TAG"
-          IMAGE_NAME="$IMAGE_NAME_PATH"
-          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+
                 
       - name: "[Setup] JFrog CLI"
         # Temporary workaround: using forked action until upstream fix
@@ -413,35 +357,13 @@ jobs:
           export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
 
           # Using OIDC-based server configuration from setup action; no admin token required
-
-          # Compute per-image next SemVer tag by listing existing tags and bumping patch (align with checkout)
-          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
+          # Use precomputed IMAGE_TAG/IMAGE_NAME from set-app-version step to avoid drift
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
-          API_IMAGE_NAME="$SERVICE_NAME"
-          RESP=$(jf rt curl -H "Accept: application/json" "/api/docker/$REPO_KEY/v2/$API_IMAGE_NAME/tags/list" || true)
-          if echo "$RESP" | jq -e . >/dev/null 2>&1; then
-            LAST=$(echo "$RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)')
-          else
-            LAST=""
+          if [[ -z "${IMAGE_NAME:-}" ]]; then
+            IMAGE_NAME="$REGISTRY_URL/$REPO_KEY/$SERVICE_NAME:$IMAGE_TAG"
+            echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           fi
-          if [[ -n "$LAST" ]]; then
-            IFS='.' read -r MA MI PA <<<"$LAST"; PA=$((PA+1)); API_TAG="$MA.$MI.$PA"
-          else
-            # Generate a random initial image tag (independent of APP_VERSION)
-            random_first_semver() { local Mj=$(( (RANDOM % 5) + 1 )); local Mn=$(( (RANDOM % 50) + 1 )); local Pt=$(( (RANDOM % 50) + 1 )); printf "%d.%d.%d" "$Mj" "$Mn" "$Pt"; }
-            attempt=0
-            while :; do
-              candidate=$(random_first_semver)
-              if ! echo "$RESP" | jq -e --arg t "$candidate" '.tags[]? | select(. == $t)' >/dev/null 2>&1; then
-                API_TAG="$candidate"; break
-              fi
-              attempt=$((attempt+1))
-              if [[ $attempt -ge 10 ]]; then API_TAG="$IMAGE_TAG"; break; fi
-            done
-          fi
-          echo "API_TAG=$API_TAG" >> $GITHUB_ENV
-          IMAGE_NAME="$REGISTRY_URL/$REPO_KEY/$API_IMAGE_NAME:$API_TAG"
-          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "Using precomputed image tag: $IMAGE_TAG"
 
           # Build and push (plain docker) using subdomain host; then create build-info
           jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
@@ -528,7 +450,7 @@ jobs:
             --predicate-type "https://pytest.org/evidence/results/v1" \
             --package-name "$SERVICE_NAME" \
             --package-repo-name "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local" \
-            --package-version "$API_IMAGE_TAG" \
+            --package-version "$IMAGE_TAG" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}"; then
@@ -600,7 +522,7 @@ jobs:
             --predicate-type "https://checkmarx.com/evidence/sast/v1.1" \
             --package-name "$SERVICE_NAME" \
             --package-repo-name "${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local" \
-            --package-version "$API_IMAGE_TAG" \
+            --package-version "$IMAGE_TAG" \
             --project "${{ vars.PROJECT_KEY }}" \
             --key "${{ secrets.EVIDENCE_PRIVATE_KEY }}" \
             --key-alias "${{ vars.EVIDENCE_KEY_ALIAS }}"; then
@@ -840,7 +762,7 @@ jobs:
         run: |
           SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
           APP_VERSION=${{ needs.build-test-publish.outputs.app_version }}
-          IMAGE_TAG="${APP_VERSION}"
+          IMAGE_TAG=${{ needs.build-test-publish.outputs.image_tag }}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           BUILD_INFO_REPO="${{ vars.PROJECT_KEY }}-build-info"
           # Recompute canonical build reference for the build job
@@ -848,27 +770,9 @@ jobs:
           BUILD_NUMBER="${{ github.run_number }}-${{ github.run_attempt }}"
           BUILD_INFO_REPO="${{ vars.PROJECT_KEY }}-build-info"
           
-          echo "🔍 Checking for existing application versions..."
-          
-          if [[ -z "$APP_VERSION" || "$APP_VERSION" == "" ]]; then
-            # Compute next SemVer if not provided by build job
-          LATEST_VERSION=$(jf curl "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" | jq -r '.versions[0].version // empty')
-          if [[ -n "$LATEST_VERSION" && "$LATEST_VERSION" != "null" ]]; then
-              MAJOR=$(echo "$LATEST_VERSION" | cut -d. -f1)
-              MINOR=$(echo "$LATEST_VERSION" | cut -d. -f2)
-              PATCH=$(echo "$LATEST_VERSION" | cut -d. -f3 | cut -d- -f1)
-              APP_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
-              echo "⬆️ Latest=$LATEST_VERSION → Next=$APP_VERSION"
-            else
-              echo "🆕 No existing versions found, starting fresh"
-              # Generate initial version between 1.0.0 to 2.5.9
-              MAJOR=1
-              MINOR=$((RANDOM % 6))  # 0-5
-              PATCH=$((RANDOM % 10)) # 0-9
-              APP_VERSION="$MAJOR.$MINOR.$PATCH"
-              echo "🎯 Generated initial version: $APP_VERSION"
-            fi
-            IMAGE_TAG="$APP_VERSION"
+          if [[ -z "$APP_VERSION" || -z "$IMAGE_TAG" ]]; then
+            echo "❌ Missing APP_VERSION or IMAGE_TAG from build-test-publish outputs" >&2
+            exit 1
           fi
           
           echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
