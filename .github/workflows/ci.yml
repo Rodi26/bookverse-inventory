@@ -656,7 +656,16 @@ jobs:
           # Associate the pushed Docker image with the build-info before publishing
           REPO_KEY="${DOCKER_REPO:-${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local}"
           echo "🔗 Adding docker image to build-info: image=$IMAGE_NAME repo=$REPO_KEY"
-          echo "$IMAGE_NAME" > images.txt
+          # Resolve pushed image digest and write in required format: image:tag@sha256:...
+          DIGEST=$(docker inspect "$IMAGE_NAME" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
+          if [[ -z "$DIGEST" || "$DIGEST" == "<no value>" ]]; then
+            docker pull "$IMAGE_NAME" >/dev/null 2>&1 || true
+            DIGEST=$(docker inspect "$IMAGE_NAME" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
+          fi
+          if [[ -z "$DIGEST" || "$DIGEST" == "<no value>" ]]; then
+            echo "❌ Could not resolve image digest for $IMAGE_NAME" >&2; exit 1
+          fi
+          echo "${IMAGE_NAME%@*}@${DIGEST}" > images.txt
           jf rt build-docker-create "$REPO_KEY" \
             --image-file images.txt \
             --build-name "$BUILD_NAME" \
