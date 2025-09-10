@@ -648,10 +648,6 @@ jobs:
           if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token for build-info publish" >&2; exit 1; fi
           export JF_ACCESS_TOKEN="$TOKEN"
           export JF_PROJECT='${{ vars.PROJECT_KEY }}'
-          # Add and use a temp server tied to this access token
-          TMP_SERVER_ID="ci-token-server"
-          jf c add "$TMP_SERVER_ID" --interactive=false --overwrite=true --url "$JF_URL" --access-token "$TOKEN"
-          jf c use "$TMP_SERVER_ID"
           echo "Using JFrog server(s):" && jf c show || true
           # Associate the pushed Docker image with the build-info before publishing
           REPO_KEY="${DOCKER_REPO:-${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local}"
