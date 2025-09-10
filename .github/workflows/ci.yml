@@ -653,6 +653,17 @@ jobs:
           jf c add "$TMP_SERVER_ID" --interactive=false --overwrite=true --url "$JF_URL" --access-token "$TOKEN"
           jf c use "$TMP_SERVER_ID"
           echo "Using JFrog server(s):" && jf c show || true
+          # Associate the pushed Docker image with the build-info before publishing
+          REPO_KEY="${DOCKER_REPO:-${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local}"
+          IMG_NAME="${SERVICE_NAME}"
+          IMG_TAG="${API_TAG:-${IMAGE_TAG:-latest}}"
+          IMG_REF="$IMG_NAME:$IMG_TAG"
+          echo "🔗 Adding docker image to build-info: repo=$REPO_KEY image=$IMG_REF"
+          jf rt build-docker-create "$REPO_KEY" \
+            --image "$IMG_REF" \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER" \
+            --project "${{ vars.PROJECT_KEY }}"
           if jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER" \
              && jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER" \
              && jf rt bp  --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"; then
