@@ -256,29 +256,14 @@ jobs:
           JF_URL='${{ vars.JFROG_URL }}'
           REPO_KEY="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
           IMG_NAME="$SERVICE_NAME"
-          # Ensure jq present and align behavior with checkout: prefer admin-token curl with status capture; fallback to jf curl
+          # Ensure jq present
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
-          TOKEN='${{ secrets.JFROG_ADMIN_TOKEN }}'
-          if [[ -n "$TOKEN" ]]; then
-            RESP_FILE=$(mktemp)
-            CODE=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
-              -H "Authorization: Bearer $TOKEN" -H "Accept: application/json" \
-              "$JF_URL/artifactory/api/docker/$REPO_KEY/v2/$IMG_NAME/tags/list" || echo 000)
-            if [[ "$CODE" -ge 200 && "$CODE" -lt 300 ]]; then
-              next_tag=$(jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)' "$RESP_FILE")
-            else
-              echo "⚠️ Tag list HTTP $CODE for $REPO_KEY/$IMG_NAME"
-              next_tag=""
-            fi
-            rm -f "$RESP_FILE"
+          RESP=$(jf rt curl -H "Accept: application/json" "/api/docker/$REPO_KEY/v2/$IMG_NAME/tags/list" || true)
+          if ! echo "$RESP" | jq -e . >/dev/null 2>&1; then
+            echo "⚠️ Non-JSON response when listing tags for $REPO_KEY/$IMG_NAME"
+            next_tag=""
           else
-            RESP=$(jf curl -H "Accept: application/json" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" "/artifactory/api/docker/$REPO_KEY/v2/$IMG_NAME/tags/list" || true)
-            if ! echo "$RESP" | jq -e . >/dev/null 2>&1; then
-              echo "⚠️ Non-JSON response when listing tags for $REPO_KEY/$IMG_NAME"
-              next_tag=""
-            else
-              next_tag=$(echo "$RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty) ')
-            fi
+            next_tag=$(echo "$RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty) ')
           fi
           if [[ -n "$next_tag" ]]; then
             IFS='.' read -r ma mi pa <<<"$next_tag" || true
@@ -362,6 +347,47 @@ jobs:
           echo "COVERAGE_PERCENT=$COV" >> $GITHUB_ENV
           echo "coverage_percent=$COV" >> $GITHUB_OUTPUT
 
+      - name: "[Auth] Exchange OIDC and docker login"
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          PROJECT: ${{ vars.PROJECT_KEY }}
+          PROVIDER_NAME: bookverse-inventory-github
+        run: |
+          set -euo pipefail
+          # Ensure jq
+          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
+          # 1) Get GitHub OIDC ID token (audience -> JFrog URL)
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
+          GH_ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
+          if [[ -z "$GH_ID_TOKEN" || "$GH_ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
+          # 2) Exchange at JFrog Access for JAS access token
+          PAYLOAD=$(jq -n --arg jwt "$GH_ID_TOKEN" \
+            --arg provider_name "$PROVIDER_NAME" \
+            --arg project_key "$PROJECT" \
+            --arg job_id "${{ github.job }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg repo "https://github.com/${{ github.repository }}" \
+            --arg revision "${{ github.sha }}" \
+            --arg branch "${{ github.ref_name }}" \
+            '{
+              grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
+              subject_token_type:"urn:ietf:params:oauth:token-type:id_token",
+              subject_token:$jwt,
+              provider_name:$provider_name,
+              project_key:$project_key,
+              job_id:$job_id,
+              run_id:$run_id,
+              repo:$repo,
+              revision:$revision,
+              branch:$branch
+            }')
+          TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
+          if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
+          # 3) Docker login to the registry using access token
+          echo "$TOKEN" | docker login "$REGISTRY_URL" -u "oidc" --password-stdin
+
       - name: "[Build] API image"
         run: |
           set -euo pipefail
@@ -373,21 +399,15 @@ jobs:
           # Also set build project explicitly for JFrog CLI commands
           export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
 
-          # Ensure authenticated server with admin token is available to avoid project-header OIDC issues during docker push
-          if [[ -n "${{ secrets.JFROG_ADMIN_TOKEN }}" ]]; then
-            jf c add ci-admin --url "${{ vars.JFROG_URL }}" --interactive=false --overwrite=true --access-token "${{ secrets.JFROG_ADMIN_TOKEN }}" || true
-            jf c use ci-admin || true
-          fi
+          # Using OIDC-based server configuration from setup action; no admin token required
 
           # Compute per-image next SemVer tag by listing existing tags and bumping patch (align with checkout)
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
           API_IMAGE_NAME="$SERVICE_NAME"
-          TAGS_URL="${{ vars.JFROG_URL }}/artifactory/api/docker/$REPO_KEY/v2/$API_IMAGE_NAME/tags/list"
-          RESP=$(mktemp)
-          code=$(curl -sS -L -o "$RESP" -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "$TAGS_URL" || echo 000)
-          if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
-            LAST=$(jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)' "$RESP")
+          RESP=$(jf rt curl -H "Accept: application/json" "/api/docker/$REPO_KEY/v2/$API_IMAGE_NAME/tags/list" || true)
+          if echo "$RESP" | jq -e . >/dev/null 2>&1; then
+            LAST=$(echo "$RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)')
           else
             LAST=""
           fi
@@ -399,23 +419,33 @@ jobs:
             attempt=0
             while :; do
               candidate=$(random_first_semver)
-              if ! jq -e --arg t "$candidate" '.tags[]? | select(. == $t)' "$RESP" >/dev/null 2>&1; then
+              if ! echo "$RESP" | jq -e --arg t "$candidate" '.tags[]? | select(. == $t)' >/dev/null 2>&1; then
                 API_TAG="$candidate"; break
               fi
               attempt=$((attempt+1))
               if [[ $attempt -ge 10 ]]; then API_TAG="$IMAGE_TAG"; break; fi
             done
           fi
-          rm -f "$RESP"
           echo "API_TAG=$API_TAG" >> $GITHUB_ENV
           IMAGE_NAME="$REGISTRY_URL/$REPO_KEY/$API_IMAGE_NAME:$API_TAG"
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
 
-          # Build image and push via Artifactory legacy docker-push (align with checkout)
+          # Build image and push using plain docker (avoid JFrog CLI version probe)
           jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
-          jf rt dp --project "${{ vars.PROJECT_KEY }}" "$IMAGE_NAME" "$DOCKER_REPO" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          docker push "$IMAGE_NAME"
+
+          # Create build-info for the pushed image via build-docker-create
+          DIGEST=$(docker inspect "$IMAGE_NAME" | jq -r '.[0].RepoDigests[0]')
+          if [[ -z "$DIGEST" || "$DIGEST" == "null" ]]; then echo "❌ Missing RepoDigest after push" >&2; exit 1; fi
+          echo "$DIGEST" > build-metadata-jfrog-cli.txt
+          jf rt build-docker-create "$DOCKER_REPO" \
+            --image-file build-metadata-jfrog-cli.txt \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER" \
+            --project "${{ vars.PROJECT_KEY }}"
+
           echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
-          echo "✅ Built and pushed Docker image (with build-info)"
+          echo "✅ Built and pushed Docker image (OIDC docker push + build-info)"
 
       # Rely on Build Info as the source of truth; explicit registry checks removed
 
