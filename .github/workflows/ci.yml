@@ -656,7 +656,9 @@ jobs:
           # Associate the pushed Docker image with the build-info before publishing
           REPO_KEY="${DOCKER_REPO:-${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local}"
           echo "🔗 Adding docker image to build-info: image=$IMAGE_NAME repo=$REPO_KEY"
-          jf rt build-docker-create "$IMAGE_NAME" "$REPO_KEY" \
+          echo "$IMAGE_NAME" > images.txt
+          jf rt build-docker-create "$REPO_KEY" \
+            --image-file images.txt \
             --build-name "$BUILD_NAME" \
             --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}"
