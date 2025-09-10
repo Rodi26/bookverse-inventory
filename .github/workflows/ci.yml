@@ -387,7 +387,7 @@ jobs:
           TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
           if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
           # 3) Docker login to the registry using access token
-          echo "$TOKEN" | docker login "$REGISTRY_URL" -u "oauth2_access_token" --password-stdin
+          echo "$TOKEN" | docker login "$REGISTRY_URL" -u "oauth2" --password-stdin
 
       - name: "[Build] API image"
         run: |
