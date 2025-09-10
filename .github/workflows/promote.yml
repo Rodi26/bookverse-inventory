@@ -8,28 +8,9 @@ on:
         required: true
         type: choice
         default: 'PROD'
-        options: [ PROD, STAGING, QA, DEV ]
+        options: [ DEV, QA, STAGING, PROD ]
       application_version:
         description: 'Application version (SemVer) to promote (leave empty for latest)'
-        required: false
-        type: string
-      DEMO_MODE:
-        description: 'Enable demo mode (verbose logs, request tracing)'
-        required: false
-        default: 'false'
-        type: choice
-        options: ['false', 'true']
-      service_name:
-        description: 'Service name override (optional)'
-        required: false
-        type: string
-      oidc_provider_name:
-        description: 'OIDC provider name for jfrog/setup-jfrog-cli'
-        required: false
-        type: string
-        default: 'bookverse-inventory-github'
-      evidence_key_alias:
-        description: 'Evidence key alias (optional)'
         required: false
         type: string
   workflow_call:
@@ -40,23 +21,6 @@ on:
         type: string
       application_version:
         description: 'Application version (SemVer) to promote (leave empty for latest)'
-        required: false
-        type: string
-      DEMO_MODE:
-        description: 'Enable demo mode (verbose logs, request tracing)'
-        required: false
-        type: string
-        default: 'false'
-      service_name:
-        description: 'Service name (e.g., inventory, checkout, recommendations, web)'
-        required: false
-        type: string
-      oidc_provider_name:
-        description: 'OIDC provider name for jfrog/setup-jfrog-cli'
-        required: false
-        type: string
-      evidence_key_alias:
-        description: 'Evidence key alias (if server-side aliasing is used)'
         required: false
         type: string
 
@@ -77,20 +41,6 @@ jobs:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
-      - name: "[Setup] DEMO_MODE default"
-        run: |
-          echo "DEMO_MODE=${DEMO_MODE:-false}" >> $GITHUB_ENV
-
-      - name: "[Setup] DEMO_MODE"
-        if: ${{ inputs.DEMO_MODE == 'true' || env.DEMO_MODE == 'true' }}
-        run: |
-          echo "🔔 DEMO_MODE enabled"
-          echo "ACTIONS_STEP_DEBUG=true" >> $GITHUB_ENV
-          echo "ACTIONS_RUNNER_DEBUG=true" >> $GITHUB_ENV
-          echo "HTTP_DEBUG_LEVEL=verbose" >> $GITHUB_ENV
-          echo "BASH_XTRACE_ENABLED=1" >> $GITHUB_ENV
-          echo "LOG_LEVEL=DEBUG" >> $GITHUB_ENV
-
       - name: "[Setup] Prereqs (jq)"
         run: |
           sudo apt-get update -y
@@ -101,7 +51,7 @@ jobs:
           set -euo pipefail
           BASE="${{ vars.JFROG_URL }}"; BASE="${BASE%/}"
           if [[ -z "$BASE" ]]; then echo "Missing vars.JFROG_URL" >&2; exit 1; fi
-          PROVIDER_NAME="${{ inputs.oidc_provider_name || 'bookverse-inventory-github' }}"
+          PROVIDER_NAME="bookverse-inventory-github"
           # Mint GitHub OIDC ID token with audience = JFrog URL (align with CI workflow)
           JF_URL="$BASE"
           if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
@@ -138,11 +88,7 @@ jobs:
       - name: "[Resolve] App & version"
         run: |
           set -euo pipefail
-          if [[ -n "${{ inputs.service_name }}" ]]; then
-            SERVICE_NAME="${{ inputs.service_name }}"
-          else
-            SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
-          fi
+          SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           TARGET_STAGE=${{ inputs.target_stage }}
           APP_VERSION_INPUT="${{ inputs.application_version }}"
@@ -178,7 +124,7 @@ jobs:
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
         with:
           version: latest
-          oidc-provider-name: ${{ inputs.oidc_provider_name }}
+          oidc-provider-name: bookverse-inventory-github
           disable-job-summary: true
           oidc-audience: ${{ vars.JFROG_URL }}
 
