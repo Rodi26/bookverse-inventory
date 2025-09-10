@@ -96,6 +96,23 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y jq
 
+      - name: "[Auth] Exchange GitHub OIDC for JFrog access token"
+        run: |
+          set -euo pipefail
+          BASE="${{ vars.JFROG_URL }}"; BASE="${BASE%/}"
+          if [[ -z "$BASE" ]]; then echo "Missing vars.JFROG_URL" >&2; exit 1; fi
+          AUDIENCE="${{ vars.JF_OIDC_AUDIENCE || vars.JFROG_URL }}"
+          PROVIDER_NAME="${{ inputs.oidc_provider_name || 'github-oidc' }}"
+          echo "🔑 Minting GitHub OIDC ID token (audience=$AUDIENCE)"
+          ID_TOKEN=$(curl -fsSL -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" -H "Accept: application/json" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=${AUDIENCE}" | jq -r '.value')
+          if [[ -z "$ID_TOKEN" || "$ID_TOKEN" == "null" ]]; then echo "Failed to mint OIDC token" >&2; exit 1; fi
+          echo "🔁 Exchanging OIDC for JFrog access token (provider=$PROVIDER_NAME)"
+          PAYLOAD=$(jq -n --arg pn "$PROVIDER_NAME" --arg tok "$ID_TOKEN" --arg aud "$AUDIENCE" '{provider_name:$pn, subject_token:$tok, subject_issuer:"https://token.actions.githubusercontent.com", audience:$aud}')
+          RESP=$(curl -fsSL -X POST "$BASE/access/api/v1/oidc/token" -H "Content-Type: application/json" -d "$PAYLOAD")
+          APPTRUST_ACCESS_TOKEN=$(echo "$RESP" | jq -er '.access_token // empty' || true)
+          if [[ -z "$APPTRUST_ACCESS_TOKEN" ]]; then echo "Failed to obtain JFrog access token: $RESP" >&2; exit 1; fi
+          echo "APPTRUST_ACCESS_TOKEN=$APPTRUST_ACCESS_TOKEN" >> $GITHUB_ENV
+
       - name: "[Resolve] App & version"
         run: |
           set -euo pipefail
@@ -112,8 +129,14 @@ jobs:
             APP_VERSION="$APP_VERSION_INPUT"
           else
             echo "🔎 Fetching latest application version for $APPLICATION_KEY"
-            RESP=$(curl -sS -H "Authorization: Bearer ${{ secrets.JFROG_ADMIN_TOKEN }}" -H "Accept: application/json" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&order_by=created&order_asc=false" || true)
-            if LATEST_VERSION=$(echo "$RESP" | jq -er '.versions[0].version // empty' 2>/dev/null); then APP_VERSION="$LATEST_VERSION"; fi
+            BASE="${{ vars.JFROG_URL }}"; BASE="${BASE%/}"
+            jq_expr='.results[0].version // .data[0].version // .items[0].version // .versions[0].version // .results[0].name // .data[0].name // .items[0].name // .versions[0].name // empty'
+            RESP=$(curl -sS -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" "$BASE/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1&release_status=RELEASED" || true)
+            if LATEST_VERSION=$(echo "$RESP" | jq -er "$jq_expr" 2>/dev/null); then APP_VERSION="$LATEST_VERSION"; fi
+            if [ -z "$APP_VERSION" ]; then
+              RESP=$(curl -sS -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" "$BASE/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1" || true)
+              if LATEST_VERSION=$(echo "$RESP" | jq -er "$jq_expr" 2>/dev/null); then APP_VERSION="$LATEST_VERSION"; fi
+            fi
             if [ -z "$APP_VERSION" ]; then
               echo "❌ Could not determine latest application version for $APPLICATION_KEY" >&2
               exit 1
@@ -533,7 +556,7 @@ jobs:
         run: |
           set -euo pipefail
           JF_URL='${{ vars.JFROG_URL }}'
-          TOKEN='${{ secrets.JFROG_ADMIN_TOKEN }}'
+          TOKEN="$APPTRUST_ACCESS_TOKEN"
           PROJECT='${{ vars.PROJECT_KEY }}'
           # SERVICE_NAME is provided via GITHUB_ENV by the resolve step
           : "${SERVICE_NAME:?SERVICE_NAME not set}"
@@ -648,7 +671,7 @@ jobs:
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
           APP_KEY="$APPLICATION_KEY"
           BASE='${{ vars.JFROG_URL }}/apptrust/api/v1'
-          TOKEN='${{ secrets.JFROG_ADMIN_TOKEN }}'
+          TOKEN="$APPTRUST_ACCESS_TOKEN"
           RESP=$(mktemp)
           code=$(curl -sS -L -o "$RESP" -w "%{http_code}" \
             "$BASE/applications/$APP_KEY/versions?limit=1000&order_by=created&order_asc=false" \
