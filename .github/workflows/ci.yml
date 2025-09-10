@@ -120,7 +120,7 @@ jobs:
           DOCKER_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
           IMAGE_NAME_PATH="${REGISTRY_URL}/${DOCKER_REPO}/${SERVICE_NAME}:${IMAGE_TAG}"
           IMAGE_NAME_SUBDOMAIN="${DOCKER_REPO}.${REGISTRY_URL}/${SERVICE_NAME}:${IMAGE_TAG}"
-          IMAGE_NAME="$IMAGE_NAME_PATH"
+          IMAGE_NAME="$IMAGE_NAME_SUBDOMAIN"
 
           echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
@@ -246,8 +246,8 @@ jobs:
           REGISTRY_URL=${REGISTRY_URL:-${{ vars.DOCKER_REGISTRY }}}
           IMAGE_TAG="$APP_VERSION"
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
-          IMAGE_NAME_PATH="$REGISTRY_URL/$REPO_KEY/$SERVICE_NAME:$IMAGE_TAG"
-          IMAGE_NAME="$IMAGE_NAME_PATH"
+          IMAGE_NAME_SUBDOMAIN="$REPO_KEY.$REGISTRY_URL/$SERVICE_NAME:$IMAGE_TAG"
+          IMAGE_NAME="$IMAGE_NAME_SUBDOMAIN"
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
@@ -279,7 +279,8 @@ jobs:
           fi
           echo "API_IMAGE_TAG=$API_IMAGE_TAG" >> $GITHUB_ENV
           IMAGE_NAME_PATH="$REGISTRY_URL/$REPO_KEY/$IMG_NAME:$API_IMAGE_TAG"
-          IMAGE_NAME="$IMAGE_NAME_PATH"
+          IMAGE_NAME_SUBDOMAIN="$REPO_KEY.$REGISTRY_URL/$IMG_NAME:$API_IMAGE_TAG"
+          IMAGE_NAME="$IMAGE_NAME_SUBDOMAIN"
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
                 
       - name: "[Setup] JFrog CLI"
@@ -348,7 +349,52 @@ jobs:
           echo "COVERAGE_PERCENT=$COV" >> $GITHUB_ENV
           echo "coverage_percent=$COV" >> $GITHUB_OUTPUT
 
-      
+      - name: "[Auth] Exchange OIDC and docker login"
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          PROJECT: ${{ vars.PROJECT_KEY }}
+          PROVIDER_NAME: bookverse-inventory-github
+        run: |
+          set -euo pipefail
+          # Ensure jq
+          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
+          # 1) Get GitHub OIDC ID token (audience -> JFrog URL)
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
+          GH_ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
+          if [[ -z "$GH_ID_TOKEN" || "$GH_ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
+          # 2) Exchange at JFrog Access for access token
+          PAYLOAD=$(jq -n --arg jwt "$GH_ID_TOKEN" \
+            --arg provider_name "$PROVIDER_NAME" \
+            --arg project_key "$PROJECT" \
+            --arg job_id "${{ github.job }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg repo "https://github.com/${{ github.repository }}" \
+            --arg revision "${{ github.sha }}" \
+            --arg branch "${{ github.ref_name }}" \
+            '{
+              grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
+              subject_token_type:"urn:ietf:params:oauth:token-type:id_token",
+              subject_token:$jwt,
+              provider_name:$provider_name,
+              project_key:$project_key,
+              job_id:$job_id,
+              run_id:$run_id,
+              repo:$repo,
+              revision:$revision,
+              branch:$branch
+            }')
+          TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
+          if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
+          # 3) Docker login to the repo subdomain using access token (try both usernames)
+          SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
+          REPO_KEY="${PROJECT}-${SERVICE_NAME}-internal-docker-nonprod-local"
+          REPO_HOST="$REPO_KEY.${{ vars.DOCKER_REGISTRY }}"
+          if ! echo "$TOKEN" | docker login "$REPO_HOST" -u "oauth2_access_token" --password-stdin; then
+            echo "Retrying docker login with username 'oauth2'..."
+            echo "$TOKEN" | docker login "$REPO_HOST" -u "oauth2" --password-stdin
+          fi
 
       - name: "[Build] API image"
         run: |
@@ -392,9 +438,20 @@ jobs:
           IMAGE_NAME="$REGISTRY_URL/$REPO_KEY/$API_IMAGE_NAME:$API_TAG"
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
 
-          # Build image and push using JFrog CLI (injects Docker auth non-interactively)
+          # Build and push (plain docker) using subdomain host; then create build-info
           jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
-          jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
+          docker push "$IMAGE_NAME"
+
+          # Create build-info for the pushed image via build-docker-create
+          INSPECT=$(docker inspect "$IMAGE_NAME")
+          DIGEST=$(echo "$INSPECT" | jq -r '.[0].RepoDigests[0]' | awk -F@ '{print $2}')
+          if [[ -z "$DIGEST" || "$DIGEST" == "null" ]]; then echo "❌ Missing RepoDigest after push" >&2; exit 1; fi
+          echo "${IMAGE_NAME%@*}@${DIGEST}" > build-metadata-jfrog-cli.txt
+          jf rt build-docker-create "$REPO_KEY" \
+            --image-file build-metadata-jfrog-cli.txt \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER" \
+            --project "${{ vars.PROJECT_KEY }}"
 
           echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
           echo "✅ Built and pushed Docker image (OIDC docker push + build-info)"
