@@ -348,46 +348,14 @@ jobs:
           echo "COVERAGE_PERCENT=$COV" >> $GITHUB_ENV
           echo "coverage_percent=$COV" >> $GITHUB_OUTPUT
 
-      - name: "[Auth] Exchange OIDC and docker login"
+      - name: "[Setup] Docker login"
         env:
-          JF_URL: ${{ vars.JFROG_URL }}
-          PROJECT: ${{ vars.PROJECT_KEY }}
-          PROVIDER_NAME: bookverse-inventory-github
+          REGISTRY_URL: ${{ vars.DOCKER_REGISTRY }}
         run: |
           set -euo pipefail
-          # Ensure jq
-          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
-          # 1) Get GitHub OIDC ID token (audience -> JFrog URL)
-          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
-            echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
-          GH_ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
-          if [[ -z "$GH_ID_TOKEN" || "$GH_ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
-          # 2) Exchange at JFrog Access for access token
-          PAYLOAD=$(jq -n --arg jwt "$GH_ID_TOKEN" \
-            --arg provider_name "$PROVIDER_NAME" \
-            --arg project_key "$PROJECT" \
-            --arg job_id "${{ github.job }}" \
-            --arg run_id "${{ github.run_id }}" \
-            --arg repo "https://github.com/${{ github.repository }}" \
-            --arg revision "${{ github.sha }}" \
-            --arg branch "${{ github.ref_name }}" \
-            '{
-              grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
-              subject_token_type:"urn:ietf:params:oauth:token-type:id_token",
-              subject_token:$jwt,
-              provider_name:$provider_name,
-              project_key:$project_key,
-              job_id:$job_id,
-              run_id:$run_id,
-              repo:$repo,
-              revision:$revision,
-              branch:$branch
-            }')
-          TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
-          if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
-          # 3) Docker login to the registry using access token
-          echo "$TOKEN" | docker login "$REGISTRY_URL" -u "oauth2_access_token" --password-stdin
+          SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
+          jf c use "$SERVER_ID"
+          jf docker login "$REGISTRY_URL" --project "${{ vars.PROJECT_KEY }}"
 
       - name: "[Build] API image"
         run: |
