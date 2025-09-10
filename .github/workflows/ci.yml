@@ -803,6 +803,11 @@ jobs:
         # Temporary workaround: using forked action until upstream fix
         # uses: jfrog/setup-jfrog-cli@v4
         uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        with:
+          version: latest
+          disable-job-summary: true
+          disable-auto-build-publish: true
+          disable-auto-evidence-collection: false
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
@@ -871,7 +876,7 @@ jobs:
           echo "GET $URL"
           # Fetch via jf curl with project header; don't fail job on diagnostics
           RESP_FILE=$(mktemp)
-          CODE=$(jf curl -sS -L -H "Accept: application/json" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" "$URL" -o "$RESP_FILE" -w "%{http_code}" || echo 000)
+          CODE=$(jf rt curl -sS -L -H "Accept: application/json" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" "$URL" -o "$RESP_FILE" -w "%{http_code}" || echo 000)
           echo "HTTP $CODE"
           if [[ "$CODE" -ge 200 && "$CODE" -lt 300 ]] && jq -e . >/dev/null 2>&1 < "$RESP_FILE"; then
             jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})' "$RESP_FILE" || true
@@ -883,6 +888,7 @@ jobs:
 
       - name: "[Release] Create application version"
         run: |
+          set -euo pipefail
           echo "🚀 Creating AppTrust application version: $APP_VERSION"
           
           # Determine application version tag - simulate real development environment
@@ -974,37 +980,73 @@ jobs:
             }
           fi
           DEBUG_INCLUDE_PROJECT_HEADER=false print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" "$APP_VERSION_PAYLOAD"
-          # Create the application version using authenticated JFrog CLI
-          RESP=$(jf rt curl -sS -L -X POST \
-            "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
-            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+
+          # Mint an access token via OIDC and call AppTrust API with curl
+          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
+          JF_URL='${{ vars.JFROG_URL }}'
+          PROJECT='${{ vars.PROJECT_KEY }}'
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
+          GH_ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
+          if [[ -z "$GH_ID_TOKEN" || "$GH_ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
+          PAYLOAD=$(jq -n --arg jwt "$GH_ID_TOKEN" \
+            --arg provider_name "bookverse-inventory-github" \
+            --arg project_key "$PROJECT" \
+            --arg job_id "${{ github.job }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg repo "https://github.com/${{ github.repository }}" \
+            --arg revision "${{ github.sha }}" \
+            --arg branch "${{ github.ref_name }}" \
+            '{
+              grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
+              subject_token_type:"urn:ietf:params:oauth:token-type:id_token",
+              subject_token:$jwt,
+              provider_name:$provider_name,
+              project_key:$project_key,
+              job_id:$job_id,
+              run_id:$run_id,
+              repo:$repo,
+              revision:$revision,
+              branch:$branch
+            }')
+          TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
+          if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
+
+          # Create application version (capture HTTP status + body)
+          RESP_FILE=$(mktemp)
+          CODE=$(curl -sS -L -X POST "$JF_URL/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "X-JFrog-Project: $PROJECT" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
-            -d "$APP_VERSION_PAYLOAD" || true)
-          echo "📨 Response Body:"; echo "$RESP" | cat || true; echo
-          if [[ -z "$RESP" ]] || ! echo "$RESP" | jq -e . >/dev/null 2>&1; then
-            echo "❌ Failed to create application version (empty/non-JSON response)" >&2
-            exit 1
+            -d "$APP_VERSION_PAYLOAD" -o "$RESP_FILE" -w "%{http_code}" || echo 000)
+          echo "📨 Response Body:"; cat "$RESP_FILE" || true; echo
+          if [[ "$CODE" -lt 200 || "$CODE" -ge 300 ]] || ! jq -e . >/dev/null 2>&1 < "$RESP_FILE"; then
+            echo "❌ Failed to create application version (HTTP $CODE)" >&2
+            rm -f "$RESP_FILE"; exit 1
           fi
-          
+
           # Robust validation: fetch content and require status == COMPLETED
-          CONTENT=$(jf rt curl -sS -L \
-            "/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content" \
-            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-            -H "Accept: application/json" || true)
-          if [[ -z "$CONTENT" ]] || ! echo "$CONTENT" | jq -e . >/dev/null 2>&1; then
-            echo "❌ Version content endpoint returned empty/non-JSON for $APPLICATION_KEY@$APP_VERSION" >&2
-            echo "📨 Response Body:"; echo "$CONTENT" | cat || true; echo
-            exit 1
+          CNT_FILE=$(mktemp)
+          CODE2=$(curl -sS -L "$JF_URL/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "X-JFrog-Project: $PROJECT" \
+            -H "Accept: application/json" -o "$CNT_FILE" -w "%{http_code}" || echo 000)
+          if [[ "$CODE2" -lt 200 || "$CODE2" -ge 300 ]] || ! jq -e . >/dev/null 2>&1 < "$CNT_FILE"; then
+            echo "❌ Version content endpoint returned error/invalid JSON for $APPLICATION_KEY@$APP_VERSION (HTTP $CODE2)" >&2
+            echo "📨 Response Body:"; cat "$CNT_FILE" || true; echo
+            rm -f "$RESP_FILE" "$CNT_FILE"; exit 1
           fi
-          VERSION_STATE=$(echo "$CONTENT" | jq -r '.status // empty' 2>/dev/null || echo "")
-          echo "📨 Version Content:"; echo "$CONTENT" | cat || true; echo
+          VERSION_STATE=$(jq -r '.status // empty' < "$CNT_FILE" 2>/dev/null || echo "")
+          echo "📨 Version Content:"; cat "$CNT_FILE" || true; echo
           if [[ "$VERSION_STATE" != "COMPLETED" ]]; then
             echo "❌ Application version not in COMPLETED state (status='$VERSION_STATE') for $APPLICATION_KEY@$APP_VERSION" >&2
-            exit 1
+            rm -f "$RESP_FILE" "$CNT_FILE"; exit 1
           fi
           echo "✅ Application version created and validated (COMPLETED): $APPLICATION_KEY@$APP_VERSION"
           echo "📦 Packages will be automatically bound from build sources"
+          rm -f "$RESP_FILE" "$CNT_FILE"
 
       # Evidence Plan: App UNASSIGNED – slsa-provenance and jira-tickets (gate to DEV)
       - name: "[Evidence] Prepare UNASSIGNED templates"
