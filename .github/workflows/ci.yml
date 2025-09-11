@@ -119,7 +119,7 @@ jobs:
 
           echo "🔎 Resolving next Application SemVer for $APPLICATION_KEY (SemVer sort)"
           APP_RESP=$(jf curl -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" \
-            "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1000&order_by=created&order_asc=false" || true)
+            "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=200&order_by=created&order_asc=false" || true)
           if ! echo "$APP_RESP" | jq -e . >/dev/null 2>&1; then
             APP_LATEST=""
           else
