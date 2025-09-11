@@ -130,6 +130,13 @@ jobs:
           
           # Test basic application endpoint first
           echo "🔍 DEBUG: Testing application endpoint..."
+          echo "🔍 DEBUG: Checking current JFrog configuration..."
+          jf config show || echo "JFrog config not available"
+          
+          echo "🔍 DEBUG: Testing regular Artifactory access first..."
+          jf rt ping || echo "RT ping failed"
+          
+          echo "🔍 DEBUG: Now testing AppTrust application endpoint..."
           jf rt curl -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "/apptrust/api/v1/applications/$APPLICATION_KEY" || echo "Application endpoint failed"
           
           echo "🔍 DEBUG: Now testing versions endpoint..."
@@ -184,6 +191,18 @@ jobs:
                   print; exit
                 }
               ' "$VMAP_PATH" 2>/dev/null || echo "")
+              if [[ -n "$APP_SEED" && "$APP_SEED" != "null" ]]; then
+                # Bump the seed version's patch to avoid repeats when previous runs used the same seed
+                IFS='.' read -r S_MAJ S_MIN S_PAT <<<"${APP_SEED}"; S_PAT=$((S_PAT+1)); APP_VERSION="${S_MAJ}.${S_MIN}.${S_PAT}"
+                echo "🌱 Using seed from version-map.yaml: $APP_SEED; ⬆️ bumped to: $APP_VERSION"
+              else
+                echo "⚠️ No seed found for $APPLICATION_KEY in version-map.yaml, using fallback"
+                APP_VERSION="1.0.1"
+              fi
+            else
+              echo "⚠️ Local version map not available, using fallback"
+              APP_VERSION="1.0.1"
+            fi
           fi
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
           echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
