@@ -11,9 +11,6 @@ on:
         default: 'Manual testing'
         type: string
 
-# Evidence signing configuration:
-# - secrets.EVIDENCE_PRIVATE_KEY: private key material (sensitive)
-# - vars.EVIDENCE_KEY_ALIAS: non-secret alias passed to --key-alias
 
 jobs:
   build-test-publish:
@@ -43,9 +40,12 @@ jobs:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
-      
-
-      
+      - name: "[Info] Manual trigger"
+        run: |
+          echo "🚀 Manual CI trigger initiated"
+          echo "📝 Reason: ${{ inputs.reason }}"
+          echo "👤 Triggered by: ${{ github.actor }}"
+          echo "🕐 Timestamp: $(date -u)"
 
       - name: "[Setup] Build Info"
         id: set-build-info
@@ -56,33 +56,6 @@ jobs:
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
           echo "build_name=$BUILD_NAME" >> $GITHUB_OUTPUT
           echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
-
-      - name: "[Info] Manual trigger"
-        run: |
-          echo "🚀 Manual CI trigger initiated"
-          echo "📝 Reason: ${{ inputs.reason }}"
-          echo "👤 Triggered by: ${{ github.actor }}"
-          echo "🕐 Timestamp: $(date -u)"
-      - name: "[Setup] JFrog CLI"
-        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
-        with:
-          version: latest
-          oidc-provider-name: bookverse-inventory-github
-          oidc-audience: ${{ vars.JFROG_URL }}
-          disable-job-summary: true
-          disable-auto-build-publish: true
-          disable-auto-evidence-collection: false
-        env:
-          JF_URL: ${{ vars.JFROG_URL }}
-          JF_PROJECT: ${{ vars.PROJECT_KEY }}
-          JFROG_CLI_BUILD_NAME: ${{ steps.set-build-info.outputs.build_name }}
-          JFROG_CLI_BUILD_NUMBER: ${{ steps.set-build-info.outputs.build_number }}
-
-      - name: "[Setup] Verify JFrog Authentication"
-        run: |
-          echo "🔐 Verifying JFrog CLI authentication and connectivity..."
-          jf rt ping
-          echo "✅ JFrog authentication successful"
 
       - name: "[Setup] Build variables"
         run: |
@@ -105,7 +78,28 @@ jobs:
           echo "DOCKER_REPO=$DOCKER_REPO" >> $GITHUB_ENV
           echo "TESTS_PASSED=true" >> $GITHUB_ENV
 
-      - name: "[Auth] Exchange OIDC and docker login"
+      - name: "[Setup] JFrog CLI"
+        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        with:
+          version: latest
+          oidc-provider-name: bookverse-inventory-github
+          oidc-audience: ${{ vars.JFROG_URL }}
+          disable-job-summary: true
+          disable-auto-build-publish: true
+          disable-auto-evidence-collection: false
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
+          JFROG_CLI_BUILD_NAME: ${{ steps.set-build-info.outputs.build_name }}
+          JFROG_CLI_BUILD_NUMBER: ${{ steps.set-build-info.outputs.build_number }}
+
+      - name: "[Setup] Verify JFrog Authentication"
+        run: |
+          echo "🔐 Verifying JFrog CLI authentication and connectivity..."
+          jf rt ping
+          echo "✅ JFrog authentication successful"
+
+      - name: "[Auth] Exchange OIDC and persist JF access token"
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           PROJECT: ${{ vars.PROJECT_KEY }}
