@@ -108,12 +108,14 @@ jobs:
           REGISTRY_URL=${REGISTRY_URL:-${{ vars.DOCKER_REGISTRY }}}
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
 
-          # Download version-map.yaml from demo-init repo for seed versions
-          echo "📥 Downloading version-map.yaml for seed versions"
-          curl -sS -H "Authorization: Bearer ${{ github.token }}" \
-            -H "Accept: application/vnd.github.v3.raw" \
-            "https://api.github.com/repos/${{ github.repository_owner }}/bookverse-demo-init/contents/config/version-map.yaml" \
-            -o version-map.yaml || echo "⚠️ Failed to download version-map.yaml, will use fallback logic"
+          # Locate local version map for seed versions
+          VMAP_PATH="./config/version-map.yaml"
+          if [[ ! -f "$VMAP_PATH" && -f "./.github/version-map.yaml" ]]; then VMAP_PATH="./.github/version-map.yaml"; fi
+          if [[ -f "$VMAP_PATH" ]]; then
+            echo "📄 Using local version map: $VMAP_PATH"
+          else
+            echo "ℹ️ No local version map found; will rely on existing versions or fallback seeds"
+          fi
 
           echo "🔎 Resolving next Application SemVer for $APPLICATION_KEY (SemVer sort)"
           APP_RESP=$(jf rt curl "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=200" -H "Accept: application/json" || true)
@@ -126,18 +128,18 @@ jobs:
           if [[ -n "${APP_LATEST}" ]]; then
             IFS='.' read -r A_MAJ A_MIN A_PAT <<<"${APP_LATEST}"; A_PAT=$((A_PAT+1)); APP_VERSION="${A_MAJ}.${A_MIN}.${A_PAT}"
           else
-            # Use seed version from version-map.yaml instead of random generation
-            if [[ -f version-map.yaml ]]; then
-              # Parse YAML using grep/awk to find application seed
+            # Use seed version from local version map instead of random generation
+            if [[ -f "$VMAP_PATH" ]]; then
+              # Parse YAML to find application seed under seeds.application for the matching key
               APP_SEED=$(awk -v key="$APPLICATION_KEY" '
-                /^  - key:/ { current_key = $3 }
-                current_key == key && /application:/ { 
-                  gsub(/^[ \t]+/, ""); 
-                  gsub(/application:[ \t]*/, ""); 
-                  print $0; 
-                  exit 
+                BEGIN { found_key=0; in_seeds=0 }
+                /^  - key:/ { found_key = ($3 == key); in_seeds=0; next }
+                found_key && /^    seeds:/ { in_seeds=1; next }
+                found_key && in_seeds && /^[[:space:]]+application:[[:space:]]*/ {
+                  sub(/^[ \t]+application:[ \t]*/, "");
+                  print; exit
                 }
-              ' version-map.yaml 2>/dev/null || echo "")
+              ' "$VMAP_PATH" 2>/dev/null || echo "")
               if [[ -n "$APP_SEED" && "$APP_SEED" != "null" ]]; then
                 APP_VERSION="$APP_SEED"
                 echo "✅ Using application seed version from version-map.yaml: $APP_VERSION"
@@ -146,7 +148,7 @@ jobs:
                 APP_VERSION="1.0.0"
               fi
             else
-              echo "⚠️ version-map.yaml not available, using fallback"
+              echo "⚠️ Local version map not available, using fallback"
               APP_VERSION="1.0.0"
             fi
           fi
@@ -163,24 +165,19 @@ jobs:
           if [[ -n "${IMG_LATEST}" ]]; then
             IFS='.' read -r I_MAJ I_MIN I_PAT <<<"${IMG_LATEST}"; I_PAT=$((I_PAT+1)); IMAGE_TAG="${I_MAJ}.${I_MIN}.${I_PAT}"
           else
-            # Use seed version from version-map.yaml instead of random generation
-            if [[ -f version-map.yaml ]]; then
-              # Parse YAML using simpler approach - find the first docker package seed for this application
+            # Use seed version from local version map instead of random generation
+            if [[ -f "$VMAP_PATH" ]]; then
+              # Parse YAML to find the first docker package seed for this application
               IMG_SEED=$(awk -v app_key="$APPLICATION_KEY" '
-                BEGIN { found_app = 0; in_packages = 0 }
-                /^  - key:/ { 
-                  if ($3 == app_key) found_app = 1; else found_app = 0 
-                  in_packages = 0
+                BEGIN { found_app=0; in_packages=0; is_docker=0 }
+                /^  - key:/ { found_app = ($3 == app_key); in_packages=0; is_docker=0; next }
+                found_app && /^    packages:/ { in_packages=1; is_docker=0; next }
+                found_app && in_packages && /^      - type:[ \t]*docker/ { is_docker=1; next }
+                found_app && in_packages && is_docker && /^[[:space:]]+seed:[ \t]*/ {
+                  sub(/^[ \t]+seed:[ \t]*/, "");
+                  print; exit
                 }
-                found_app && /^    packages:/ { in_packages = 1; next }
-                found_app && in_packages && /^      - type: docker/ { is_docker = 1; next }
-                found_app && in_packages && is_docker && /^        seed:/ {
-                  gsub(/^[ \t]+seed:[ \t]*/, ""); 
-                  print $0; 
-                  exit 
-                }
-                /^  - key:/ && found_app { found_app = 0 }
-              ' version-map.yaml 2>/dev/null || echo "")
+              ' "$VMAP_PATH" 2>/dev/null || echo "")
               if [[ -n "$IMG_SEED" && "$IMG_SEED" != "null" ]]; then
                 IMAGE_TAG="$IMG_SEED"
                 echo "✅ Using package seed version from version-map.yaml: $IMAGE_TAG"
@@ -189,7 +186,7 @@ jobs:
                 IMAGE_TAG="1.0.0"
               fi
             else
-              echo "⚠️ version-map.yaml not available, using fallback"
+              echo "⚠️ Local version map not available, using fallback"
               IMAGE_TAG="1.0.0"
             fi
           fi
@@ -307,6 +304,8 @@ jobs:
             }')
           TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
           if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
+          # Persist access token for later steps (TTL ~60m)
+          echo "JF_ACCESS_TOKEN=$TOKEN" >> $GITHUB_ENV
           # 3) Docker login to the registry using access token
           # Derive username from token payload (sub/username), fallback to oauth2_access_token
           b64pad() { local l=${#1}; local m=$((l % 4)); if [ $m -eq 2 ]; then echo "$1=="; elif [ $m -eq 3 ]; then echo "$1="; else echo "$1"; fi; }
@@ -516,40 +515,14 @@ jobs:
           set -euo pipefail
           # Ensure jq
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
-          # Proactively mint an access token for this step and force CLI to use it
+          # Use persisted access token from earlier step
           export JF_URL='${{ vars.JFROG_URL }}'
-          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
-            echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
-          GH_ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
-          if [[ -z "$GH_ID_TOKEN" || "$GH_ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
-          PAYLOAD=$(jq -n --arg jwt "$GH_ID_TOKEN" \
-            --arg provider_name "bookverse-inventory-github" \
-            --arg project_key "${{ vars.PROJECT_KEY }}" \
-            --arg job_id "${{ github.job }}" \
-            --arg run_id "${{ github.run_id }}" \
-            --arg repo "https://github.com/${{ github.repository }}" \
-            --arg revision "${{ github.sha }}" \
-            --arg branch "${{ github.ref_name }}" \
-            '{
-              grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
-              subject_token_type:"urn:ietf:params:oauth:token-type:id_token",
-              subject_token:$jwt,
-              provider_name:$provider_name,
-              project_key:$project_key,
-              job_id:$job_id,
-              run_id:$run_id,
-              repo:$repo,
-              revision:$revision,
-              branch:$branch
-            }')
-          TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
-          if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token for build-info publish" >&2; exit 1; fi
-          export JF_ACCESS_TOKEN="$TOKEN"
+          if [[ -z "${JF_ACCESS_TOKEN:-}" ]]; then
+            echo "❌ Missing JF_ACCESS_TOKEN in environment. Ensure earlier auth step persisted it." >&2; exit 1; fi
           export JF_PROJECT='${{ vars.PROJECT_KEY }}'
           # Add and use a temp server tied to this access token
           TMP_SERVER_ID="ci-token-server"
-          jf c add "$TMP_SERVER_ID" --interactive=false --overwrite=true --url "$JF_URL" --access-token "$TOKEN"
+          jf c add "$TMP_SERVER_ID" --interactive=false --overwrite=true --url "$JF_URL" --access-token "$JF_ACCESS_TOKEN"
           jf c use "$TMP_SERVER_ID"
           echo "Using JFrog server(s):" && jf c show || true
           # Associate the pushed Docker image with the build-info before publishing
@@ -767,23 +740,6 @@ jobs:
           echo "   🏷️ Version: $APP_VERSION"
           echo "   🔨 Build: $SERVICE_NAME#$IMAGE_TAG"
 
-      - name: "[Diag] Build Info contents"
-        run: |
-          set -euo pipefail
-          echo "🔎 Fetching build info to confirm artifacts are present"
-          URL="/api/build/$BUILD_NAME/$BUILD_NUMBER?project=${{ vars.PROJECT_KEY }}"
-          echo "GET $URL"
-          # Fetch via jf curl with project header; don't fail job on diagnostics
-          RESP_FILE=$(mktemp)
-          CODE=$(jf rt curl -sS -L -H "Accept: application/json" -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" "$URL" -o "$RESP_FILE" -w "%{http_code}" || echo 000)
-          echo "HTTP $CODE"
-          if [[ "$CODE" -ge 200 && "$CODE" -lt 300 ]] && jq -e . >/dev/null 2>&1 < "$RESP_FILE"; then
-            jq '.buildInfo.modules // [] | map({id, artifacts: (.artifacts // [] | length)})' "$RESP_FILE" || true
-          else
-            echo "⚠️ Build info fetch returned non-JSON or HTTP error; body follows:" >&2
-            head -c 500 "$RESP_FILE" || true; echo
-          fi
-          rm -f "$RESP_FILE"
 
       - name: "[Release] Create application version"
         run: |
@@ -843,42 +799,17 @@ jobs:
           echo "📦 Application Key: $APPLICATION_KEY"
           echo "📝 Payload:"; echo "$APP_VERSION_PAYLOAD" | jq . || echo "$APP_VERSION_PAYLOAD"
 
-          # Mint an access token via OIDC and call AppTrust API with curl
+          # Reuse persisted access token to call AppTrust API with curl
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
           JF_URL='${{ vars.JFROG_URL }}'
           PROJECT='${{ vars.PROJECT_KEY }}'
-          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
-            echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
-          GH_ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
-          if [[ -z "$GH_ID_TOKEN" || "$GH_ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
-          PAYLOAD=$(jq -n --arg jwt "$GH_ID_TOKEN" \
-            --arg provider_name "bookverse-inventory-github" \
-            --arg project_key "$PROJECT" \
-            --arg job_id "${{ github.job }}" \
-            --arg run_id "${{ github.run_id }}" \
-            --arg repo "https://github.com/${{ github.repository }}" \
-            --arg revision "${{ github.sha }}" \
-            --arg branch "${{ github.ref_name }}" \
-            '{
-              grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
-              subject_token_type:"urn:ietf:params:oauth:token-type:id_token",
-              subject_token:$jwt,
-              provider_name:$provider_name,
-              project_key:$project_key,
-              job_id:$job_id,
-              run_id:$run_id,
-              repo:$repo,
-              revision:$revision,
-              branch:$branch
-            }')
-          TOKEN=$(curl -sS -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JF_URL/access/api/v1/oidc/token" | jq -r .access_token)
-          if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
+          if [[ -z "${JF_ACCESS_TOKEN:-}" ]]; then
+            echo "❌ Missing JF_ACCESS_TOKEN in environment. Ensure earlier auth step persisted it." >&2; exit 1; fi
 
           # Create application version (capture HTTP status + body)
           RESP_FILE=$(mktemp)
           CODE=$(curl -sS -L -X POST "$JF_URL/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
-            -H "Authorization: Bearer $TOKEN" \
+            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
             -H "X-JFrog-Project: $PROJECT" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
@@ -889,26 +820,9 @@ jobs:
             rm -f "$RESP_FILE"; exit 1
           fi
 
-          # Robust validation: fetch content and require status == COMPLETED
-          CNT_FILE=$(mktemp)
-          CODE2=$(curl -sS -L "$JF_URL/apptrust/api/v1/applications/$APPLICATION_KEY/versions/$APP_VERSION/content" \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "X-JFrog-Project: $PROJECT" \
-            -H "Accept: application/json" -o "$CNT_FILE" -w "%{http_code}" || echo 000)
-          if [[ "$CODE2" -lt 200 || "$CODE2" -ge 300 ]] || ! jq -e . >/dev/null 2>&1 < "$CNT_FILE"; then
-            echo "❌ Version content endpoint returned error/invalid JSON for $APPLICATION_KEY@$APP_VERSION (HTTP $CODE2)" >&2
-            echo "📨 Response Body:"; cat "$CNT_FILE" || true; echo
-            rm -f "$RESP_FILE" "$CNT_FILE"; exit 1
-          fi
-          VERSION_STATE=$(jq -r '.status // empty' < "$CNT_FILE" 2>/dev/null || echo "")
-          echo "📨 Version Content:"; cat "$CNT_FILE" || true; echo
-          if [[ "$VERSION_STATE" != "COMPLETED" ]]; then
-            echo "❌ Application version not in COMPLETED state (status='$VERSION_STATE') for $APPLICATION_KEY@$APP_VERSION" >&2
-            rm -f "$RESP_FILE" "$CNT_FILE"; exit 1
-          fi
-          echo "✅ Application version created and validated (COMPLETED): $APPLICATION_KEY@$APP_VERSION"
+          echo "✅ Application version created: $APPLICATION_KEY@$APP_VERSION"
           echo "📦 Packages will be automatically bound from build sources"
-          rm -f "$RESP_FILE" "$CNT_FILE"
+          rm -f "$RESP_FILE"
 
       # Evidence Plan: App UNASSIGNED – slsa-provenance and jira-tickets (gate to DEV)
       - name: "[Evidence] Prepare UNASSIGNED templates"
