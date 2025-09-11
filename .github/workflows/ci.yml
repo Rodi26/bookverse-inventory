@@ -137,13 +137,13 @@ jobs:
           jf rt ping || echo "RT ping failed"
           
           echo "🔍 DEBUG: Now testing AppTrust application endpoint..."
-          jf rt curl -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "/apptrust/api/v1/applications/$APPLICATION_KEY" || echo "Application endpoint failed"
+          jf curl -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "/apptrust/api/v1/applications/$APPLICATION_KEY" || echo "Application endpoint failed"
           
           echo "🔍 DEBUG: Now testing versions endpoint..."
           VERSIONS_URL="/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=200"
           echo "🔍 DEBUG: Full versions URL: $VERSIONS_URL"
           
-          APP_RESP=$(jf rt curl \
+          APP_RESP=$(jf curl \
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             -H "Accept: application/json" \
             "$VERSIONS_URL" || true)
