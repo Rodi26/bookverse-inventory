@@ -123,20 +123,23 @@ jobs:
             echo "ℹ️ No local version map found; will rely on existing versions or fallback seeds"
           fi
 
-          # Ensure application exists in AppTrust; create if 404
-          echo "🔍 Ensuring application '$APPLICATION_KEY' exists in AppTrust"
-          if ! jf rt curl -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "/apptrust/api/v1/applications/$APPLICATION_KEY" >/dev/null 2>&1; then
-            echo "🆕 Application not found; creating it"
-            CREATE_APP_BODY=$(jq -n --arg name "BookVerse Inventory" --arg key "$APPLICATION_KEY" --arg proj "${{ vars.PROJECT_KEY }}" '{application_name:$name, application_key:$key, project_key:$proj}')
-            jf rt curl -X POST -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Content-Type: application/json" -H "Accept: application/json" -d "$CREATE_APP_BODY" "/apptrust/api/v1/applications/" >/tmp/app_create.json 2>/tmp/app_create.err || true
-            echo "📨 Create Application Response:"; cat /tmp/app_create.json || true
-          fi
-
           echo "🔎 Resolving next Application SemVer for $APPLICATION_KEY (SemVer sort)"
+          echo "🔍 DEBUG: Using APPLICATION_KEY=$APPLICATION_KEY"
+          echo "🔍 DEBUG: Using PROJECT_KEY=${{ vars.PROJECT_KEY }}"
+          echo "🔍 DEBUG: Testing basic application check first..."
+          
+          # Test basic application endpoint first
+          echo "🔍 DEBUG: Testing application endpoint..."
+          jf rt curl -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "/apptrust/api/v1/applications/$APPLICATION_KEY" || echo "Application endpoint failed"
+          
+          echo "🔍 DEBUG: Now testing versions endpoint..."
+          VERSIONS_URL="/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=200"
+          echo "🔍 DEBUG: Full versions URL: $VERSIONS_URL"
+          
           APP_RESP=$(jf rt curl \
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             -H "Accept: application/json" \
-            "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=200" || true)
+            "$VERSIONS_URL" || true)
           echo "🧪 versions API response size: $(printf '%s' "$APP_RESP" | wc -c | tr -d ' ') bytes"
           echo "🔍 DEBUG: Raw API response:"
           printf '%s' "$APP_RESP" | jq . 2>/dev/null || (echo "⚠️ Not valid JSON, raw content:" && printf '%s' "$APP_RESP")
