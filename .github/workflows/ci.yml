@@ -136,17 +136,27 @@ jobs:
           echo "🔍 DEBUG: Testing regular Artifactory access first..."
           jf rt ping || echo "RT ping failed"
           
-          echo "🔍 DEBUG: Now testing AppTrust application endpoint..."
-          jf curl -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "/apptrust/api/v1/applications/$APPLICATION_KEY" || echo "Application endpoint failed"
+          echo "🔍 DEBUG: Getting JFrog access token for direct curl..."
+          JF_ACCESS_TOKEN=$(jf config show | grep -A1 "access-token" | tail -1 | sed 's/.*: //' | tr -d '"' || echo "")
+          if [[ -z "$JF_ACCESS_TOKEN" ]]; then
+            echo "⚠️ No access token found, trying alternative method..."
+            JF_ACCESS_TOKEN=$(jf rt curl -X GET "/api/security/token" --silent | jq -r .access_token 2>/dev/null || echo "")
+          fi
           
-          echo "🔍 DEBUG: Now testing versions endpoint..."
-          VERSIONS_URL="/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=200"
+          echo "🔍 DEBUG: Now testing AppTrust application endpoint with direct curl..."
+          curl -sS -L -X GET "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY" \
+            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+            -H "Accept: application/json" || echo "Application endpoint failed"
+          
+          echo "🔍 DEBUG: Now testing versions endpoint with direct curl..."
+          VERSIONS_URL="${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=200"
           echo "🔍 DEBUG: Full versions URL: $VERSIONS_URL"
           
-          APP_RESP=$(jf curl \
+          APP_RESP=$(curl -sS -L -X GET "$VERSIONS_URL" \
+            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-            -H "Accept: application/json" \
-            "$VERSIONS_URL" || true)
+            -H "Accept: application/json" 2>/dev/null || echo '{"error":"curl_failed"}')
           echo "🧪 versions API response size: $(printf '%s' "$APP_RESP" | wc -c | tr -d ' ') bytes"
           echo "🔍 DEBUG: Raw API response:"
           printf '%s' "$APP_RESP" | jq . 2>/dev/null || (echo "⚠️ Not valid JSON, raw content:" && printf '%s' "$APP_RESP")
