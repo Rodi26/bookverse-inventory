@@ -84,6 +84,22 @@ jobs:
           jf rt ping
           echo "✅ JFrog authentication successful"
 
+      - name: "[Setup] Extract JFrog Access Token"
+        run: |
+          echo "🔑 Extracting JFrog access token for AppTrust API calls..."
+          JF_ACCESS_TOKEN=$(jf config show | grep -A1 "access-token" | tail -1 | sed 's/.*: //' | tr -d '"' || echo "")
+          if [[ -z "$JF_ACCESS_TOKEN" ]]; then
+            echo "⚠️ No access token found in config, trying alternative method..."
+            JF_ACCESS_TOKEN=$(jf rt curl -X GET "/api/security/token" --silent | jq -r .access_token 2>/dev/null || echo "")
+          fi
+          if [[ -n "$JF_ACCESS_TOKEN" ]]; then
+            echo "✅ Access token extracted successfully"
+            echo "JF_ACCESS_TOKEN=$JF_ACCESS_TOKEN" >> $GITHUB_ENV
+          else
+            echo "❌ Failed to extract access token"
+            exit 1
+          fi
+
       - name: "[Setup] Build variables"
         run: |
           SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
@@ -136,12 +152,12 @@ jobs:
           echo "🔍 DEBUG: Testing regular Artifactory access first..."
           jf rt ping || echo "RT ping failed"
           
-          echo "🔍 DEBUG: Getting JFrog access token for direct curl..."
-          JF_ACCESS_TOKEN=$(jf config show | grep -A1 "access-token" | tail -1 | sed 's/.*: //' | tr -d '"' || echo "")
+          echo "🔍 DEBUG: Using JFrog access token from environment..."
           if [[ -z "$JF_ACCESS_TOKEN" ]]; then
-            echo "⚠️ No access token found, trying alternative method..."
-            JF_ACCESS_TOKEN=$(jf rt curl -X GET "/api/security/token" --silent | jq -r .access_token 2>/dev/null || echo "")
+            echo "❌ JF_ACCESS_TOKEN not available in environment"
+            exit 1
           fi
+          echo "✅ Using access token for AppTrust API calls"
           
           echo "🔍 DEBUG: Now testing AppTrust application endpoint with direct curl..."
           curl -sS -L -X GET "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY" \
