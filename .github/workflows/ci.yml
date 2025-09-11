@@ -220,7 +220,7 @@ jobs:
           echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
 
           echo "🔎 Resolving next Image SemVer for docker:$REPO_KEY/$SERVICE_NAME (SemVer sort)"
-          IMG_RESP=$(curl -sS -L -X GET "${{ vars.JFROG_URL }}/api/docker/$REPO_KEY/v2/$SERVICE_NAME/tags/list" \
+          IMG_RESP=$(curl -sS -L -X GET "${{ vars.JFROG_URL }}/v2/$REPO_KEY/$SERVICE_NAME/tags/list" \
             -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
             -H "Accept: application/json" 2>/dev/null || echo '{"error":"curl_failed"}')
           echo "🔍 Docker API Response: $IMG_RESP"
