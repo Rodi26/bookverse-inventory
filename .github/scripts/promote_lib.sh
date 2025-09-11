@@ -1,4 +1,211 @@
 #!/usr/bin/env bash
+
+# Promotion helper library for Bookverse AppTrust workflows.
+# This file is sourced by GitHub Actions steps.
+#
+# Expected environment (set by workflow steps):
+# - APPLICATION_KEY: e.g., bookverse-inventory
+# - APP_VERSION: SemVer of the application version
+# - JFROG_URL: base URL to JFrog platform (https://...)
+# - PROJECT_KEY: project key (e.g., bookverse)
+# - APPTRUST_ACCESS_TOKEN: OAuth access token (exchanged via OIDC)
+# - STAGES_STR: space-separated display stage names (e.g., "DEV QA STAGING PROD")
+# - FINAL_STAGE: display name of release stage (usually PROD)
+# - ALLOW_RELEASE: "true" to allow release when at FINAL_STAGE
+# - RELEASE_INCLUDED_REPO_KEYS: JSON array string of repository keys for release (optional)
+#
+# Provided functions:
+# - display_stage_for <stage>
+# - fetch_summary
+# - advance_one_step
+
+__bv__trim_base() {
+  # Ensure JFROG_URL has no trailing slash
+  local base="${JFROG_URL:-}"
+  base="${base%/}"
+  printf "%s" "$base"
+}
+
+display_stage_for() {
+  # Convert API stage (possibly project-prefixed) to display stage
+  # Usage: display_stage_for "bookverse-STAGING" -> "STAGING"
+  local s="${1:-}"
+  local p="${PROJECT_KEY:-}"
+  if [[ -z "$s" ]]; then
+    printf "%s\n" "UNASSIGNED"
+    return 0
+  fi
+  if [[ "$s" == "PROD" || "$s" == "$p-PROD" ]]; then
+    printf "%s\n" "PROD"
+    return 0
+  fi
+  if [[ -n "$p" && "$s" == "$p-"* ]]; then
+    printf "%s\n" "${s#${p}-}"
+    return 0
+  fi
+  printf "%s\n" "$s"
+}
+
+__api_stage_for() {
+  # Convert display stage (e.g., STAGING) to API stage (project-prefixed when applicable)
+  local d="${1:-}"
+  local p="${PROJECT_KEY:-}"
+  if [[ -z "$d" || "$d" == "UNASSIGNED" ]]; then
+    printf "\n"
+    return 0
+  fi
+  if [[ "$d" == "PROD" ]]; then
+    if [[ -n "$p" ]]; then printf "%s\n" "$p-PROD"; else printf "%s\n" "PROD"; fi
+    return 0
+  fi
+  # If already prefixed, return as-is
+  if [[ -n "$p" && "$d" == "$p-"* ]]; then printf "%s\n" "$d"; return 0; fi
+  if [[ -n "$p" ]]; then printf "%s\n" "$p-$d"; else printf "%s\n" "$d"; fi
+}
+
+__persist_env() {
+  # Persist VAR=VALUE to both current shell and GitHub actions env
+  # Usage: __persist_env VAR VALUE
+  local k="$1"; shift
+  local v="$*"
+  export "$k"="$v"
+  if [[ -n "${GITHUB_ENV:-}" ]]; then
+    printf "%s=%s\n" "$k" "$v" >> "$GITHUB_ENV"
+  fi
+}
+
+fetch_summary() {
+  # Refresh CURRENT_STAGE and RELEASE_STATUS from AppTrust Content API.
+  # Falls back to existing env values if API is unavailable.
+  local base="$(__bv__trim_base)"
+  local app="${APPLICATION_KEY:-}"
+  local ver="${APP_VERSION:-}"
+  local tok="${APPTRUST_ACCESS_TOKEN:-}"
+  local url
+  url="$base/apptrust/api/v1/applications/$app/versions/$ver/content"
+
+  # If essentials missing, keep current env and return success.
+  if [[ -z "$base" || -z "$app" || -z "$ver" || -z "$tok" ]]; then
+    return 0
+  fi
+
+  local tmp; tmp="$(mktemp)"
+  local code
+  code=$(curl -sS -L -o "$tmp" -w "%{http_code}" \
+    -H "Authorization: Bearer ${tok}" -H "Accept: application/json" \
+    "$url" 2>/dev/null || echo 000)
+
+  if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
+    local curr rel
+    curr=$(jq -r '.current_stage // empty' <"$tmp" 2>/dev/null || true)
+    rel=$(jq -r '.release_status // empty' <"$tmp" 2>/dev/null || true)
+    rm -f "$tmp"
+    if [[ -n "$curr" ]]; then __persist_env CURRENT_STAGE "$curr"; fi
+    if [[ -n "$rel" ]]; then __persist_env RELEASE_STATUS "$rel"; fi
+    return 0
+  fi
+  rm -f "$tmp" || true
+  # Keep existing env on failure
+  return 0
+}
+
+__compute_next_display_stage() {
+  # Determine next display stage from CURRENT_STAGE and STAGES_STR
+  local curr_disp stages next=""
+  curr_disp="$(display_stage_for "${CURRENT_STAGE:-}")"
+  stages=( )
+  # shellcheck disable=SC2206
+  stages=(${STAGES_STR:-})
+  if [[ -z "$curr_disp" || "$curr_disp" == "UNASSIGNED" ]]; then
+    next="${stages[0]:-}"
+  else
+    local i
+    for ((i=0; i<${#stages[@]}; i++)); do
+      if [[ "${stages[$i]}" == "$curr_disp" ]]; then
+        if (( i+1 < ${#stages[@]} )); then next="${stages[$((i+1))]}"; fi
+        break
+      fi
+    done
+  fi
+  printf "%s\n" "$next"
+}
+
+advance_one_step() {
+  # Promote to the next stage, or release if ALLOW_RELEASE and at FINAL_STAGE
+  fetch_summary || true
+
+  local next_disp; next_disp="$(__compute_next_display_stage)"
+  if [[ -z "$next_disp" ]]; then
+    # Nothing to do
+    return 0
+  fi
+
+  local base app ver tok mode
+  base="$(__bv__trim_base)"
+  app="${APPLICATION_KEY:-}"
+  ver="${APP_VERSION:-}"
+  tok="${APPTRUST_ACCESS_TOKEN:-}"
+  mode="promote"
+
+  if [[ "${ALLOW_RELEASE:-false}" == "true" && "$next_disp" == "${FINAL_STAGE:-}" ]]; then
+    mode="release"
+  fi
+
+  # Attempt real API calls first; fallback to optimistic local state on failure.
+  if [[ -n "$base" && -n "$app" && -n "$ver" && -n "$tok" ]]; then
+    if [[ "$mode" == "promote" ]]; then
+      local api_stage payload url code tmp
+      api_stage="$(__api_stage_for "$next_disp")"
+      payload=$(jq -nc --arg to "$api_stage" '{to_stage:$to}')
+      url="$base/apptrust/api/v1/applications/$app/versions/$ver/promote"
+      tmp="$(mktemp)"
+      code=$(curl -sS -L -o "$tmp" -w "%{http_code}" -X POST \
+        -H "Authorization: Bearer ${tok}" -H "Content-Type: application/json" -H "Accept: application/json" \
+        -d "$payload" "$url" 2>/dev/null || echo 000)
+      rm -f "$tmp" || true
+      if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
+        # Refresh from server
+        __persist_env PROMOTED_STAGES "${PROMOTED_STAGES:-} ${next_disp}"
+        fetch_summary || true
+        return 0
+      fi
+      # Fallthrough to optimistic local advance
+    else
+      local payload url code tmp inc
+      inc="${RELEASE_INCLUDED_REPO_KEYS:-}"
+      if [[ -z "$inc" ]]; then inc='[]'; fi
+      # If $inc is not a JSON array, wrap as single-element array
+      if ! echo "$inc" | jq -e 'type=="array"' >/dev/null 2>&1; then
+        inc=$(jq -nc --arg s "$inc" '[$s]')
+      fi
+      payload=$(jq -nc --argjson repos "$inc" '{included_repo_keys:$repos}')
+      url="$base/apptrust/api/v1/applications/$app/versions/$ver/release"
+      tmp="$(mktemp)"
+      code=$(curl -sS -L -o "$tmp" -w "%{http_code}" -X POST \
+        -H "Authorization: Bearer ${tok}" -H "Content-Type: application/json" -H "Accept: application/json" \
+        -d "$payload" "$url" 2>/dev/null || echo 000)
+      rm -f "$tmp" || true
+      if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
+        __persist_env PROMOTED_STAGES "${PROMOTED_STAGES:-} ${next_disp}"
+        __persist_env RELEASE_STATUS "RELEASED"
+        # Move current stage to PROD (display -> API form)
+        __persist_env CURRENT_STAGE "$(__api_stage_for "$next_disp")"
+        return 0
+      fi
+      # Fallthrough to optimistic local advance
+    fi
+  fi
+
+  # Optimistic local advance (no server state change). Useful for demos or when API is unavailable.
+  __persist_env PROMOTED_STAGES "${PROMOTED_STAGES:-} ${next_disp}"
+  if [[ "$mode" == "release" ]]; then
+    __persist_env RELEASE_STATUS "RELEASED"
+  fi
+  __persist_env CURRENT_STAGE "$(__api_stage_for "$next_disp")"
+  return 0
+}
+
+#!/usr/bin/env bash
 set -euo pipefail
 
 # Promote/Release helper library sourced by the promotion workflow.

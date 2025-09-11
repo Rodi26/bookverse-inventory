@@ -31,11 +31,16 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    env:
+      id-token: write
     steps:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
+
+      - name: "[Setup] Prereqs (jq)"
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq
 
       - name: "[Setup] Python"
         uses: actions/setup-python@v5
@@ -64,6 +69,8 @@ jobs:
           SERVICE_NAME=$(echo "${GITHUB_REPOSITORY#*/}" | sed 's/bookverse-//')
           APP_KEY="bookverse-$SERVICE_NAME"
           echo "📦 Application: $APP_KEY"
+          # Persist for later steps
+          echo "APPLICATION_KEY=$APP_KEY" >> $GITHUB_ENV
 
           # Determine target version: use input if provided, else resolve latest promoted
           TARGET_VERSION="${{ inputs.version || '' }}"
@@ -89,6 +96,7 @@ jobs:
           fi
           rm -f "$CONTENT_BEFORE"
           echo "📍 Stage BEFORE: ${CURRENT_STAGE_BEFORE:-unknown}"
+          echo "CURRENT_STAGE_BEFORE=${CURRENT_STAGE_BEFORE:-}" >> $GITHUB_ENV
 
           STATUS="SUCCESS"
           MSG=""
@@ -113,6 +121,7 @@ jobs:
           fi
           rm -f "$CONTENT_TARGET"
           echo "📍 Stage AFTER:  ${CURR_STAGE_TARGET:-unknown}"
+          echo "CURR_STAGE_TARGET=${CURR_STAGE_TARGET:-}" >> $GITHUB_ENV
 
       - name: "[Tags] Enforce PROD 'latest' invariants"
         run: |
