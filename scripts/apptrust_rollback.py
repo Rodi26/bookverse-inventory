@@ -136,7 +136,7 @@ class AppTrustClient:
             except Exception:
                 return {"raw": raw.decode("utf-8", errors="replace")}
 
-    def list_application_versions(self, app_key: str, limit: int = 1000) -> Dict[str, Any]:
+    def list_application_versions(self, app_key: str, limit: int = 200) -> Dict[str, Any]:
         path = f"/applications/{urllib.parse.quote(app_key)}/versions"
         return self._request("GET", path, query={"limit": limit, "order_by": "created", "order_asc": "false"})
 
