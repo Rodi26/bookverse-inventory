@@ -118,54 +118,39 @@ jobs:
           fi
 
           echo "🔎 Resolving next Application SemVer for $APPLICATION_KEY (SemVer sort)"
-          APP_RESP=$(jf rt curl "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=200" -H "Accept: application/json" || true)
+          APP_RESP=$(jf curl -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" \
+            "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1000&order_by=created&order_asc=false" || true)
           if ! echo "$APP_RESP" | jq -e . >/dev/null 2>&1; then
             APP_LATEST=""
           else
             # Take all versions, strip any pre-release suffix, keep strict X.Y.Z, sort numerically and pick last
             APP_LATEST=$(echo "$APP_RESP" | jq -r '[.versions[]?.version? | gsub("-.*$"; "") | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)')
           fi
-
-          # Also align to platform highest version when present
-          echo "🔎 Resolving latest platform version (bookverse-platform) to align numbering"
-          PLAT_RESP=$(jf rt curl "/apptrust/api/v1/applications/bookverse-platform/versions?limit=200" -H "Accept: application/json" || true)
-          if echo "$PLAT_RESP" | jq -e . >/dev/null 2>&1; then
-            PLAT_LATEST=$(echo "$PLAT_RESP" | jq -r '[.versions[]?.version? | gsub("-.*$"; "") | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)')
+          if [[ -n "${APP_LATEST}" ]]; then
+            IFS='.' read -r A_MAJ A_MIN A_PAT <<<"${APP_LATEST}"; A_PAT=$((A_PAT+1)); APP_VERSION="${A_MAJ}.${A_MIN}.${A_PAT}"
           else
-            PLAT_LATEST=""
-          fi
-
-          if [[ -n "${PLAT_LATEST}" ]]; then
-            IFS='.' read -r P_MAJ P_MIN P_PAT <<<"${PLAT_LATEST}"; P_PAT=$((P_PAT+1)); PLAT_NEXT="${P_MAJ}.${P_MIN}.${P_PAT}"
-            APP_VERSION="$PLAT_NEXT"
-            echo "✅ Aligning service version to next platform patch: $APP_VERSION (platform latest=$PLAT_LATEST)"
-          else
-            if [[ -n "${APP_LATEST}" ]]; then
-              IFS='.' read -r A_MAJ A_MIN A_PAT <<<"${APP_LATEST}"; A_PAT=$((A_PAT+1)); APP_VERSION="${A_MAJ}.${A_MIN}.${A_PAT}"
-            else
-              # Use seed version from local version map instead of random generation
-              if [[ -f "$VMAP_PATH" ]]; then
-                # Parse YAML to find application seed under seeds.application for the matching key
-                APP_SEED=$(awk -v key="$APPLICATION_KEY" '
-                  BEGIN { found_key=0; in_seeds=0 }
-                  /^  - key:/ { found_key = ($3 == key); in_seeds=0; next }
-                  found_key && /^    seeds:/ { in_seeds=1; next }
-                  found_key && in_seeds && /^[[:space:]]+application:[[:space:]]*/ {
-                    sub(/^[ \t]+application:[ \t]*/, "");
-                    print; exit
-                  }
-                ' "$VMAP_PATH" 2>/dev/null || echo "")
-                if [[ -n "$APP_SEED" && "$APP_SEED" != "null" ]]; then
-                  APP_VERSION="$APP_SEED"
-                  echo "✅ Using application seed version from version-map.yaml: $APP_VERSION"
-                else
-                  echo "⚠️ No seed found for $APPLICATION_KEY in version-map.yaml, using fallback"
-                  APP_VERSION="1.0.0"
-                fi
+            # Use seed version from local version map instead of random generation
+            if [[ -f "$VMAP_PATH" ]]; then
+              # Parse YAML to find application seed under seeds.application for the matching key
+              APP_SEED=$(awk -v key="$APPLICATION_KEY" '
+                BEGIN { found_key=0; in_seeds=0 }
+                /^  - key:/ { found_key = ($3 == key); in_seeds=0; next }
+                found_key && /^    seeds:/ { in_seeds=1; next }
+                found_key && in_seeds && /^[[:space:]]+application:[[:space:]]*/ {
+                  sub(/^[ \t]+application:[ \t]*/, "");
+                  print; exit
+                }
+              ' "$VMAP_PATH" 2>/dev/null || echo "")
+              if [[ -n "$APP_SEED" && "$APP_SEED" != "null" ]]; then
+                APP_VERSION="$APP_SEED"
+                echo "✅ Using application seed version from version-map.yaml: $APP_VERSION"
               else
-                echo "⚠️ Local version map not available, using fallback"
+                echo "⚠️ No seed found for $APPLICATION_KEY in version-map.yaml, using fallback"
                 APP_VERSION="1.0.0"
               fi
+            else
+              echo "⚠️ Local version map not available, using fallback"
+              APP_VERSION="1.0.0"
             fi
           fi
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
