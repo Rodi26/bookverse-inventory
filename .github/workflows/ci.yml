@@ -122,14 +122,27 @@ jobs:
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             -H "Accept: application/json" \
             "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=200" || true)
+          echo "🧪 versions API response size: $(printf '%s' "$APP_RESP" | wc -c | tr -d ' ') bytes"
           if ! echo "$APP_RESP" | jq -e . >/dev/null 2>&1; then
             APP_LATEST=""
+            echo "⚠️ versions API did not return valid JSON. First 200 chars:" && printf '%s' "$APP_RESP" | head -c 200 || true; echo
           else
             # Take all versions, strip any pre-release suffix, keep strict X.Y.Z, sort numerically and pick last
-            APP_LATEST=$(echo "$APP_RESP" | jq -r '[.versions[]?.version? | gsub("-.*$"; "") | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)')
+            PARSED=$(echo "$APP_RESP" | jq -r '[.versions[]?.version? | gsub("-.*$"; "") | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))]')
+            COUNT=$(printf '%s' "$PARSED" | jq 'length' 2>/dev/null || echo 0)
+            SORTED=$(printf '%s' "$PARSED" | jq -r 'unique | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ])')
+            # Print debug summary of parsed/sorted versions
+            if [ "${COUNT:-0}" -gt 0 ]; then
+              SUMMARY=$(printf '%s' "$SORTED" | jq -r 'length as $n | {count:$n, first:(if $n>0 then .[0] else "none" end), latest:(if $n>0 then .[$n-1] else "none" end)} | "count=\(.count), first=\(.first), latest=\(.latest)"' 2>/dev/null || true)
+              echo "📚 Parsed versions (sorted): $SUMMARY"
+            else
+              echo "📚 Parsed versions (sorted): count=0"
+            fi
+            APP_LATEST=$(printf '%s' "$SORTED" | jq -r '(last // empty)' 2>/dev/null || echo "")
           fi
           if [[ -n "${APP_LATEST}" ]]; then
             IFS='.' read -r A_MAJ A_MIN A_PAT <<<"${APP_LATEST}"; A_PAT=$((A_PAT+1)); APP_VERSION="${A_MAJ}.${A_MIN}.${A_PAT}"
+            echo "🧮 Latest parsed version: ${APP_LATEST}; ⬆️ next: ${APP_VERSION}"
           else
             # Use seed version from local version map instead of random generation
             if [[ -f "$VMAP_PATH" ]]; then
@@ -146,7 +159,7 @@ jobs:
               if [[ -n "$APP_SEED" && "$APP_SEED" != "null" ]]; then
                 # Bump the seed version's patch to avoid repeats when previous runs used the same seed
                 IFS='.' read -r S_MAJ S_MIN S_PAT <<<"${APP_SEED}"; S_PAT=$((S_PAT+1)); APP_VERSION="${S_MAJ}.${S_MIN}.${S_PAT}"
-                echo "✅ Using bumped seed version from version-map.yaml: $APP_VERSION (seed was $APP_SEED)"
+                echo "🌱 Using seed from version-map.yaml: $APP_SEED; ⬆️ bumped to: $APP_VERSION"
               else
                 echo "⚠️ No seed found for $APPLICATION_KEY in version-map.yaml, using fallback"
                 APP_VERSION="1.0.1"
