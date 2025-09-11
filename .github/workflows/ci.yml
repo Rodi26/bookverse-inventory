@@ -285,7 +285,9 @@ jobs:
           set -euo pipefail
           echo "🔎 Checking Artifactory connectivity and PyPI virtual repo"
           jf rt ping || true
-          jf curl -XGET "/api/repositories/${{ vars.PROJECT_KEY }}-pypi-virtual" || true
+          curl -sS -L -X GET "${{ vars.JFROG_URL }}/api/repositories/${{ vars.PROJECT_KEY }}-pypi-virtual" \
+            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+            -H "Accept: application/json" || true
           # Configure pip to use the virtual repo and disable prompts/version check
           jf pipc --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
           export PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -295,7 +297,8 @@ jobs:
           echo "🔎 Checking fastapi availability via virtual index"
           PIP_INDEX_URL="${{ vars.JFROG_URL }}/artifactory/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple"
           # Avoid interactive pip; probe with authenticated jfrog CLI instead
-          jf curl -XGET "/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple/fastapi/" >/dev/null 2>&1 \
+          curl -sS -L -X GET "${{ vars.JFROG_URL }}/api/pypi/${{ vars.PROJECT_KEY }}-pypi-virtual/simple/fastapi/" \
+            -H "Authorization: Bearer $JF_ACCESS_TOKEN" >/dev/null 2>&1 \
             && echo "✅ fastapi index accessible via virtual repo" \
             || echo "⚠️ Unable to access $PIP_INDEX_URL/fastapi/ (check repo and permissions)"
 
