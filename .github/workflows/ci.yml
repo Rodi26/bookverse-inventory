@@ -84,6 +84,27 @@ jobs:
           jf rt ping
           echo "✅ JFrog authentication successful"
 
+      - name: "[Setup] Build variables"
+        run: |
+          SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
+          IMAGE_TAG=$(echo $GITHUB_SHA | head -c7)
+          REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
+          DOCKER_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
+          IMAGE_NAME_PATH="${REGISTRY_URL}/${DOCKER_REPO}/${SERVICE_NAME}:${IMAGE_TAG}"
+          IMAGE_NAME_SUBDOMAIN="${DOCKER_REPO}.${REGISTRY_URL}/${SERVICE_NAME}:${IMAGE_TAG}"
+          IMAGE_NAME="$IMAGE_NAME_PATH"
+
+          echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
+          APPLICATION_KEY="bookverse-$SERVICE_NAME"
+          echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "REGISTRY_URL=$REGISTRY_URL" >> $GITHUB_ENV
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "IMAGE_NAME_PATH=$IMAGE_NAME_PATH" >> $GITHUB_ENV
+          echo "IMAGE_NAME_SUBDOMAIN=$IMAGE_NAME_SUBDOMAIN" >> $GITHUB_ENV
+          echo "DOCKER_REPO=$DOCKER_REPO" >> $GITHUB_ENV
+          echo "TESTS_PASSED=true" >> $GITHUB_ENV
+
       - name: "[Auth] Exchange OIDC and docker login"
         env:
           JF_URL: ${{ vars.JFROG_URL }}
@@ -137,28 +158,7 @@ jobs:
           fi
           if [[ -z "$DOCKER_USER" || "$DOCKER_USER" == "null" ]]; then DOCKER_USER="oauth2_access_token"; fi
           echo "Using docker username: $DOCKER_USER"
-          echo "$TOKEN" | docker login "${{ vars.DOCKER_REGISTRY }}" -u "$DOCKER_USER" --password-stdin
-
-      - name: "[Setup] Build variables"
-        run: |
-          SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
-          IMAGE_TAG=$(echo $GITHUB_SHA | head -c7)
-          REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
-          DOCKER_REPO="${{ vars.PROJECT_KEY }}-${SERVICE_NAME}-internal-docker-nonprod-local"
-          IMAGE_NAME_PATH="${REGISTRY_URL}/${DOCKER_REPO}/${SERVICE_NAME}:${IMAGE_TAG}"
-          IMAGE_NAME_SUBDOMAIN="${DOCKER_REPO}.${REGISTRY_URL}/${SERVICE_NAME}:${IMAGE_TAG}"
-          IMAGE_NAME="$IMAGE_NAME_PATH"
-
-          echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
-          APPLICATION_KEY="bookverse-$SERVICE_NAME"
-          echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
-          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
-          echo "REGISTRY_URL=$REGISTRY_URL" >> $GITHUB_ENV
-          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
-          echo "IMAGE_NAME_PATH=$IMAGE_NAME_PATH" >> $GITHUB_ENV
-          echo "IMAGE_NAME_SUBDOMAIN=$IMAGE_NAME_SUBDOMAIN" >> $GITHUB_ENV
-          echo "DOCKER_REPO=$DOCKER_REPO" >> $GITHUB_ENV
-          echo "TESTS_PASSED=true" >> $GITHUB_ENV
+          echo "$TOKEN" | docker login "$REGISTRY_URL" -u "$DOCKER_USER" --password-stdin
 
       - name: "[Setup] Determine SemVer"
         id: set-app-version
