@@ -857,14 +857,23 @@ jobs:
             -H "Accept: application/json" \
             -d "$APP_VERSION_PAYLOAD" -o "$RESP_FILE" -w "%{http_code}" || echo 000)
           echo "📨 Response Body:"; cat "$RESP_FILE" || true; echo
-          if [[ "$CODE" -lt 200 || "$CODE" -ge 300 ]] || ! jq -e . >/dev/null 2>&1 < "$RESP_FILE"; then
-            echo "❌ Failed to create application version (HTTP $CODE)" >&2
-            rm -f "$RESP_FILE"; exit 1
+          if [[ "$CODE" == "409" ]]; then
+            if jq -e '(.errors // []) | any(.message|test("already exists"; "i"))' >/dev/null 2>&1 < "$RESP_FILE"; then
+              echo "ℹ️ Application version already exists; continuing"
+              rm -f "$RESP_FILE"
+            else
+              echo "❌ Received 409 but not an 'already exists' error" >&2
+              rm -f "$RESP_FILE"; exit 1
+            fi
+          else
+            if [[ "$CODE" -lt 200 || "$CODE" -ge 300 ]] || ! jq -e . >/dev/null 2>&1 < "$RESP_FILE"; then
+              echo "❌ Failed to create application version (HTTP $CODE)" >&2
+              rm -f "$RESP_FILE"; exit 1
+            fi
+            echo "✅ Application version created: $APPLICATION_KEY@$APP_VERSION"
+            echo "📦 Packages will be automatically bound from build sources"
+            rm -f "$RESP_FILE"
           fi
-
-          echo "✅ Application version created: $APPLICATION_KEY@$APP_VERSION"
-          echo "📦 Packages will be automatically bound from build sources"
-          rm -f "$RESP_FILE"
 
       # Evidence Plan: App UNASSIGNED – slsa-provenance and jira-tickets (gate to DEV)
       - name: "[Evidence] Prepare UNASSIGNED templates"
