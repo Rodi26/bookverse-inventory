@@ -78,6 +78,12 @@ jobs:
           JFROG_CLI_BUILD_NAME: ${{ steps.set-build-info.outputs.build_name }}
           JFROG_CLI_BUILD_NUMBER: ${{ steps.set-build-info.outputs.build_number }}
 
+      - name: "[Setup] Verify JFrog Authentication"
+        run: |
+          echo "🔐 Verifying JFrog CLI authentication and connectivity..."
+          jf rt ping
+          echo "✅ JFrog authentication successful"
+
       - name: "[Setup] Build variables"
         run: |
           SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
@@ -214,18 +220,6 @@ jobs:
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
 
 
-                
-      - name: "[Setup] JFrog CLI"
-        # Temporary workaround: using forked action until upstream fix
-        # uses: jfrog/setup-jfrog-cli@v4
-        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
-        with:
-          disable-job-summary: true
-        env:
-          JF_URL: ${{ vars.JFROG_URL }}
-          JF_PROJECT: ${{ vars.PROJECT_KEY }}
-          JFROG_CLI_BUILD_NAME: ${{ steps.set-build-info.outputs.build_name }}
-          JFROG_CLI_BUILD_NUMBER: ${{ steps.set-build-info.outputs.build_number }}
       - name: "[Setup] Python"
         uses: actions/setup-python@v5
         with:
