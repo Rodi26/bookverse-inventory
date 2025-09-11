@@ -109,7 +109,13 @@ jobs:
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
 
           # Locate local version map for seed versions
-          MAP_PATH="./config/version-map.yaml" ]]
+          VMAP_PATH="./config/version-map.yaml"
+          if [[ ! -f "$VMAP_PATH" && -f "./.github/version-map.yaml" ]]; then VMAP_PATH="./.github/version-map.yaml"; fi
+          if [[ -f "$VMAP_PATH" ]]; then
+            echo "📄 Using local version map: $VMAP_PATH"
+          else
+            echo "ℹ️ No local version map found; will rely on existing versions or fallback seeds"
+          fi
 
           echo "🔎 Resolving next Application SemVer for $APPLICATION_KEY (SemVer sort)"
           APP_RESP=$(jf rt curl \
