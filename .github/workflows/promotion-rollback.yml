@@ -29,6 +29,9 @@ jobs:
   rollback:
     name: Rollback ${{ github.event.repository.name }} ${{ inputs.version || 'latest-promoted' }}
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: read
       id-token: write

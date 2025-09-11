@@ -10,6 +10,11 @@ on:
         required: false
         default: 'Manual testing'
         type: string
+      verified_only:
+        description: 'Skip application version creation (verified packages only)'
+        required: false
+        default: false
+        type: boolean
 
 
 jobs:
@@ -92,7 +97,8 @@ jobs:
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
           JFROG_CLI_BUILD_NAME: ${{ steps.set-build-info.outputs.build_name }}
           JFROG_CLI_BUILD_NUMBER: ${{ steps.set-build-info.outputs.build_number }}
-
+          JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
+          
       - name: "[Setup] Verify JFrog Authentication"
         run: |
           echo "🔐 Verifying JFrog CLI authentication and connectivity..."
@@ -561,7 +567,7 @@ jobs:
       - name: "[Evidence] Attach quality gate"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
+          EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
           EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           set -euo pipefail
@@ -617,7 +623,7 @@ jobs:
       - name: "[Evidence] Attach license compliance"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
+          EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
           EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           set -euo pipefail
@@ -663,6 +669,9 @@ jobs:
     needs: build-test-publish
     if: ${{ !inputs.verified_only }}
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: read
       id-token: write
@@ -889,7 +898,7 @@ jobs:
       - name: "[Evidence] Attach UNASSIGNED (SLSA, Jira)"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          EVIDENCE_KEY_ALIAS: ${{ secrets.EVIDENCE_KEY_ALIAS }}
+          EVIDENCE_KEY_ALIAS: ${{ vars.EVIDENCE_KEY_ALIAS }}
           EVIDENCE_KEY_ALIAS_VAR: ${{ vars.EVIDENCE_KEY_ALIAS }}
         run: |
           set -euo pipefail
