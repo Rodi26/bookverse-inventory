@@ -2,181 +2,767 @@
   {
     "title": "The Lord of the Rings",
     "subtitle": "The Fellowship of the Ring",
-    "authors": ["J.R.R. Tolkien"],
-    "genres": ["fantasy", "adventure", "classics"],
+    "authors": [
+      "J.R.R. Tolkien"
+    ],
+    "genres": [
+      "fantasy",
+      "adventure",
+      "classics"
+    ],
     "description": "The first volume of The Lord of the Rings, the immortal fantasy masterpiece. Follow Frodo Baggins as he begins his perilous journey to destroy the One Ring and save Middle-earth from the Dark Lord Sauron.",
     "price": 16.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1654215925i/61215351.jpg"
+    "cover_image_url": "/static/images/book_1_cbb53f91.jpg",
+    "rating": 4.5,
+    "id": 1
   },
   {
     "title": "1984",
     "subtitle": null,
-    "authors": ["George Orwell"],
-    "genres": ["dystopian", "fiction", "classics", "political"],
+    "authors": [
+      "George Orwell"
+    ],
+    "genres": [
+      "dystopian",
+      "fiction",
+      "classics",
+      "political"
+    ],
     "description": "A chilling dystopian novel about totalitarian control, surveillance, and the power of language. Winston Smith struggles against a society where Big Brother watches everything and the truth is whatever the Party says it is.",
     "price": 13.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1657781256i/61439040.jpg"
+    "cover_image_url": "/static/images/book_2_1b36ea1c.jpg",
+    "rating": 4.2,
+    "id": 2
   },
   {
     "title": "The Hobbit",
     "subtitle": "An Unexpected Journey",
-    "authors": ["J.R.R. Tolkien"],
-    "genres": ["fantasy", "adventure", "children"],
+    "authors": [
+      "J.R.R. Tolkien"
+    ],
+    "genres": [
+      "fantasy",
+      "adventure",
+      "children"
+    ],
     "description": "The enchanting prelude to The Lord of the Rings. Join Bilbo Baggins on his unexpected adventure with thirteen dwarves to reclaim their homeland from the dragon Smaug.",
     "price": 12.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1546071216i/5907.jpg"
+    "cover_image_url": "/static/images/book_3_8b843987.jpg",
+    "rating": 4.3,
+    "id": 3
   },
   {
     "title": "To Kill a Mockingbird",
     "subtitle": null,
-    "authors": ["Harper Lee"],
-    "genres": ["classics", "fiction", "historical"],
+    "authors": [
+      "Harper Lee"
+    ],
+    "genres": [
+      "classics",
+      "fiction",
+      "historical"
+    ],
     "description": "A gripping tale of racial injustice and childhood innocence in the American South. Scout Finch learns about morality and courage through her father's defense of an innocent black man.",
     "price": 14.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1553383690i/2657.jpg"
+    "cover_image_url": "/static/images/book_4_688adc05.jpg",
+    "rating": 4.3,
+    "id": 4
   },
   {
     "title": "Pride and Prejudice",
     "subtitle": null,
-    "authors": ["Jane Austen"],
-    "genres": ["romance", "classics", "fiction"],
+    "authors": [
+      "Jane Austen"
+    ],
+    "genres": [
+      "romance",
+      "classics",
+      "fiction"
+    ],
     "description": "The beloved tale of Elizabeth Bennet and Mr. Darcy. A witty and romantic story about love, marriage, and social expectations in Regency-era England.",
     "price": 11.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1320399351i/1885.jpg"
+    "cover_image_url": "/static/images/book_5_b133083c.jpg",
+    "rating": 4.3,
+    "id": 5
   },
   {
     "title": "The Great Gatsby",
     "subtitle": null,
-    "authors": ["F. Scott Fitzgerald"],
-    "genres": ["classics", "fiction", "american literature"],
+    "authors": [
+      "F. Scott Fitzgerald"
+    ],
+    "genres": [
+      "classics",
+      "fiction",
+      "american literature"
+    ],
     "description": "The quintessential American novel about the Jazz Age. Nick Carraway tells the story of his mysterious neighbor Jay Gatsby and his obsession with the beautiful Daisy Buchanan.",
     "price": 12.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1490528560i/4671.jpg"
+    "cover_image_url": "/static/images/book_6_cee9cf2d.jpg",
+    "rating": 3.9,
+    "id": 6
   },
   {
     "title": "Harry Potter and the Philosopher's Stone",
     "subtitle": null,
-    "authors": ["J.K. Rowling"],
-    "genres": ["fantasy", "young adult", "magic"],
+    "authors": [
+      "J.K. Rowling"
+    ],
+    "genres": [
+      "fantasy",
+      "young adult",
+      "magic"
+    ],
     "description": "The magical beginning of Harry Potter's journey. Discover the wizarding world as Harry learns he's a wizard and begins his education at Hogwarts School of Witchcraft and Wizardry.",
     "price": 15.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1170803558i/72193.jpg"
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1170803558i/72193.jpg",
+    "rating": 4.5,
+    "id": 7
   },
   {
     "title": "Dune",
     "subtitle": null,
-    "authors": ["Frank Herbert"],
-    "genres": ["science fiction", "space opera", "adventure"],
+    "authors": [
+      "Frank Herbert"
+    ],
+    "genres": [
+      "science fiction",
+      "space opera",
+      "adventure"
+    ],
     "description": "The epic science fiction masterpiece set on the desert planet Arrakis. Paul Atreides must navigate political intrigue, environmental challenges, and his own destiny to control the universe's most valuable resource.",
     "price": 18.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1555447414i/44767458.jpg"
+    "cover_image_url": "/static/images/book_8_9b237584.jpg",
+    "rating": 4.2,
+    "id": 8
   },
   {
     "title": "The Catcher in the Rye",
     "subtitle": null,
-    "authors": ["J.D. Salinger"],
-    "genres": ["classics", "fiction", "coming of age"],
+    "authors": [
+      "J.D. Salinger"
+    ],
+    "genres": [
+      "classics",
+      "fiction",
+      "coming of age"
+    ],
     "description": "The controversial classic about teenage rebellion and alienation. Follow Holden Caulfield through his weekend in New York City as he struggles with growing up and finding his place in the world.",
     "price": 13.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1398034300i/5107.jpg"
+    "cover_image_url": "/static/images/book_9_c47aebf5.jpg",
+    "rating": 3.8,
+    "id": 9
   },
   {
     "title": "Brave New World",
     "subtitle": null,
-    "authors": ["Aldous Huxley"],
-    "genres": ["dystopian", "science fiction", "classics"],
+    "authors": [
+      "Aldous Huxley"
+    ],
+    "genres": [
+      "dystopian",
+      "science fiction",
+      "classics"
+    ],
     "description": "A chilling vision of a future society where happiness is manufactured and individuality is suppressed. Explore a world where technology controls every aspect of human life.",
     "price": 14.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1575509280i/5129.jpg"
+    "cover_image_url": "/static/images/book_10_e542d826.jpg",
+    "rating": 3.9,
+    "id": 10
   },
   {
     "title": "The Chronicles of Narnia",
     "subtitle": "The Lion, the Witch and the Wardrobe",
-    "authors": ["C.S. Lewis"],
-    "genres": ["fantasy", "children", "adventure"],
+    "authors": [
+      "C.S. Lewis"
+    ],
+    "genres": [
+      "fantasy",
+      "children",
+      "adventure"
+    ],
     "description": "Step through the wardrobe into the magical land of Narnia. Join the Pevensie children as they discover a world of talking animals, mythical creatures, and epic battles between good and evil.",
     "price": 13.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1353029077i/100915.jpg"
+    "cover_image_url": "/static/images/book_11_a6de832d.jpg",
+    "rating": 4.3,
+    "id": 11
   },
   {
     "title": "One Hundred Years of Solitude",
     "subtitle": null,
-    "authors": ["Gabriel García Márquez"],
-    "genres": ["magical realism", "classics", "latin american"],
-    "description": "The multi-generational epic of the Buendía family in the mythical town of Macondo. A masterwork of magical realism that explores love, loss, and the cyclical nature of history.",
+    "authors": [
+      "Gabriel Garc\u00eda M\u00e1rquez"
+    ],
+    "genres": [
+      "magical realism",
+      "classics",
+      "latin american"
+    ],
+    "description": "The multi-generational epic of the Buend\u00eda family in the mythical town of Macondo. A masterwork of magical realism that explores love, loss, and the cyclical nature of history.",
     "price": 16.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1327881361i/320.jpg"
+    "cover_image_url": "/static/images/book_12_6ea57b8d.jpg",
+    "rating": 4.1,
+    "id": 12
   },
   {
     "title": "The Handmaid's Tale",
     "subtitle": null,
-    "authors": ["Margaret Atwood"],
-    "genres": ["dystopian", "feminist", "science fiction"],
+    "authors": [
+      "Margaret Atwood"
+    ],
+    "genres": [
+      "dystopian",
+      "feminist",
+      "science fiction"
+    ],
     "description": "A powerful dystopian vision of a future where women's rights have been stripped away. Offred navigates life in the Republic of Gilead, where she serves as a handmaid in a world of environmental disasters and declining birthrates.",
     "price": 15.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1578028274i/38447.jpg"
+    "cover_image_url": "/static/images/book_13_ae22d013.jpg",
+    "rating": 4.1,
+    "id": 13
   },
   {
     "title": "The Alchemist",
     "subtitle": null,
-    "authors": ["Paulo Coelho"],
-    "genres": ["philosophy", "adventure", "inspirational"],
+    "authors": [
+      "Paulo Coelho"
+    ],
+    "genres": [
+      "philosophy",
+      "adventure",
+      "inspirational"
+    ],
     "description": "A mystical tale about following your dreams. Santiago, a young shepherd, journeys from Spain to Egypt in search of treasure, discovering that the real treasure lies within the journey itself.",
     "price": 14.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1654371463i/18144590.jpg"
+    "cover_image_url": "/static/images/book_14_f861e3a2.jpg",
+    "rating": 3.9,
+    "id": 14
   },
   {
     "title": "The Picture of Dorian Gray",
     "subtitle": null,
-    "authors": ["Oscar Wilde"],
-    "genres": ["classics", "gothic", "philosophy"],
+    "authors": [
+      "Oscar Wilde"
+    ],
+    "genres": [
+      "classics",
+      "gothic",
+      "philosophy"
+    ],
     "description": "A haunting tale of beauty, corruption, and moral decay. Dorian Gray remains young and beautiful while his portrait ages and shows the marks of his increasingly debauched lifestyle.",
     "price": 13.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1546103428i/5297.jpg"
+    "cover_image_url": "/static/images/book_15_4acec798.jpg",
+    "rating": 4.0,
+    "id": 15
   },
   {
     "title": "Fahrenheit 451",
     "subtitle": null,
-    "authors": ["Ray Bradbury"],
-    "genres": ["dystopian", "science fiction", "classics"],
+    "authors": [
+      "Ray Bradbury"
+    ],
+    "genres": [
+      "dystopian",
+      "science fiction",
+      "classics"
+    ],
     "description": "In a future where books are banned and firemen burn them, Guy Montag begins to question the society he serves. A powerful story about censorship, knowledge, and the importance of literature.",
     "price": 13.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1383718290i/13079982.jpg"
+    "cover_image_url": "/static/images/book_16_aeec4f59.jpg",
+    "rating": 3.9,
+    "id": 16
   },
   {
     "title": "Crime and Punishment",
     "subtitle": null,
-    "authors": ["Fyodor Dostoevsky"],
-    "genres": ["classics", "philosophy", "psychological"],
+    "authors": [
+      "Fyodor Dostoevsky"
+    ],
+    "genres": [
+      "classics",
+      "philosophy",
+      "psychological"
+    ],
     "description": "The psychological masterpiece about guilt, redemption, and the human condition. Raskolnikov, a poor student, commits murder and must grapple with the moral and psychological consequences.",
     "price": 17.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1382846449i/7144.jpg"
+    "cover_image_url": "/static/images/book_17_72d9f332.jpg",
+    "rating": 4.2,
+    "id": 17
   },
   {
     "title": "The Kite Runner",
     "subtitle": null,
-    "authors": ["Khaled Hosseini"],
-    "genres": ["historical fiction", "contemporary", "drama"],
+    "authors": [
+      "Khaled Hosseini"
+    ],
+    "genres": [
+      "historical fiction",
+      "contemporary",
+      "drama"
+    ],
     "description": "A powerful story of friendship, guilt, and redemption set against the backdrop of Afghanistan's tumultuous history. Amir's journey to atone for his childhood betrayal of his friend Hassan.",
     "price": 15.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1579036753i/77203.jpg"
+    "cover_image_url": "/static/images/book_18_6b2fe5f3.jpg",
+    "rating": 4.3,
+    "id": 18
   },
   {
     "title": "The Book Thief",
     "subtitle": null,
-    "authors": ["Markus Zusak"],
-    "genres": ["historical fiction", "young adult", "war"],
+    "authors": [
+      "Markus Zusak"
+    ],
+    "genres": [
+      "historical fiction",
+      "young adult",
+      "war"
+    ],
     "description": "Narrated by Death, this is the story of Liesel Meminger, a young girl living with foster parents in Nazi Germany. Her love of books becomes a metaphor for hope and resistance during the darkest times.",
     "price": 14.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1522157426i/19063.jpg"
+    "cover_image_url": "/static/images/book_19_39d38eb7.jpg",
+    "rating": 4.4,
+    "id": 19
   },
   {
     "title": "The Midnight Library",
     "subtitle": null,
-    "authors": ["Matt Haig"],
-    "genres": ["contemporary fiction", "philosophy", "magical realism"],
+    "authors": [
+      "Matt Haig"
+    ],
+    "genres": [
+      "contemporary fiction",
+      "philosophy",
+      "magical realism"
+    ],
     "description": "Between life and death is a library containing infinite books representing all the lives you could have lived. Nora Seed explores these alternate lives in search of the perfect existence.",
     "price": 16.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1602190253i/52578297.jpg"
+    "cover_image_url": "/static/images/book_20_ba98b114.jpg",
+    "rating": 4.1,
+    "id": 20
+  },
+  {
+    "title": "Where the Crawdads Sing",
+    "subtitle": null,
+    "authors": [
+      "Delia Owens"
+    ],
+    "genres": [
+      "mystery",
+      "contemporary fiction",
+      "nature"
+    ],
+    "description": "A haunting and beautiful coming-of-age story set in the marshlands of North Carolina. Kya, the 'Marsh Girl,' grows up isolated from society until she becomes entangled in a murder investigation.",
+    "price": 15.99,
+    "cover_image_url": "/static/images/book_21_813f8ce2.jpg",
+    "rating": 4.4,
+    "id": 21
+  },
+  {
+    "title": "The Seven Husbands of Evelyn Hugo",
+    "subtitle": null,
+    "authors": [
+      "Taylor Jenkins Reid"
+    ],
+    "genres": [
+      "historical fiction",
+      "romance",
+      "lgbtq"
+    ],
+    "description": "Reclusive Hollywood icon Evelyn Hugo finally decides to tell her life story\u2014but only to unknown journalist Monique Grant. A tale of love, ambition, and the price of fame.",
+    "price": 16.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1618913179i/32620332.jpg",
+    "rating": 4.5,
+    "id": 22
+  },
+  {
+    "title": "The Silent Patient",
+    "subtitle": null,
+    "authors": [
+      "Alex Michaelides"
+    ],
+    "genres": [
+      "psychological thriller",
+      "mystery",
+      "suspense"
+    ],
+    "description": "Alicia Berenson refuses to speak after allegedly murdering her husband. Psychotherapist Theo Faber is determined to understand why, leading to shocking revelations.",
+    "price": 14.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1582398803i/40097951.jpg",
+    "rating": 4.1,
+    "id": 23
+  },
+  {
+    "title": "Circe",
+    "subtitle": null,
+    "authors": [
+      "Madeline Miller"
+    ],
+    "genres": [
+      "mythology",
+      "fantasy",
+      "historical fiction"
+    ],
+    "description": "The story of Circe, the witch of Aiaia, told from her perspective. A powerful retelling of Greek mythology exploring themes of transformation, power, and finding one's voice.",
+    "price": 17.99,
+    "cover_image_url": "/static/images/book_24_5307ddc8.jpg",
+    "rating": 4.3,
+    "id": 24
+  },
+  {
+    "title": "The Martian",
+    "subtitle": null,
+    "authors": [
+      "Andy Weir"
+    ],
+    "genres": [
+      "science fiction",
+      "adventure",
+      "space"
+    ],
+    "description": "Astronaut Mark Watney is stranded on Mars and must use his ingenuity and humor to survive while NASA works to bring him home. A thrilling story of human resilience.",
+    "price": 15.99,
+    "cover_image_url": "/static/images/book_25_612782dc.jpg",
+    "rating": 4.4,
+    "id": 25
+  },
+  {
+    "title": "Gone Girl",
+    "subtitle": null,
+    "authors": [
+      "Gillian Flynn"
+    ],
+    "genres": [
+      "psychological thriller",
+      "mystery",
+      "suspense"
+    ],
+    "description": "When Amy Dunne disappears on her fifth wedding anniversary, her husband Nick becomes the prime suspect. A twisted tale of marriage and deception.",
+    "price": 14.99,
+    "cover_image_url": "/static/images/book_26_74ed665b.jpg",
+    "rating": 4.0,
+    "id": 26
+  },
+  {
+    "title": "The Girl with the Dragon Tattoo",
+    "subtitle": null,
+    "authors": [
+      "Stieg Larsson"
+    ],
+    "genres": [
+      "mystery",
+      "thriller",
+      "crime"
+    ],
+    "description": "Journalist Mikael Blomkvist teams up with hacker Lisbeth Salander to solve a decades-old disappearance in this gripping Swedish crime thriller.",
+    "price": 16.99,
+    "cover_image_url": "/static/images/book_27_38e72a86.jpg",
+    "rating": 4.1,
+    "id": 27
+  },
+  {
+    "title": "The Fault in Our Stars",
+    "subtitle": null,
+    "authors": [
+      "John Green"
+    ],
+    "genres": [
+      "young adult",
+      "romance",
+      "contemporary"
+    ],
+    "description": "Hazel and Augustus meet at a cancer support group and fall in love. A beautiful, heartbreaking story about life, love, and making the most of the time we have.",
+    "price": 12.99,
+    "cover_image_url": "/static/images/book_28_497e5f23.jpg",
+    "rating": 4.2,
+    "id": 28
+  },
+  {
+    "title": "The Hunger Games",
+    "subtitle": null,
+    "authors": [
+      "Suzanne Collins"
+    ],
+    "genres": [
+      "dystopian",
+      "young adult",
+      "science fiction"
+    ],
+    "description": "In a dystopian future, Katniss Everdeen volunteers to take her sister's place in the deadly Hunger Games, a televised fight to the death.",
+    "price": 13.99,
+    "cover_image_url": "/static/images/book_29_f9e99436.jpg",
+    "rating": 4.3,
+    "id": 29
+  },
+  {
+    "title": "Life of Pi",
+    "subtitle": null,
+    "authors": [
+      "Yann Martel"
+    ],
+    "genres": [
+      "adventure",
+      "philosophy",
+      "survival"
+    ],
+    "description": "Pi Patel survives 227 days on a lifeboat in the Pacific Ocean with a Bengal tiger named Richard Parker. A profound meditation on faith, survival, and storytelling.",
+    "price": 15.99,
+    "cover_image_url": "/static/images/book_30_0e9e03d2.jpg",
+    "rating": 3.9,
+    "id": 30
+  },
+  {
+    "title": "The Da Vinci Code",
+    "subtitle": null,
+    "authors": [
+      "Dan Brown"
+    ],
+    "genres": [
+      "mystery",
+      "thriller",
+      "historical fiction"
+    ],
+    "description": "Harvard symbologist Robert Langdon becomes embroiled in a deadly conspiracy involving the Catholic Church, the Holy Grail, and secret societies.",
+    "price": 14.99,
+    "cover_image_url": "/static/images/book_31_5a5b3cf4.jpg",
+    "rating": 3.8,
+    "id": 31
+  },
+  {
+    "title": "The Giver",
+    "subtitle": null,
+    "authors": [
+      "Lois Lowry"
+    ],
+    "genres": [
+      "dystopian",
+      "young adult",
+      "science fiction"
+    ],
+    "description": "In a seemingly perfect society, twelve-year-old Jonas discovers the dark truth about his community when he's chosen to receive memories of the past.",
+    "price": 11.99,
+    "cover_image_url": "/static/images/book_32_1f24a006.jpg",
+    "rating": 4.1,
+    "id": 32
+  },
+  {
+    "title": "The Help",
+    "subtitle": null,
+    "authors": [
+      "Kathryn Stockett"
+    ],
+    "genres": [
+      "historical fiction",
+      "drama",
+      "social issues"
+    ],
+    "description": "Set in 1960s Mississippi, this powerful story follows the lives of African American maids and the white families they work for during the civil rights movement.",
+    "price": 15.99,
+    "cover_image_url": "/static/images/book_33_0d4a6753.jpg",
+    "rating": 4.4,
+    "id": 33
+  },
+  {
+    "title": "The Curious Incident of the Dog in the Night-Time",
+    "subtitle": null,
+    "authors": [
+      "Mark Haddon"
+    ],
+    "genres": [
+      "mystery",
+      "contemporary fiction",
+      "young adult"
+    ],
+    "description": "Fifteen-year-old Christopher, who has autism, investigates the death of his neighbor's dog and uncovers family secrets in this unique and moving novel.",
+    "price": 13.99,
+    "cover_image_url": "/static/images/book_34_d8ad2f6a.jpg",
+    "rating": 4.0,
+    "id": 34
+  },
+  {
+    "title": "The Time Traveler's Wife",
+    "subtitle": null,
+    "authors": [
+      "Audrey Niffenegger"
+    ],
+    "genres": [
+      "romance",
+      "science fiction",
+      "fantasy"
+    ],
+    "description": "Clare and Henry's love story is complicated by Henry's genetic disorder that causes him to time travel involuntarily. A beautiful tale of love transcending time.",
+    "price": 16.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1590733281i/18619684.jpg",
+    "rating": 3.9,
+    "id": 35
+  },
+  {
+    "title": "The Perks of Being a Wallflower",
+    "subtitle": null,
+    "authors": [
+      "Stephen Chbosky"
+    ],
+    "genres": [
+      "young adult",
+      "coming of age",
+      "contemporary"
+    ],
+    "description": "Charlie navigates his freshman year of high school with the help of two charismatic seniors. A poignant story about friendship, first love, and finding your place.",
+    "price": 12.99,
+    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1494863315i/22628.jpg",
+    "rating": 4.2,
+    "id": 36
+  },
+  {
+    "title": "The Road",
+    "subtitle": null,
+    "authors": [
+      "Cormac McCarthy"
+    ],
+    "genres": [
+      "post-apocalyptic",
+      "literary fiction",
+      "dystopian"
+    ],
+    "description": "A father and son journey through a post-apocalyptic wasteland in this haunting tale of survival, love, and hope in the face of devastation.",
+    "price": 14.99,
+    "cover_image_url": "/static/images/book_37_84a4e39b.jpg",
+    "rating": 3.9,
+    "id": 37
+  },
+  {
+    "title": "Into the Wild",
+    "subtitle": null,
+    "authors": [
+      "Jon Krakauer"
+    ],
+    "genres": [
+      "biography",
+      "adventure",
+      "non-fiction"
+    ],
+    "description": "The true story of Christopher McCandless, who gave up his possessions and savings to hitchhike to Alaska and live in the wilderness.",
+    "price": 15.99,
+    "cover_image_url": "/static/images/book_38_d1c12bb6.jpg",
+    "rating": 3.9,
+    "id": 38
+  },
+  {
+    "title": "The Glass Castle",
+    "subtitle": null,
+    "authors": [
+      "Jeannette Walls"
+    ],
+    "genres": [
+      "memoir",
+      "biography",
+      "non-fiction"
+    ],
+    "description": "Jeannette Walls' extraordinary memoir about growing up with unconventional parents who couldn't provide the basic necessities but gave her stories.",
+    "price": 15.99,
+    "cover_image_url": "/static/images/book_39_cc36d6e2.jpg",
+    "rating": 4.3,
+    "id": 39
+  },
+  {
+    "title": "Memoirs of a Geisha",
+    "subtitle": null,
+    "authors": [
+      "Arthur Golden"
+    ],
+    "genres": [
+      "historical fiction",
+      "cultural",
+      "drama"
+    ],
+    "description": "The story of Chiyo, who is sold to a geisha house and transformed into the renowned geisha Sayuri in 1930s Japan. A tale of beauty, sacrifice, and survival.",
+    "price": 16.99,
+    "cover_image_url": "/static/images/book_40_75a99d3d.jpg",
+    "rating": 4.1,
+    "id": 40
+  },
+  {
+    "title": "The Secret Garden",
+    "subtitle": null,
+    "authors": [
+      "Frances Hodgson Burnett"
+    ],
+    "genres": [
+      "children",
+      "classics",
+      "fantasy"
+    ],
+    "description": "Mary Lennox discovers a hidden, neglected garden at her uncle's estate and works to restore it with the help of her cousin Colin and a local boy named Dickon.",
+    "price": 11.99,
+    "cover_image_url": "/static/images/book_41_dc27e5e3.jpg",
+    "rating": 4.1,
+    "id": 41
+  },
+  {
+    "title": "The Count of Monte Cristo",
+    "subtitle": null,
+    "authors": [
+      "Alexandre Dumas"
+    ],
+    "genres": [
+      "classics",
+      "adventure",
+      "historical fiction"
+    ],
+    "description": "Edmond Dant\u00e8s is wrongfully imprisoned and escapes to become the mysterious Count of Monte Cristo, seeking revenge against those who betrayed him.",
+    "price": 18.99,
+    "cover_image_url": "/static/images/book_42_9773cc66.jpg",
+    "rating": 4.2,
+    "id": 42
+  },
+  {
+    "title": "Rebecca",
+    "subtitle": null,
+    "authors": [
+      "Daphne du Maurier"
+    ],
+    "genres": [
+      "gothic",
+      "mystery",
+      "classics"
+    ],
+    "description": "A young woman marries a widower and moves to his estate, Manderley, where she's haunted by the memory of his deceased first wife, Rebecca.",
+    "price": 14.99,
+    "cover_image_url": "/static/images/book_43_65ed72f4.jpg",
+    "rating": 4.2,
+    "id": 43
+  },
+  {
+    "title": "Wuthering Heights",
+    "subtitle": null,
+    "authors": [
+      "Emily Bront\u00eb"
+    ],
+    "genres": [
+      "gothic",
+      "romance",
+      "classics"
+    ],
+    "description": "The passionate and destructive love story between Heathcliff and Catherine Earnshaw, set on the Yorkshire moors in this dark romantic classic.",
+    "price": 13.99,
+    "cover_image_url": "/static/images/book_44_3702014b.jpg",
+    "rating": 3.9,
+    "id": 44
+  },
+  {
+    "title": "Jane Eyre",
+    "subtitle": null,
+    "authors": [
+      "Charlotte Bront\u00eb"
+    ],
+    "genres": [
+      "gothic",
+      "romance",
+      "classics"
+    ],
+    "description": "The story of orphaned Jane Eyre, who overcomes a harsh childhood to become a governess at Thornfield Hall, where she falls in love with the brooding Mr. Rochester.",
+    "price": 14.99,
+    "cover_image_url": "/static/images/book_45_00933f02.jpg",
+    "rating": 4.1,
+    "id": 45
   }
 ]
