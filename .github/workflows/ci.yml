@@ -202,30 +202,19 @@ jobs:
             IFS='.' read -r A_MAJ A_MIN A_PAT <<<"${APP_LATEST}"; A_PAT=$((A_PAT+1)); APP_VERSION="${A_MAJ}.${A_MIN}.${A_PAT}"
             echo "🧮 Latest parsed version: ${APP_LATEST}; ⬆️ next: ${APP_VERSION}"
           else
-            # Use seed version from local version map instead of bump
-            if [[ -f "$VMAP_PATH" ]]; then
-              # Parse YAML to find application seed under seeds.application for the matching key
-              APP_SEED=$(awk -v key="$APPLICATION_KEY" '
-                BEGIN { found_key=0; in_seeds=0 }
-                /^  - key:/ { found_key = ($3 == key); in_seeds=0; next }
-                found_key && /^    seeds:/ { in_seeds=1; next }
-                found_key && in_seeds && /^[[:space:]]+application:[[:space:]]*/ {
-                  sub(/^[ \t]+application:[ \t]*/, "");
-                  print; exit
-                }
-              ' "$VMAP_PATH" 2>/dev/null || echo "")
-              if [[ -n "$APP_SEED" && "$APP_SEED" != "null" ]]; then
-                # Bump the seed version's patch to avoid repeats when previous runs used the same seed
-                IFS='.' read -r S_MAJ S_MIN S_PAT <<<"${APP_SEED}"; S_PAT=$((S_PAT+1)); APP_VERSION="${S_MAJ}.${S_MIN}.${S_PAT}"
-                echo "🌱 Using seed from version-map.yaml: $APP_SEED; ⬆️ bumped to: $APP_VERSION"
-              else
-                echo "⚠️ No seed found for $APPLICATION_KEY in version-map.yaml, using fallback"
-                APP_VERSION="1.0.1"
-              fi
-            else
-              echo "⚠️ Local version map not available, using fallback"
-              APP_VERSION="1.0.1"
-            fi
+            # Use seed version from local version map
+            APP_SEED=$(awk -v key="$APPLICATION_KEY" '
+              BEGIN { found_key=0; in_seeds=0 }
+              /^  - key:/ { found_key = ($3 == key); in_seeds=0; next }
+              found_key && /^    seeds:/ { in_seeds=1; next }
+              found_key && in_seeds && /^[[:space:]]+application:[[:space:]]*/ {
+                sub(/^[ \t]+application:[ \t]*/, "");
+                print; exit
+              }
+            ' "$VMAP_PATH" 2>/dev/null || echo "")
+            # Bump the seed version's patch to avoid repeats when previous runs used the same seed
+            IFS='.' read -r S_MAJ S_MIN S_PAT <<<"${APP_SEED}"; S_PAT=$((S_PAT+1)); APP_VERSION="${S_MAJ}.${S_MIN}.${S_PAT}"
+            echo "🌱 Using seed from version-map.yaml: $APP_SEED; ⬆️ bumped to: $APP_VERSION"
           fi
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
           echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
@@ -242,30 +231,19 @@ jobs:
           if [[ -n "${IMG_LATEST}" ]]; then
             IFS='.' read -r I_MAJ I_MIN I_PAT <<<"${IMG_LATEST}"; I_PAT=$((I_PAT+1)); IMAGE_TAG="${I_MAJ}.${I_MIN}.${I_PAT}"
           else
-            # Use seed version from local version map instead of random generation
-            if [[ -f "$VMAP_PATH" ]]; then
-              # Parse YAML to find the first docker package seed for this application
-              IMG_SEED=$(awk -v app_key="$APPLICATION_KEY" '
-                BEGIN { found_app=0; in_packages=0; is_docker=0 }
-                /^  - key:/ { found_app = ($3 == app_key); in_packages=0; is_docker=0; next }
-                found_app && /^    packages:/ { in_packages=1; is_docker=0; next }
-                found_app && in_packages && /^      - type:[ \t]*docker/ { is_docker=1; next }
-                found_app && in_packages && is_docker && /^[[:space:]]+seed:[ \t]*/ {
-                  sub(/^[ \t]+seed:[ \t]*/, "");
-                  print; exit
-                }
-              ' "$VMAP_PATH" 2>/dev/null || echo "")
-              if [[ -n "$IMG_SEED" && "$IMG_SEED" != "null" ]]; then
-                IMAGE_TAG="$IMG_SEED"
-                echo "✅ Using package seed version from version-map.yaml: $IMAGE_TAG"
-              else
-                echo "⚠️ No package seed found for $SERVICE_NAME in $APPLICATION_KEY, using fallback"
-                IMAGE_TAG="1.0.0"
-              fi
-            else
-              echo "⚠️ Local version map not available, using fallback"
-              IMAGE_TAG="1.0.0"
-            fi
+            # Use seed version from local version map
+            IMG_SEED=$(awk -v app_key="$APPLICATION_KEY" '
+              BEGIN { found_app=0; in_packages=0; is_docker=0 }
+              /^  - key:/ { found_app = ($3 == app_key); in_packages=0; is_docker=0; next }
+              found_app && /^    packages:/ { in_packages=1; is_docker=0; next }
+              found_app && in_packages && /^      - type:[ \t]*docker/ { is_docker=1; next }
+              found_app && in_packages && is_docker && /^[[:space:]]+seed:[ \t]*/ {
+                sub(/^[ \t]+seed:[ \t]*/, "");
+                print; exit
+              }
+            ' "$VMAP_PATH" 2>/dev/null || echo "")
+            IMAGE_TAG="$IMG_SEED"
+            echo "✅ Using package seed version from version-map.yaml: $IMAGE_TAG"
           fi
 
           IMAGE_NAME_PATH="$REGISTRY_URL/$REPO_KEY/$SERVICE_NAME:$IMAGE_TAG"
