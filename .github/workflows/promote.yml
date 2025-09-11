@@ -32,7 +32,6 @@ jobs:
       id-token: write
       contents: read
     env:
-      DEMO_MODE: "false"
 
     # Evidence signing configuration:
     # - secrets.EVIDENCE_PRIVATE_KEY: private key material (sensitive)
@@ -134,7 +133,7 @@ jobs:
           # This step resolves lifecycle, establishes CURRENT_STAGE, and prepares
           # variables consumed by promote_lib.sh. See promote_lib.sh header docs
           # for how advance_one_step orchestrates promote vs release.
-          if [[ -n "${HTTP_DEBUG_LEVEL:-}" ]]; then :; else export HTTP_DEBUG_LEVEL=basic; fi
+          # Initialize lifecycle data
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           source .github/scripts/promote_lib.sh
@@ -147,7 +146,6 @@ jobs:
           CODE=$(curl -sS -L -o "$LC_FILE" -w "%{http_code}" "$JFROG_URL/access/api/v2/lifecycle/?project_key=$PROJECT_KEY" -H "Authorization: Bearer ${APPTRUST_ACCESS_TOKEN}" -H "Accept: application/json" || echo 000)
           if [[ "$CODE" -lt 200 || "$CODE" -ge 300 ]]; then
             echo "❌ Failed to fetch lifecycles list for project '$PROJECT_KEY' (HTTP $CODE)" >&2
-            print_request_debug "GET" "$JFROG_URL/access/api/v2/lifecycle/?project_key=$PROJECT_KEY"
             cat "$LC_FILE" || true
             rm -f "$LC_FILE"
             exit 1

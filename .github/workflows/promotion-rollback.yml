@@ -20,12 +20,6 @@ on:
         description: "Version (SemVer) to rollback (omit to use latest promoted)"
         required: false
         type: string
-      DEMO_MODE:
-        description: 'Enable demo mode (verbose logs, request tracing)'
-        required: false
-        default: 'false'
-        type: choice
-        options: ['false', 'true']
 
 concurrency:
   group: promotion-rollback-${{ github.event.repository.name }}
@@ -38,19 +32,10 @@ jobs:
     permissions:
       contents: read
     env:
-      DEMO_MODE: "false"
     steps:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
-      - name: "[Setup] DEMO_MODE"
-        if: ${{ inputs.DEMO_MODE == 'true' || env.DEMO_MODE == 'true' }}
-        run: |
-          echo "🔔 DEMO_MODE enabled"
-          echo "ACTIONS_STEP_DEBUG=true" >> $GITHUB_ENV
-          echo "ACTIONS_RUNNER_DEBUG=true" >> $GITHUB_ENV
-          echo "HTTP_DEBUG_LEVEL=verbose" >> $GITHUB_ENV
-          echo "BASH_XTRACE_ENABLED=1" >> $GITHUB_ENV
 
       - name: "[Setup] Python"
         uses: actions/setup-python@v5

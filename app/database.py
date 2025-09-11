@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False},  # Needed for SQLite
-    echo=False  # Set to True for SQL query debugging
 )
 
 # Create session factory

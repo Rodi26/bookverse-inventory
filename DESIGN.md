@@ -304,7 +304,7 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://user:pass@db:5432/bookverse_inventory
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=INFO
     depends_on:
       - db
   

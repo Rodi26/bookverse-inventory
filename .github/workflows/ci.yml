@@ -1,8 +1,5 @@
 name: CI
 
-env:
-  DEMO_MODE: "false"
-
 # NOTE: Manual trigger only during development phase
 # Will be changed to automatic triggers (push/PR) when demo is ready
 on:
@@ -13,12 +10,6 @@ on:
         required: false
         default: 'Manual testing'
         type: string
-      DEMO_MODE:
-        description: 'Enable demo mode (verbose logs, request tracing)'
-        required: false
-        default: 'false'
-        type: choice
-        options: ['false', 'true']
 
 # Evidence signing configuration:
 # - secrets.EVIDENCE_PRIVATE_KEY: private key material (sensitive)
@@ -52,34 +43,9 @@ jobs:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
-      - name: "[Setup] DEMO_MODE"
-        if: ${{ inputs.DEMO_MODE == 'true' || env.DEMO_MODE == 'true' }}
-        run: |
-          echo "🔔 DEMO_MODE enabled"
-          # Enable GitHub Actions debug logs for this job
-          echo "ACTIONS_STEP_DEBUG=true" >> $GITHUB_ENV
-          echo "ACTIONS_RUNNER_DEBUG=true" >> $GITHUB_ENV
-          # Make HTTP helpers verbose
-          echo "HTTP_DEBUG_LEVEL=verbose" >> $GITHUB_ENV
-          # Many steps respect this to show detailed shell execution
-          echo "BASH_XTRACE_ENABLED=1" >> $GITHUB_ENV
-          # Also useful for services using LOG_LEVEL env
-          echo "LOG_LEVEL=DEBUG" >> $GITHUB_ENV
+      
 
-      - name: "[Setup] HTTP debug"
-        run: |
-          # HTTP_DEBUG_LEVEL: none|basic|verbose (default basic)
-          case "${HTTP_DEBUG_LEVEL:-}" in
-            none|basic|verbose)
-              echo "HTTP_DEBUG_LEVEL=${HTTP_DEBUG_LEVEL}" >> $GITHUB_ENV ;;
-            *)
-              # If DEMO_MODE is on, keep verbose, else default basic
-              if [[ "${{ inputs.DEMO_MODE }}" == "true" || "${DEMO_MODE:-}" == "true" ]]; then
-                echo "HTTP_DEBUG_LEVEL=verbose" >> $GITHUB_ENV
-              else
-                echo "HTTP_DEBUG_LEVEL=basic" >> $GITHUB_ENV
-              fi ;;
-          esac
+      
 
       - name: "[Setup] Build Info"
         id: set-build-info
@@ -95,7 +61,6 @@ jobs:
         run: |
           echo "🚀 Manual CI trigger initiated"
           echo "📝 Reason: ${{ inputs.reason }}"
-          echo "🎛️ DEMO_MODE: ${{ inputs.DEMO_MODE }}"
           echo "👤 Triggered by: ${{ github.actor }}"
           echo "🕐 Timestamp: $(date -u)"
       - name: "[Setup] JFrog CLI"
@@ -138,50 +103,20 @@ jobs:
         id: set-app-version
         run: |
           set -euo pipefail
-          if [ -f .github/scripts/http_debug.sh ]; then source .github/scripts/http_debug.sh; fi
-          # Fallback minimal debug function (respects HTTP_DEBUG_LEVEL)
-          if ! declare -f print_request_debug >/dev/null 2>&1; then
-            print_request_debug() {
-              local method="$1"; local url="$2"; local body="${3:-}"; local level="${HTTP_DEBUG_LEVEL:-basic}"
-              [ "$level" = "none" ] && return 0
-              local show_project_header=false
-              # Allow forcing header via env var, otherwise infer from URL
-              if [[ "${DEBUG_INCLUDE_PROJECT_HEADER:-}" == "true" || "${DEBUG_INCLUDE_PROJECT_HEADER:-}" == "1" ]]; then
-                show_project_header=true
-              else
-                if [[ "$url" == *"/apptrust/api/"* ]]; then
-                  if [[ "$url" == *"/promote"* || "$url" == *"/release"* ]]; then
-                    show_project_header=false
-                  else
-                    show_project_header=true
-                  fi
-                fi
-              fi
-              local show_content_type=false
-              if [[ "$method" == "POST" ]]; then
-                show_content_type=true
-              fi
-              echo "---- Request debug (${level}) ----"
-              echo "Method: ${method}"
-              echo "URL: ${url}"
-              echo "Headers:"
-              echo "  Authorization: Bearer ***REDACTED***"
-              if $show_project_header && [[ -n "${PROJECT_KEY:-}" ]]; then echo "  X-JFrog-Project: ${PROJECT_KEY}"; fi
-              if $show_content_type; then echo "  Content-Type: application/json"; fi
-              echo "  Accept: application/json"
-              if [ -n "$body" ] && [ "$level" = "verbose" ]; then
-                echo "Body: ${body}"
-              fi
-              echo "-----------------------"
-            }
-          fi
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           REGISTRY_URL=${REGISTRY_URL:-${{ vars.DOCKER_REGISTRY }}}
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
 
+          # Download version-map.yaml from demo-init repo for seed versions
+          echo "📥 Downloading version-map.yaml for seed versions"
+          curl -sS -H "Authorization: Bearer ${{ github.token }}" \
+            -H "Accept: application/vnd.github.v3.raw" \
+            "https://api.github.com/repos/${{ github.repository_owner }}/bookverse-demo-init/contents/config/version-map.yaml" \
+            -o version-map.yaml || echo "⚠️ Failed to download version-map.yaml, will use fallback logic"
+
           echo "🔎 Resolving next Application SemVer for $APPLICATION_KEY (SemVer sort)"
-          APP_RESP=$(jf rt curl "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=1000" -H "Accept: application/json" || true)
+          APP_RESP=$(jf rt curl "/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=200" -H "Accept: application/json" || true)
           if ! echo "$APP_RESP" | jq -e . >/dev/null 2>&1; then
             APP_LATEST=""
           else
@@ -191,11 +126,29 @@ jobs:
           if [[ -n "${APP_LATEST}" ]]; then
             IFS='.' read -r A_MAJ A_MIN A_PAT <<<"${APP_LATEST}"; A_PAT=$((A_PAT+1)); APP_VERSION="${A_MAJ}.${A_MIN}.${A_PAT}"
           else
-            # Initial range: 1.0.0–2.15.29
-            A_MAJ=$(( (RANDOM % 2) + 1 ))
-            A_MIN=$(( RANDOM % 16 ))
-            A_PAT=$(( RANDOM % 30 ))
-            APP_VERSION="${A_MAJ}.${A_MIN}.${A_PAT}"
+            # Use seed version from version-map.yaml instead of random generation
+            if [[ -f version-map.yaml ]]; then
+              # Parse YAML using grep/awk to find application seed
+              APP_SEED=$(awk -v key="$APPLICATION_KEY" '
+                /^  - key:/ { current_key = $3 }
+                current_key == key && /application:/ { 
+                  gsub(/^[ \t]+/, ""); 
+                  gsub(/application:[ \t]*/, ""); 
+                  print $0; 
+                  exit 
+                }
+              ' version-map.yaml 2>/dev/null || echo "")
+              if [[ -n "$APP_SEED" && "$APP_SEED" != "null" ]]; then
+                APP_VERSION="$APP_SEED"
+                echo "✅ Using application seed version from version-map.yaml: $APP_VERSION"
+              else
+                echo "⚠️ No seed found for $APPLICATION_KEY in version-map.yaml, using fallback"
+                APP_VERSION="1.0.0"
+              fi
+            else
+              echo "⚠️ version-map.yaml not available, using fallback"
+              APP_VERSION="1.0.0"
+            fi
           fi
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
           echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
@@ -210,11 +163,35 @@ jobs:
           if [[ -n "${IMG_LATEST}" ]]; then
             IFS='.' read -r I_MAJ I_MIN I_PAT <<<"${IMG_LATEST}"; I_PAT=$((I_PAT+1)); IMAGE_TAG="${I_MAJ}.${I_MIN}.${I_PAT}"
           else
-            # Initial range: 1.0.0–2.15.29
-            I_MAJ=$(( (RANDOM % 2) + 1 ))
-            I_MIN=$(( RANDOM % 16 ))
-            I_PAT=$(( RANDOM % 30 ))
-            IMAGE_TAG="${I_MAJ}.${I_MIN}.${I_PAT}"
+            # Use seed version from version-map.yaml instead of random generation
+            if [[ -f version-map.yaml ]]; then
+              # Parse YAML using simpler approach - find the first docker package seed for this application
+              IMG_SEED=$(awk -v app_key="$APPLICATION_KEY" '
+                BEGIN { found_app = 0; in_packages = 0 }
+                /^  - key:/ { 
+                  if ($3 == app_key) found_app = 1; else found_app = 0 
+                  in_packages = 0
+                }
+                found_app && /^    packages:/ { in_packages = 1; next }
+                found_app && in_packages && /^      - type: docker/ { is_docker = 1; next }
+                found_app && in_packages && is_docker && /^        seed:/ {
+                  gsub(/^[ \t]+seed:[ \t]*/, ""); 
+                  print $0; 
+                  exit 
+                }
+                /^  - key:/ && found_app { found_app = 0 }
+              ' version-map.yaml 2>/dev/null || echo "")
+              if [[ -n "$IMG_SEED" && "$IMG_SEED" != "null" ]]; then
+                IMAGE_TAG="$IMG_SEED"
+                echo "✅ Using package seed version from version-map.yaml: $IMAGE_TAG"
+              else
+                echo "⚠️ No package seed found for $SERVICE_NAME in $APPLICATION_KEY, using fallback"
+                IMAGE_TAG="1.0.0"
+              fi
+            else
+              echo "⚠️ version-map.yaml not available, using fallback"
+              IMAGE_TAG="1.0.0"
+            fi
           fi
 
           IMAGE_NAME_PATH="$REGISTRY_URL/$REPO_KEY/$SERVICE_NAME:$IMAGE_TAG"
@@ -865,43 +842,6 @@ jobs:
           # Debug: show sanitized curl and payload
           echo "📦 Application Key: $APPLICATION_KEY"
           echo "📝 Payload:"; echo "$APP_VERSION_PAYLOAD" | jq . || echo "$APP_VERSION_PAYLOAD"
-          # Source shared helper if available, with a robust fallback definition
-          if [ -f .github/scripts/http_debug.sh ]; then source .github/scripts/http_debug.sh; fi
-          if ! declare -f print_request_debug >/dev/null 2>&1; then
-            print_request_debug() {
-              local method="$1"; local url="$2"; local body="${3:-}"; local level="${HTTP_DEBUG_LEVEL:-basic}"
-              [ "$level" = "none" ] && return 0
-              local show_project_header=false
-              if [[ "${DEBUG_INCLUDE_PROJECT_HEADER:-}" == "true" || "${DEBUG_INCLUDE_PROJECT_HEADER:-}" == "1" ]]; then
-                show_project_header=true
-              else
-                if [[ "$url" == *"/apptrust/api/"* ]]; then
-                  if [[ "$url" == *"/promote"* || "$url" == *"/release"* ]]; then
-                    show_project_header=false
-                  else
-                    show_project_header=true
-                  fi
-                fi
-              fi
-              local show_content_type=false
-              if [[ "$method" == "POST" ]]; then
-                show_content_type=true
-              fi
-              echo "---- Request debug (${level}) ----"
-              echo "Method: ${method}"
-              echo "URL: ${url}"
-              echo "Headers:"
-              echo "  Authorization: Bearer ***REDACTED***"
-              if $show_project_header && [[ -n "${PROJECT_KEY:-}" ]]; then echo "  X-JFrog-Project: ${PROJECT_KEY}"; fi
-              if $show_content_type; then echo "  Content-Type: application/json"; fi
-              echo "  Accept: application/json"
-              if [ -n "$body" ] && [ "$level" = "verbose" ]; then
-                echo "Body: ${body}"
-              fi
-              echo "-----------------------"
-            }
-          fi
-          DEBUG_INCLUDE_PROJECT_HEADER=false print_request_debug "POST" "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" "$APP_VERSION_PAYLOAD"
 
           # Mint an access token via OIDC and call AppTrust API with curl
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi

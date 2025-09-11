@@ -10,7 +10,6 @@ from pathlib import Path
 DATABASE_URL = "sqlite:///./bookverse_inventory.db"
 
 # Demo Configuration
-DEMO_MODE = True
 LOG_LEVEL = "INFO"
 
 # Paths

@@ -14,36 +14,17 @@ set -euo pipefail
 #   to move the application version to the global release stage (PROD).
 # - For non-final stages, advance_one_step() calls promote_to_stage() instead.
 
-# Minimal debug printer; controlled by HTTP_DEBUG_LEVEL: none|basic|verbose
-print_request_debug() {
-  local method="${1:-}"; local url="${2:-}"; local body="${3:-}"; local level="${HTTP_DEBUG_LEVEL:-basic}"
-  [ "$level" = "none" ] && return 0
-  local show_project_header=false
-  local show_content_type=false
-  # For AppTrust APIs, only include X-JFrog-Project when the endpoint expects
-  # project scoping (e.g., versions listing). Release/Promote endpoints do not
-  # require the project header and may reject it.
-  if [[ "$url" == *"/apptrust/api/"* ]]; then
-    if [[ "$url" == *"/promote"* || "$url" == *"/release"* ]]; then
-      show_project_header=false
-    else
-      show_project_header=true
-    fi
-  fi
-  # Show Content-Type only for POST bodies to reduce noise.
-  if [[ "$method" == "POST" ]]; then show_content_type=true; fi
-  echo "---- Request debug (${level}) ----"
+# Minimal debug printer
+print_request_info() {
+  local method="$1"; local url="$2"; local body="${3:-}"
+  echo "---- HTTP Request ----"
   echo "Method: ${method}"
   echo "URL: ${url}"
-  echo "Headers:"
-  echo "  Authorization: Bearer ***REDACTED***"
-  if $show_project_header && [[ -n "${PROJECT_KEY:-}" ]]; then echo "  X-JFrog-Project: ${PROJECT_KEY}"; fi
-  if $show_content_type; then echo "  Content-Type: application/json"; fi
-  echo "  Accept: application/json"
-  if [ -n "$body" ] && [ "$level" = "verbose" ]; then
+  echo "Headers: Authorization: Bearer ***REDACTED***, Accept: application/json"
+  if [[ "$method" == "POST" && -n "$body" ]]; then
     echo "Body: ${body}"
   fi
-  echo "-----------------------"
+  echo "---------------------"
 }
 
 # Translate a display stage name (e.g., DEV) to the API stage identifier:
@@ -91,7 +72,7 @@ fetch_summary() {
     RELEASE_STATUS=$(jq -r '.release_status // empty' "$body" 2>/dev/null || echo "")
   else
     echo "❌ Failed to fetch version summary" >&2
-    print_request_debug "GET" "$url"
+    print_request_info "GET" "$url"
     cat "$body" || true
     rm -f "$body"
     return 1
@@ -103,7 +84,7 @@ fetch_summary() {
 }
 
 # Small helper to POST JSON to AppTrust endpoints, capturing HTTP status and body.
-# NOTE: Callers are responsible for printing request context (via print_request_debug)
+# NOTE: Callers are responsible for printing request context (via print_request_info)
 # upon errors and for interpreting success/failure semantics.
 apptrust_post() {
   local path="${1:-}"; local data="${2:-}"; local out_file="${3:-}"
@@ -136,7 +117,7 @@ promote_to_stage() {
     echo "HTTP OK"; cat "$resp_body" || true; echo
   else
     echo "❌ Promotion to ${target_stage_display} failed" >&2
-    print_request_debug "POST" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/promote?async=false" "{\"target_stage\": \"${api_stage}\", \"promotion_type\": \"move\"}"
+    print_request_info "POST" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/promote?async=false" "{\"target_stage\": \"${api_stage}\", \"promotion_type\": \"move\"}"
     cat "$resp_body" || true; echo
     rm -f "$resp_body"
     return 1
@@ -183,7 +164,7 @@ release_version() {
     echo "HTTP OK"; cat "$resp_body" || true; echo
   else
     echo "❌ Release to ${FINAL_STAGE} failed" >&2
-    print_request_debug "POST" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" "{\"promotion_type\":\"move\"}"
+    print_request_info "POST" "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/release?async=false" "{\"promotion_type\":\"move\"}"
     rm -f "$resp_body"
     return 1
   fi
