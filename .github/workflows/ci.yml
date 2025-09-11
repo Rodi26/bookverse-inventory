@@ -110,7 +110,7 @@ jobs:
         run: |
           set -euo pipefail
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
-          APPLICATION_KEY="bookverse-$SERVICE_NAME"                                                                                                                                                                                                                                                                                                                                                                                             
+          APPLICATION_KEY="bookverse-$SERVICE_NAME"
           REGISTRY_URL=${REGISTRY_URL:-${{ vars.DOCKER_REGISTRY }}}
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
 
@@ -121,6 +121,15 @@ jobs:
             echo "📄 Using local version map: $VMAP_PATH"
           else
             echo "ℹ️ No local version map found; will rely on existing versions or fallback seeds"
+          fi
+
+          # Ensure application exists in AppTrust; create if 404
+          echo "🔍 Ensuring application '$APPLICATION_KEY' exists in AppTrust"
+          if ! jf rt curl -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Accept: application/json" "/apptrust/api/v1/applications/$APPLICATION_KEY" >/dev/null 2>&1; then
+            echo "🆕 Application not found; creating it"
+            CREATE_APP_BODY=$(jq -n --arg name "BookVerse Inventory" --arg key "$APPLICATION_KEY" --arg proj "${{ vars.PROJECT_KEY }}" '{application_name:$name, application_key:$key, project_key:$proj}')
+            jf rt curl -X POST -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" -H "Content-Type: application/json" -H "Accept: application/json" -d "$CREATE_APP_BODY" "/apptrust/api/v1/applications/" >/tmp/app_create.json 2>/tmp/app_create.err || true
+            echo "📨 Create Application Response:"; cat /tmp/app_create.json || true
           fi
 
           echo "🔎 Resolving next Application SemVer for $APPLICATION_KEY (SemVer sort)"
