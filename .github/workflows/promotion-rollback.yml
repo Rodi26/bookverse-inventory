@@ -133,6 +133,13 @@ jobs:
               echo "🔍 Debug: Looking for RELEASED or TRUSTED_RELEASE versions..."
               TARGET_VERSION=$(jq -r '.versions[] | select((.release_status|tostring|ascii_upcase)=="RELEASED" or (.release_status|tostring|ascii_upcase)=="TRUSTED_RELEASE") | .version' "$RESP_FILE" | head -n1)
               echo "🔍 Debug: Found target version: '${TARGET_VERSION:-empty}'"
+              
+              # If no RELEASED/TRUSTED_RELEASE versions found, try PRE_RELEASE as fallback
+              if [ -z "${TARGET_VERSION:-}" ] || [ "$TARGET_VERSION" = "null" ]; then
+                echo "🔍 Debug: No RELEASED/TRUSTED_RELEASE versions found, trying PRE_RELEASE as fallback..."
+                TARGET_VERSION=$(jq -r '.versions[] | select((.release_status|tostring|ascii_upcase)=="PRE_RELEASE") | .version' "$RESP_FILE" | head -n1)
+                echo "🔍 Debug: Found PRE_RELEASE target version: '${TARGET_VERSION:-empty}'"
+              fi
             fi
             rm -f "$RESP_FILE"
             if [ -z "${TARGET_VERSION:-}" ] || [ "$TARGET_VERSION" = "null" ]; then
