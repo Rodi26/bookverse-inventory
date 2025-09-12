@@ -174,14 +174,21 @@ jobs:
           
           # Use the unified semver determination script
           chmod +x ./scripts/determine-semver.sh
-          ./scripts/determine-semver.sh \
+          SEMVER_OUTPUT=$(./scripts/determine-semver.sh \
             --application-key "$APPLICATION_KEY" \
             --version-map "./config/version-map.yaml" \
             --jfrog-url "${{ vars.JFROG_URL }}" \
             --jfrog-token "$JF_ACCESS_TOKEN" \
             --project-key "${{ vars.PROJECT_KEY }}" \
             --packages "$SERVICE_NAME" \
-            --verbose
+            --verbose)
+          
+          # Extract APP_VERSION from the Python script's JSON output
+          APP_VERSION=$(echo "$SEMVER_OUTPUT" | grep '{"application_key"' | jq -r '.app_version')
+          if [[ -z "$APP_VERSION" || "$APP_VERSION" == "null" ]]; then
+            echo "❌ Failed to extract APP_VERSION from semver output" >&2
+            exit 1
+          fi
           
           # Set IMAGE_TAG to the Docker package tag
           DOCKER_TAG_VAR="DOCKER_TAG_$(echo "$SERVICE_NAME" | tr '[:lower:]' '[:upper:]' | tr '-' '_')"
