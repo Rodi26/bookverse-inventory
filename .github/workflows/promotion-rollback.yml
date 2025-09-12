@@ -121,9 +121,15 @@ jobs:
           TARGET_VERSION="${{ inputs.version || '' }}"
           if [ -z "$TARGET_VERSION" ]; then
             echo "🔎 Resolving latest promoted version for $APP_KEY"
-            RESP=$(curl -sS -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" \
-              "${{ vars.JFROG_URL }}$APPTRUST_BASE_URL/applications/$APP_KEY/versions?limit=20&order_by=created&order_asc=false" || true)
-            TARGET_VERSION=$(echo "$RESP" | jq -r '.versions[] | select((.release_status|tostring|ascii_upcase)=="RELEASED" or (.release_status|tostring|ascii_upcase)=="TRUSTED_RELEASE") | .version' | head -n1)
+            RESP_FILE=$(mktemp)
+            HTTP_STATUS=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
+              "${{ vars.JFROG_URL }}$APPTRUST_BASE_URL/applications/$APP_KEY/versions?limit=20&order_by=created&order_asc=false" \
+              -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
+              -H "Accept: application/json")
+            if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
+              TARGET_VERSION=$(jq -r '.versions[] | select((.release_status|tostring|ascii_upcase)=="RELEASED" or (.release_status|tostring|ascii_upcase)=="TRUSTED_RELEASE") | .version' "$RESP_FILE" | head -n1)
+            fi
+            rm -f "$RESP_FILE"
             if [ -z "${TARGET_VERSION:-}" ] || [ "$TARGET_VERSION" = "null" ]; then
               echo "❌ Could not resolve latest promoted version for $APP_KEY" >&2
               exit 1
@@ -178,26 +184,32 @@ jobs:
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
           APP_KEY="$APPLICATION_KEY"
           BASE="${{ vars.JFROG_URL }}/apptrust/api/v1"
-          RESP=$(curl -sS -L -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" \
-            "$BASE/applications/$APP_KEY/versions?limit=1000&order_by=created&order_asc=false" || true)
-          DESIRED=$(jq -r '[.versions[] | select((.release_status|tostring|ascii_upcase)=="RELEASED" or (.release_status|tostring|ascii_upcase)=="TRUSTED_RELEASE") | .version] | unique | map(select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))) | sort_by(split(".")|map(tonumber)) | last // empty' "$RESP")
+          RESP_FILE=$(mktemp)
+          HTTP_STATUS=$(curl -sS -L -o "$RESP_FILE" -w "%{http_code}" \
+            "$BASE/applications/$APP_KEY/versions?limit=1000&order_by=created&order_asc=false" \
+            -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
+            -H "Accept: application/json")
+          DESIRED=""
+          if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
+            DESIRED=$(jq -r '[.versions[] | select((.release_status|tostring|ascii_upcase)=="RELEASED" or (.release_status|tostring|ascii_upcase)=="TRUSTED_RELEASE") | .version] | unique | map(select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))) | sort_by(split(".")|map(tonumber)) | last // empty' "$RESP_FILE")
+          fi
           if [[ -n "$DESIRED" ]]; then
-            CURR_TAG=$(jq -r --arg v "$DESIRED" '.versions[] | select(.version==$v) | (.tag // "")' "$RESP")
+            CURR_TAG=$(jq -r --arg v "$DESIRED" '.versions[] | select(.version==$v) | (.tag // "")' "$RESP_FILE")
             jq -n --arg ct "$CURR_TAG" '{tag:"latest", properties:{original_tag_before_latest:[$ct]}}' > body.json
             curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$DESIRED" \
               -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
               -H "Content-Type: application/json" -d @body.json | cat
           fi
-          mapfile -t OTHERS < <(jq -r --arg v "$DESIRED" '.versions[] | select(.tag=="latest" and .version!=$v) | .version' "$RESP")
+          mapfile -t OTHERS < <(jq -r --arg v "$DESIRED" '.versions[] | select(.tag=="latest" and .version!=$v) | .version' "$RESP_FILE")
           for ov in "${OTHERS[@]:-}"; do
             [ -z "$ov" ] && continue
-            restore=$(jq -r --arg v "$ov" '.versions[] | select(.version==$v) | (.properties.original_tag_before_latest[0] // .version // "")' "$RESP")
+            restore=$(jq -r --arg v "$ov" '.versions[] | select(.version==$v) | (.properties.original_tag_before_latest[0] // .version // "")' "$RESP_FILE")
             printf '{"tag":"%s","delete_properties":["original_tag_before_latest"]}' "$restore" > body.json
             curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$ov" \
               -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
               -H "Content-Type: application/json" -d @body.json | cat
           done
-          rm -f "$RESP" body.json || true
+          rm -f "$RESP_FILE" body.json || true
 
           # Determine lifecycle stages to compute expected previous stage
           PROJECT_KEY_ENV="${{ vars.PROJECT_KEY }}"
