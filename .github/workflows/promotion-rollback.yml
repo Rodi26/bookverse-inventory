@@ -127,7 +127,12 @@ jobs:
               -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
               -H "Accept: application/json")
             if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
+              echo "🔍 Debug: API Response received (HTTP $HTTP_STATUS)"
+              echo "🔍 Debug: Available versions and their release_status:"
+              jq -r '.versions[] | "\(.version): \(.release_status // "null")"' "$RESP_FILE" | head -10
+              echo "🔍 Debug: Looking for RELEASED or TRUSTED_RELEASE versions..."
               TARGET_VERSION=$(jq -r '.versions[] | select((.release_status|tostring|ascii_upcase)=="RELEASED" or (.release_status|tostring|ascii_upcase)=="TRUSTED_RELEASE") | .version' "$RESP_FILE" | head -n1)
+              echo "🔍 Debug: Found target version: '${TARGET_VERSION:-empty}'"
             fi
             rm -f "$RESP_FILE"
             if [ -z "${TARGET_VERSION:-}" ] || [ "$TARGET_VERSION" = "null" ]; then
