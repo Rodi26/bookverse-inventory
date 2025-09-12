@@ -772,6 +772,7 @@ jobs:
           echo "🏷️ Application Version Tag (demo simulation): $APP_TAG"
           
           # Create application version with build sources
+          BUILD_STARTED=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
           APP_VERSION_PAYLOAD=$(cat << EOF
           {
             "version": "$APP_VERSION",
@@ -782,7 +783,8 @@ jobs:
                   "name": "$BUILD_NAME",
                   "number": "$BUILD_NUMBER",
                   "repository_key": "$BUILD_INFO_REPO",
-                  "include_dependencies": true
+                  "include_dependencies": true,
+                  "started": "$BUILD_STARTED"
                 }
               ]
             }
