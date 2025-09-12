@@ -69,7 +69,8 @@ def load_demo_data():
                 genres=book_data["genres"],
                 description=book_data["description"],
                 price=Decimal(str(book_data["price"])),
-                cover_image_url=book_data["cover_image_url"]
+                cover_image_url=book_data["cover_image_url"],
+                rating=Decimal(str(book_data["rating"])) if book_data.get("rating") else None
             )
             book_objects.append(book)
             db.add(book)

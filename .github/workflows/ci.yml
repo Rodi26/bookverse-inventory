@@ -160,97 +160,47 @@ jobs:
           echo "Using docker username: $DOCKER_USER"
           echo "$TOKEN" | docker login "$REGISTRY_URL" -u "$DOCKER_USER" --password-stdin
 
+      - name: "[Setup] Install Python dependencies"
+        run: |
+          pip install PyYAML
+          echo "✅ Python dependencies installed"
+
       - name: "[Setup] Determine SemVer"
         id: set-app-version
         run: |
           set -euo pipefail
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
-          REGISTRY_URL=${REGISTRY_URL:-${{ vars.DOCKER_REGISTRY }}}
+          
+          # Use the unified semver determination script
+          chmod +x ./scripts/determine-semver.sh
+          ./scripts/determine-semver.sh \
+            --application-key "$APPLICATION_KEY" \
+            --version-map "./config/version-map.yaml" \
+            --jfrog-url "${{ vars.JFROG_URL }}" \
+            --jfrog-token "$JF_ACCESS_TOKEN" \
+            --project-key "${{ vars.PROJECT_KEY }}" \
+            --packages "$SERVICE_NAME" \
+            --verbose
+          
+          # Set IMAGE_TAG to the Docker package tag
+          DOCKER_TAG_VAR="DOCKER_TAG_$(echo "$SERVICE_NAME" | tr '[:lower:]' '[:upper:]' | tr '-' '_')"
+          if [[ -n "${!DOCKER_TAG_VAR:-}" ]]; then
+            IMAGE_TAG="${!DOCKER_TAG_VAR}"
+          else
+            IMAGE_TAG="$BUILD_NUMBER"
+          fi
+          
+          # Update IMAGE_NAME with the determined tag
+          REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
-
-          # Locate local version map for seed versions
-          VMAP_PATH="./config/version-map.yaml"
-          if [[ ! -f "$VMAP_PATH" && -f "./.github/version-map.yaml" ]]; then VMAP_PATH="./.github/version-map.yaml"; fi
-          if [[ -f "$VMAP_PATH" ]]; then
-            echo "📄 Using local version map: $VMAP_PATH"
-          else
-            echo "ℹ️ No local version map found; will rely on existing versions or fallback seeds"
-          fi
-
-          echo "🔎 Resolving next Application SemVer for $APPLICATION_KEY (SemVer sort)"
-          APP_RESP=$(curl -sS -L -X GET "${{ vars.JFROG_URL }}/apptrust/api/v1/applications/$APPLICATION_KEY/versions?limit=200" \
-            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
-            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
-            -H "Accept: application/json" 2>/dev/null || echo '{"error":"curl_failed"}')
-          if ! echo "$APP_RESP" | jq -e . >/dev/null 2>&1; then
-            APP_LATEST=""
-            echo "⚠️ versions API did not return valid JSON. First 200 chars:" && printf '%s' "$APP_RESP" | head -c 200 || true; echo
-          else
-            # Take all versions, strip any pre-release suffix, keep strict X.Y.Z, sort numerically and pick last
-            PARSED=$(echo "$APP_RESP" | jq -r '[.versions[]?.version? | gsub("-.*$"; "") | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))]')
-            COUNT=$(printf '%s' "$PARSED" | jq 'length' 2>/dev/null || echo 0)
-            SORTED=$(printf '%s' "$PARSED" | jq -r 'unique | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ])')
-            if [ "${COUNT:-0}" -gt 0 ]; then
-              echo "📚 Found $COUNT existing versions"
-            else
-              echo "📚 No existing versions found"
-            fi
-            APP_LATEST=$(printf '%s' "$SORTED" | jq -r '(last // empty)' 2>/dev/null || echo "")
-          fi
-          if [[ -n "${APP_LATEST}" ]]; then
-            IFS='.' read -r A_MAJ A_MIN A_PAT <<<"${APP_LATEST}"; A_PAT=$((A_PAT+1)); APP_VERSION="${A_MAJ}.${A_MIN}.${A_PAT}"
-            echo "🧮 Latest parsed version: ${APP_LATEST}; ⬆️ next: ${APP_VERSION}"
-          else
-            # Use seed version from local version map
-            APP_SEED=$(awk -v key="$APPLICATION_KEY" '
-              BEGIN { found_key=0; in_seeds=0 }
-              /^  - key:/ { found_key = ($3 == key); in_seeds=0; next }
-              found_key && /^    seeds:/ { in_seeds=1; next }
-              found_key && in_seeds && /^[[:space:]]+application:[[:space:]]*/ {
-                sub(/^[ \t]+application:[ \t]*/, "");
-                print; exit
-              }
-            ' "$VMAP_PATH" 2>/dev/null || echo "")
-            # Bump the seed version's patch to avoid repeats when previous runs used the same seed
-            IFS='.' read -r S_MAJ S_MIN S_PAT <<<"${APP_SEED}"; S_PAT=$((S_PAT+1)); APP_VERSION="${S_MAJ}.${S_MIN}.${S_PAT}"
-            echo "🌱 Using seed from version-map.yaml: $APP_SEED; ⬆️ bumped to: $APP_VERSION"
-          fi
-          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
-          echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
-
-          echo "🔎 Resolving next Image SemVer for docker:$REPO_KEY/$SERVICE_NAME (SemVer sort)"
-          IMG_RESP=$(curl -sS -L -X GET "${{ vars.JFROG_URL }}/v2/$REPO_KEY/$SERVICE_NAME/tags/list" \
-            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
-            -H "Accept: application/json" 2>/dev/null || echo '{"error":"curl_failed"}')
-          if ! echo "$IMG_RESP" | jq -e . >/dev/null 2>&1; then
-            IMG_LATEST=""
-          else
-            IMG_LATEST=$(echo "$IMG_RESP" | jq -r '[.tags[]? | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | sort_by([ (split(".")[0]|tonumber),(split(".")[1]|tonumber),(split(".")[2]|tonumber) ]) | (last // empty)')
-          fi
-          if [[ -n "${IMG_LATEST}" ]]; then
-            IFS='.' read -r I_MAJ I_MIN I_PAT <<<"${IMG_LATEST}"; I_PAT=$((I_PAT+1)); IMAGE_TAG="${I_MAJ}.${I_MIN}.${I_PAT}"
-          else
-            # Use seed version from local version map
-            IMG_SEED=$(awk -v app_key="$APPLICATION_KEY" '
-              BEGIN { found_app=0; in_packages=0; is_docker=0 }
-              /^  - key:/ { found_app = ($3 == app_key); in_packages=0; is_docker=0; next }
-              found_app && /^    packages:/ { in_packages=1; is_docker=0; next }
-              found_app && in_packages && /^      - type:[ \t]*docker/ { is_docker=1; next }
-              found_app && in_packages && is_docker && /^[[:space:]]+seed:[ \t]*/ {
-                sub(/^[ \t]+seed:[ \t]*/, "");
-                print; exit
-              }
-            ' "$VMAP_PATH" 2>/dev/null || echo "")
-            IMAGE_TAG="$IMG_SEED"
-            echo "✅ Using package seed version from version-map.yaml: $IMAGE_TAG"
-          fi
-
           IMAGE_NAME_PATH="$REGISTRY_URL/$REPO_KEY/$SERVICE_NAME:$IMAGE_TAG"
           IMAGE_NAME="$IMAGE_NAME_PATH"
+          
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
 
 

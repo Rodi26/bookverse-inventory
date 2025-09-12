@@ -29,6 +29,7 @@ class Book(Base):
     description = Column(Text, nullable=False)
     price = Column(DECIMAL(10, 2), nullable=False)
     cover_image_url = Column(String(1000), nullable=False)
+    rating = Column(DECIMAL(2, 1), nullable=True)  # Rating from 0.0 to 5.0
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())

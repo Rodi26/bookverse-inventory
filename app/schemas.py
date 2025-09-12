@@ -25,6 +25,7 @@ class BookBase(BaseModel):
     description: str = Field(..., description="Book description")
     price: Decimal = Field(..., gt=0, description="Book price in USD")
     cover_image_url: str = Field(..., description="URL to book cover image")
+    rating: Optional[float] = Field(None, ge=0, le=5, description="Book rating (0-5)")
 
 
 class BookCreate(BookBase):
@@ -41,6 +42,7 @@ class BookUpdate(BaseModel):
     description: Optional[str] = None
     price: Optional[Decimal] = Field(None, gt=0)
     cover_image_url: Optional[str] = None
+    rating: Optional[float] = Field(None, ge=0, le=5)
 
 
 class BookResponse(BookBase, BaseResponse):
@@ -60,6 +62,7 @@ class BookListItem(BaseResponse):
     genres: List[str]
     price: Decimal
     cover_image_url: str
+    rating: Optional[float] = Field(None, ge=0, le=5, description="Book rating (0-5)")
     availability: "AvailabilityInfo"
 
 
