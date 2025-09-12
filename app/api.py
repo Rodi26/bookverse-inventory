@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from .database import get_db
+from .auth import AuthUser, RequireUser, get_auth_status, test_auth_connection
 from .services import BookService, InventoryService, TransactionService
 from .schemas import (
     BookResponse, BookCreate, BookUpdate, BookListResponse, BookListItem,
@@ -65,6 +66,34 @@ async def health_check(db: Session = Depends(get_db)):
     )
 
 
+@router.get("/auth/status")
+async def auth_status():
+    """Get authentication service status"""
+    return get_auth_status()
+
+
+@router.get("/auth/test")
+async def auth_test():
+    """Test authentication service connectivity"""
+    return await test_auth_connection()
+
+
+@router.get("/auth/me")
+async def get_current_user_info(user: AuthUser = RequireUser):
+    """Get current authenticated user information"""
+    if user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    return {
+        "user_id": user.user_id,
+        "email": user.email,
+        "name": user.name,
+        "roles": user.roles,
+        "scopes": user.scopes,
+        "authenticated": True
+    }
+
+
 @router.get("/api/v1/books", response_model=BookListResponse)
 async def list_books(
     page: int = Query(1, ge=1, description="Page number"),
@@ -114,7 +143,11 @@ async def get_book(book_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.post("/api/v1/books", response_model=BookResponse, status_code=201)
-async def create_book(book_data: BookCreate, db: Session = Depends(get_db)):
+async def create_book(
+    book_data: BookCreate, 
+    db: Session = Depends(get_db),
+    user: AuthUser = RequireUser
+):
     """
     Create a new book in the catalog
     """
@@ -131,7 +164,8 @@ async def create_book(book_data: BookCreate, db: Session = Depends(get_db)):
 async def update_book(
     book_id: UUID, 
     book_data: BookUpdate, 
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: AuthUser = RequireUser
 ):
     """
     Update existing book information
@@ -152,7 +186,11 @@ async def update_book(
 
 
 @router.delete("/api/v1/books/{book_id}", status_code=204)
-async def delete_book(book_id: UUID, db: Session = Depends(get_db)):
+async def delete_book(
+    book_id: UUID, 
+    db: Session = Depends(get_db),
+    user: AuthUser = RequireUser
+):
     """
     Soft delete a book from the catalog
     """
@@ -222,7 +260,8 @@ async def get_book_inventory(book_id: UUID, db: Session = Depends(get_db)):
 async def adjust_inventory(
     book_id: UUID = Query(..., description="Book ID to adjust"),
     adjustment: InventoryAdjustment = ...,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: AuthUser = RequireUser
 ):
     """
     Adjust inventory levels for a book (for demo stock management)

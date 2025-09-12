@@ -14,7 +14,7 @@ name: Rollback
 # 6) Validate: stage_after must equal previous(stage_before)
 # 7) Summarize and fail the job if validation fails
 # 
-# Authentication: Uses OIDC token exchange (no jf curl commands)
+# Authentication: Uses OIDC token exchange
 
 on:
   workflow_dispatch:

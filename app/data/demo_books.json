@@ -13,7 +13,7 @@
     "description": "The first volume of The Lord of the Rings, the immortal fantasy masterpiece. Follow Frodo Baggins as he begins his perilous journey to destroy the One Ring and save Middle-earth from the Dark Lord Sauron.",
     "price": 16.99,
     "cover_image_url": "/static/images/book_1_cbb53f91.jpg",
-    "rating": 4.5,
+    "rating": 4.6,
     "id": 1
   },
   {
@@ -116,7 +116,7 @@
     "description": "The magical beginning of Harry Potter's journey. Discover the wizarding world as Harry learns he's a wizard and begins his education at Hogwarts School of Witchcraft and Wizardry.",
     "price": 15.99,
     "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1170803558i/72193.jpg",
-    "rating": 4.5,
+    "rating": 4.7,
     "id": 7
   },
   {
@@ -422,7 +422,7 @@
     "description": "Astronaut Mark Watney is stranded on Mars and must use his ingenuity and humor to survive while NASA works to bring him home. A thrilling story of human resilience.",
     "price": 15.99,
     "cover_image_url": "/static/images/book_25_612782dc.jpg",
-    "rating": 4.4,
+    "rating": 4.6,
     "id": 25
   },
   {
