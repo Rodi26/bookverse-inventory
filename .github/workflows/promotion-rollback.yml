@@ -136,6 +136,8 @@ jobs:
             fi
             echo "🎯 Defaulting to latest promoted version: $TARGET_VERSION"
           fi
+          # Persist TARGET_VERSION for later steps
+          echo "TARGET_VERSION=$TARGET_VERSION" >> $GITHUB_ENV
 
           # Snapshot BEFORE stage via content API
           CONTENT_BEFORE=$(mktemp)
@@ -276,7 +278,7 @@ jobs:
             echo ""
             echo "**Repository:** \`${{ github.repository }}\`"
             echo "**Application:** \`$APP_KEY\`"
-            echo "**Target Version:** \`$TARGET_VERSION\`"
+            echo "**Target Version:** \`${TARGET_VERSION:-unknown}\`"
             echo "**Status:** ${STATUS}"
             echo ""
             echo "### Details"
