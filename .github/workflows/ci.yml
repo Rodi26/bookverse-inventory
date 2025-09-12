@@ -741,6 +741,10 @@ jobs:
           set -euo pipefail
           echo "🚀 Creating AppTrust application version: $APP_VERSION"
           
+          # Allow time for build info to be indexed in JFrog
+          echo "⏳ Waiting 10 seconds for build info indexing..."
+          sleep 10
+          
           # Determine application version tag - simulate real development environment
           # Array of realistic single tags for demo
           TAG_OPTIONS=(
