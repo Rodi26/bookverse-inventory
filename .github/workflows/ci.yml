@@ -497,15 +497,21 @@ jobs:
              && BUILD_PUBLISH_RESULT=$(jf rt bp  --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"); then
             echo "BUILD_INFO_PUBLISH_STATUS=SUCCESS" >> $GITHUB_ENV
             
-            # Extract timestamp from build info URL in the response
-            BUILD_TIMESTAMP=$(echo "$BUILD_PUBLISH_RESULT" | grep -o '/[0-9]\{13\}/' | tr -d '/' || echo "")
-            if [[ -n "$BUILD_TIMESTAMP" ]]; then
-              # Convert epoch milliseconds to ISO 8601 format
-              BUILD_STARTED_ISO=$(date -d "@$((BUILD_TIMESTAMP / 1000))" -u +%Y-%m-%dT%H:%M:%S.%3NZ 2>/dev/null || echo "")
-              echo "BUILD_STARTED_TIMESTAMP=$BUILD_STARTED_ISO" >> $GITHUB_ENV
-              echo "✅ Extracted build timestamp: $BUILD_STARTED_ISO"
+            # Query build info API to get exact timestamp format
+            echo "🔍 Querying build info to get exact timestamp..."
+            BUILD_INFO_RESPONSE=$(curl -s -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+              "$JF_URL/artifactory/api/build/$BUILD_NAME/$BUILD_NUMBER?project=${{ vars.PROJECT_KEY }}" || echo "")
+            
+            if [[ -n "$BUILD_INFO_RESPONSE" ]]; then
+              BUILD_STARTED_TIMESTAMP=$(echo "$BUILD_INFO_RESPONSE" | jq -r '.buildInfo.started // empty' 2>/dev/null || echo "")
+              if [[ -n "$BUILD_STARTED_TIMESTAMP" && "$BUILD_STARTED_TIMESTAMP" != "null" ]]; then
+                echo "BUILD_STARTED_TIMESTAMP=$BUILD_STARTED_TIMESTAMP" >> $GITHUB_ENV
+                echo "✅ Extracted exact build timestamp: $BUILD_STARTED_TIMESTAMP"
+              else
+                echo "⚠️ Could not extract started timestamp from build info"
+              fi
             else
-              echo "⚠️ Could not extract timestamp from build info response"
+              echo "⚠️ Could not query build info API"
             fi
           else
             echo "BUILD_INFO_PUBLISH_STATUS=FAILED" >> $GITHUB_ENV
