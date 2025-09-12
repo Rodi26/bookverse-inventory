@@ -3,15 +3,18 @@ name: Rollback
 # Documentation:
 # This workflow performs a rollback of an application version using the
 # dedicated AppTrust rollback API. High-level flow:
-# 1) Resolve the target version (input or latest promoted)
-# 2) Capture BEFORE current_stage via Content API
-# 3) Execute rollback via scripts/apptrust_rollback.py, which calls:
+# 1) Exchange GitHub OIDC ID token for JFrog access token (no secrets required)
+# 2) Resolve the target version (input or latest promoted) using minted token
+# 3) Capture BEFORE current_stage via Content API using minted token
+# 4) Execute rollback via scripts/apptrust_rollback.py, which calls:
 #    POST /apptrust/api/v1/applications/{app}/versions/{ver}/rollback
-#    with body { from_stage: <current_stage> }
-# 4) Capture AFTER current_stage and compute expected previous stage using the
+#    with body { from_stage: <current_stage> } using minted token
+# 5) Capture AFTER current_stage and compute expected previous stage using the
 #    lifecycle definition (bookverse-lifecycle or default DEV→QA→STAGING→PROD)
-# 5) Validate: stage_after must equal previous(stage_before)
-# 6) Summarize and fail the job if validation fails
+# 6) Validate: stage_after must equal previous(stage_before)
+# 7) Summarize and fail the job if validation fails
+# 
+# Authentication: Uses OIDC token exchange (no jf curl commands)
 
 on:
   workflow_dispatch:
@@ -50,6 +53,45 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: "[Auth] Exchange GitHub OIDC for JFrog access token"
+        run: |
+          set -euo pipefail
+          BASE="${{ vars.JFROG_URL }}"; BASE="${BASE%/}"
+          if [[ -z "$BASE" ]]; then echo "Missing vars.JFROG_URL" >&2; exit 1; fi
+          PROVIDER_NAME="bookverse-inventory-github"
+          # Mint GitHub OIDC ID token with audience = JFrog URL (align with CI workflow)
+          JF_URL="$BASE"
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
+          echo "🔑 Minting GitHub OIDC ID token (audience=$JF_URL)"
+          ID_TOKEN=$(curl -fsSL -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
+          if [[ -z "$ID_TOKEN" || "$ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
+          echo "🔁 Exchanging OIDC for JFrog access token (provider=$PROVIDER_NAME)"
+          PAYLOAD=$(jq -n --arg jwt "$ID_TOKEN" \
+            --arg provider_name "$PROVIDER_NAME" \
+            --arg project_key "${{ vars.PROJECT_KEY }}" \
+            --arg job_id "${{ github.job }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg repo "https://github.com/${{ github.repository }}" \
+            --arg revision "${{ github.sha }}" \
+            --arg branch "${{ github.ref_name }}" \
+            '{
+              grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
+              subject_token_type:"urn:ietf:params:oauth:token-type:id_token",
+              subject_token:$jwt,
+              provider_name:$provider_name,
+              project_key:$project_key,
+              job_id:$job_id,
+              run_id:$run_id,
+              repo:$repo,
+              revision:$revision,
+              branch:$branch
+            }')
+          RESP=$(curl -fsSL -X POST "$JF_URL/access/api/v1/oidc/token" -H "Content-Type: application/json" -d "$PAYLOAD")
+          APPTRUST_ACCESS_TOKEN=$(echo "$RESP" | jq -er '.access_token // empty' || true)
+          if [[ -z "$APPTRUST_ACCESS_TOKEN" ]]; then echo "Failed to obtain JFrog access token: $RESP" >&2; exit 1; fi
+          echo "APPTRUST_ACCESS_TOKEN=$APPTRUST_ACCESS_TOKEN" >> $GITHUB_ENV
+
       - name: "[Setup] JFrog CLI"
         uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
         env:
@@ -79,7 +121,8 @@ jobs:
           TARGET_VERSION="${{ inputs.version || '' }}"
           if [ -z "$TARGET_VERSION" ]; then
             echo "🔎 Resolving latest promoted version for $APP_KEY"
-            RESP=$(jf curl "$APPTRUST_BASE_URL/applications/$APP_KEY/versions?limit=20&order_by=created&order_asc=false" -H "Accept: application/json" || true)
+            RESP=$(curl -sS -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" \
+              "${{ vars.JFROG_URL }}$APPTRUST_BASE_URL/applications/$APP_KEY/versions?limit=20&order_by=created&order_asc=false" || true)
             TARGET_VERSION=$(echo "$RESP" | jq -r '.versions[] | select((.release_status|tostring|ascii_upcase)=="RELEASED" or (.release_status|tostring|ascii_upcase)=="TRUSTED_RELEASE") | .version' | head -n1)
             if [ -z "${TARGET_VERSION:-}" ] || [ "$TARGET_VERSION" = "null" ]; then
               echo "❌ Could not resolve latest promoted version for $APP_KEY" >&2
@@ -90,9 +133,9 @@ jobs:
 
           # Snapshot BEFORE stage via content API
           CONTENT_BEFORE=$(mktemp)
-          CODE_B=$(jf curl -sS -L -o "$CONTENT_BEFORE" -w "%{http_code}" \
-            "$APPTRUST_BASE_URL/applications/$APP_KEY/versions/$TARGET_VERSION/content" \
-            -H "Accept: application/json" || echo 000)
+          CODE_B=$(curl -sS -L -o "$CONTENT_BEFORE" -w "%{http_code}" \
+            -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" \
+            "${{ vars.JFROG_URL }}$APPTRUST_BASE_URL/applications/$APP_KEY/versions/$TARGET_VERSION/content" || echo 000)
           CURRENT_STAGE_BEFORE=""
           if [[ "$CODE_B" -ge 200 && "$CODE_B" -lt 300 ]]; then
             CURRENT_STAGE_BEFORE=$(jq -r '.current_stage // empty' "$CONTENT_BEFORE" 2>/dev/null || echo "")
@@ -104,6 +147,9 @@ jobs:
           STATUS="SUCCESS"
           MSG=""
           echo "🔁 Executing rollback via scripts/apptrust_rollback.py"
+          # Set environment variables for the rollback script to use minted token
+          export APPTRUST_BASE_URL="${{ vars.JFROG_URL }}$APPTRUST_BASE_URL"
+          export APPTRUST_ACCESS_TOKEN="$APPTRUST_ACCESS_TOKEN"
           if python3 scripts/apptrust_rollback.py \
             --app "$APP_KEY" \
             --version "$TARGET_VERSION"; then
@@ -115,9 +161,9 @@ jobs:
 
           # Fetch AFTER stage via content API
           CONTENT_TARGET=$(mktemp)
-          CODE_T=$(jf curl -sS -L -o "$CONTENT_TARGET" -w "%{http_code}" \
-            "$APPTRUST_BASE_URL/applications/$APP_KEY/versions/$TARGET_VERSION/content" \
-            -H "Accept: application/json" || echo 000)
+          CODE_T=$(curl -sS -L -o "$CONTENT_TARGET" -w "%{http_code}" \
+            -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" \
+            "${{ vars.JFROG_URL }}$APPTRUST_BASE_URL/applications/$APP_KEY/versions/$TARGET_VERSION/content" || echo 000)
           CURR_STAGE_TARGET=""
           if [[ "$CODE_T" -ge 200 && "$CODE_T" -lt 300 ]]; then
             CURR_STAGE_TARGET=$(jq -r '.current_stage // empty' "$CONTENT_TARGET" 2>/dev/null || echo "")
@@ -131,20 +177,25 @@ jobs:
           set -euo pipefail
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
           APP_KEY="$APPLICATION_KEY"
-          BASE="/apptrust/api/v1"
-          RESP=$(jf curl -sS -L -H "Accept: application/json" "$BASE/applications/$APP_KEY/versions?limit=1000&order_by=created&order_asc=false" || true)
+          BASE="${{ vars.JFROG_URL }}/apptrust/api/v1"
+          RESP=$(curl -sS -L -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" \
+            "$BASE/applications/$APP_KEY/versions?limit=1000&order_by=created&order_asc=false" || true)
           DESIRED=$(jq -r '[.versions[] | select((.release_status|tostring|ascii_upcase)=="RELEASED" or (.release_status|tostring|ascii_upcase)=="TRUSTED_RELEASE") | .version] | unique | map(select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))) | sort_by(split(".")|map(tonumber)) | last // empty' "$RESP")
           if [[ -n "$DESIRED" ]]; then
             CURR_TAG=$(jq -r --arg v "$DESIRED" '.versions[] | select(.version==$v) | (.tag // "")' "$RESP")
             jq -n --arg ct "$CURR_TAG" '{tag:"latest", properties:{original_tag_before_latest:[$ct]}}' > body.json
-            jf curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$DESIRED" -H "Content-Type: application/json" -d @body.json | cat
+            curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$DESIRED" \
+              -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
+              -H "Content-Type: application/json" -d @body.json | cat
           fi
           mapfile -t OTHERS < <(jq -r --arg v "$DESIRED" '.versions[] | select(.tag=="latest" and .version!=$v) | .version' "$RESP")
           for ov in "${OTHERS[@]:-}"; do
             [ -z "$ov" ] && continue
             restore=$(jq -r --arg v "$ov" '.versions[] | select(.version==$v) | (.properties.original_tag_before_latest[0] // .version // "")' "$RESP")
             printf '{"tag":"%s","delete_properties":["original_tag_before_latest"]}' "$restore" > body.json
-            jf curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$ov" -H "Content-Type: application/json" -d @body.json | cat
+            curl -sS -L -X PATCH "$BASE/applications/$APP_KEY/versions/$ov" \
+              -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
+              -H "Content-Type: application/json" -d @body.json | cat
           done
           rm -f "$RESP" body.json || true
 
@@ -152,7 +203,9 @@ jobs:
           PROJECT_KEY_ENV="${{ vars.PROJECT_KEY }}"
           LC_FILE=$(mktemp)
           PLATFORM_URL="${{ vars.JFROG_URL }}"
-          CODE_LC=$(jf curl -sS -L -o "$LC_FILE" -w "%{http_code}" "/api/v2/lifecycle/?project_key=$PROJECT_KEY_ENV" -H "Accept: application/json" || echo 000)
+          CODE_LC=$(curl -sS -L -o "$LC_FILE" -w "%{http_code}" \
+            -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" \
+            "$PLATFORM_URL/access/api/v2/lifecycle/?project_key=$PROJECT_KEY_ENV" || echo 000)
           NORM_FILE=$(mktemp)
           if [[ "$CODE_LC" -ge 200 && "$CODE_LC" -lt 300 ]]; then
             jq -c 'if type=="array" then . elif has("lifecycles") then .lifecycles elif has("items") then .items elif has("results") then .results elif (has("name") and has("stages")) then [.] else [] end' "$LC_FILE" > "$NORM_FILE" 2>/dev/null || printf '[]' > "$NORM_FILE"

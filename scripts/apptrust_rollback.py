@@ -264,7 +264,7 @@ def backup_tag_then_patch(client: AppTrustClient, app_key: str, version: str, ba
         return
     client.patch_application_version(app_key, version, tag=new_tag, properties=props)
 
-def rollback_in_prod(client: AppTrustClient, app_key: str, target_version: str) -> None:
+def rollback_in_prod(client, app_key: str, target_version: str) -> None:
     content = client.get_version_content(app_key, target_version)
     from_stage = str(content.get("current_stage") or "").strip()
     if not from_stage or from_stage.upper() == "UNASSIGNED":
@@ -289,10 +289,24 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="AppTrust PROD rollback utility")
     parser.add_argument("--app", required=True, help="Application key")
     parser.add_argument("--version", required=True, help="Target version to rollback (SemVer)")
-    # OIDC-only path: no base-url or token arguments
+    parser.add_argument("--base-url", default=_env("APPTRUST_BASE_URL"), help="Base API URL, e.g. https://<host>/apptrust/api/v1 (env: APPTRUST_BASE_URL)")
+    parser.add_argument("--token", default=_env("APPTRUST_ACCESS_TOKEN"), help="Access token (env: APPTRUST_ACCESS_TOKEN)")
     args = parser.parse_args()
 
-    # OIDC via JFrog CLI
+    # Try token-based authentication first (from OIDC-minted tokens)
+    if args.base_url and args.token:
+        try:
+            client = AppTrustClient(args.base_url, args.token)
+            start = time.time()
+            rollback_in_prod(client, args.app, args.version)
+            elapsed = time.time() - start
+            print(f"Done in {elapsed:.2f}s")
+            return 0
+        except Exception as e:
+            print(f"Token-based auth failed: {e}", file=sys.stderr)
+            print("Falling back to OIDC via JFrog CLI", file=sys.stderr)
+
+    # Fallback: OIDC via JFrog CLI
     try:
         client = AppTrustClientCLI()
     except Exception as e:

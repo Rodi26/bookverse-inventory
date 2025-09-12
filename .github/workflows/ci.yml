@@ -10,11 +10,6 @@ on:
         required: false
         default: 'Manual testing'
         type: string
-      verified_only:
-        description: 'Skip application version creation (verified packages only)'
-        required: false
-        default: false
-        type: boolean
 
 
 jobs:
@@ -650,7 +645,6 @@ jobs:
 
   create-application-version:
     needs: build-test-publish
-    if: ${{ !inputs.verified_only }}
     runs-on: ubuntu-latest
     defaults:
       run:

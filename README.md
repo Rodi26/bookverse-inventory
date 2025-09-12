@@ -89,7 +89,6 @@ Perfect for demonstrating a realistic bookshop inventory system!
 
 ## Required repository secrets
 
-- `JFROG_ACCESS_TOKEN` (optional): Only needed for AppTrust REST API calls in CI (e.g., creating application versions). With OIDC configured, the workflow runs without it.
 - `EVIDENCE_PRIVATE_KEY`: Private key PEM for evidence signing (mandatory)
 
 ### Mandatory OIDC application binding (.jfrog/config.yml)
@@ -112,15 +111,16 @@ application:
 
 - [`ci.yml`](.github/workflows/ci.yml) — CI: tests, package build, Docker build, publish artifacts/build-info, AppTrust version and evidence.
 - [`promote.yml`](.github/workflows/promote.yml) — Promote the inventory app version through stages with evidence.
-- [`promotion-rollback.yml`](.github/workflows/promotion-rollback.yml) — Roll back a promoted inventory application version (demo utility). Uses JFrog CLI OIDC (`jf curl`) and does not require long‑lived tokens.
+- [`promotion-rollback.yml`](.github/workflows/promotion-rollback.yml) — Roll back a promoted inventory application version (demo utility). Uses OIDC-minted tokens for direct API calls and does not require long‑lived tokens.
 
 ### OIDC-based rollback (no tokens)
 
-The rollback utility `scripts/apptrust_rollback.py` uses OIDC via JFrog CLI (no long‑lived tokens):
+The rollback utility `scripts/apptrust_rollback.py` now supports both OIDC-minted tokens (primary) and JFrog CLI fallback:
 
 ```bash
-# In GitHub Actions, OIDC is configured via jfrog/setup-jfrog-cli and server context,
-# so no secrets are needed.
+# In GitHub Actions, OIDC tokens are minted and passed as environment variables
+# Primary mode: Uses APPTRUST_ACCESS_TOKEN (from OIDC exchange)
+# Fallback mode: Uses JFrog CLI OIDC if token-based auth fails
 
 # Local usage (requires jf on PATH and configured URL; no token needed):
 jf c add --interactive=false --url "$JFROG_URL" --access-token ""
