@@ -171,7 +171,7 @@ jobs:
           CONTENT_TARGET=$(mktemp)
           CODE_T=$(curl -sS -L -o "$CONTENT_TARGET" -w "%{http_code}" \
             -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" \
-            "${{ vars.JFROG_URL }}$APPTRUST_BASE_URL/applications/$APP_KEY/versions/$TARGET_VERSION/content" || echo 000)
+            "$APPTRUST_BASE_URL/applications/$APP_KEY/versions/$TARGET_VERSION/content" || echo 000)
           CURR_STAGE_TARGET=""
           if [[ "$CODE_T" -ge 200 && "$CODE_T" -lt 300 ]]; then
             CURR_STAGE_TARGET=$(jq -r '.current_stage // empty' "$CONTENT_TARGET" 2>/dev/null || echo "")
