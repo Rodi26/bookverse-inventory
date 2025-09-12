@@ -33,6 +33,7 @@ jobs:
       app_version: ${{ steps.set-app-version.outputs.app_version }}
       image_tag: ${{ steps.set-app-version.outputs.image_tag }}
       coverage_percent: ${{ steps.test-coverage.outputs.coverage_percent }}
+      build_started_timestamp: ${{ steps.export-status-outputs.outputs.build_started_timestamp }}
       docker_build_push_status: ${{ steps.export-status-outputs.outputs.docker_build_push_status }}
       build_info_publish_status: ${{ steps.export-status-outputs.outputs.build_info_publish_status }}
       coverage_evidence_status: ${{ steps.export-status-outputs.outputs.coverage_evidence_status }}
@@ -493,8 +494,19 @@ jobs:
             --project "${{ vars.PROJECT_KEY }}"
           if jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER" \
              && jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER" \
-             && jf rt bp  --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"; then
+             && BUILD_PUBLISH_RESULT=$(jf rt bp  --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"); then
             echo "BUILD_INFO_PUBLISH_STATUS=SUCCESS" >> $GITHUB_ENV
+            
+            # Extract timestamp from build info URL in the response
+            BUILD_TIMESTAMP=$(echo "$BUILD_PUBLISH_RESULT" | grep -o '/[0-9]\{13\}/' | tr -d '/' || echo "")
+            if [[ -n "$BUILD_TIMESTAMP" ]]; then
+              # Convert epoch milliseconds to ISO 8601 format
+              BUILD_STARTED_ISO=$(date -d "@$((BUILD_TIMESTAMP / 1000))" -u +%Y-%m-%dT%H:%M:%S.%3NZ 2>/dev/null || echo "")
+              echo "BUILD_STARTED_TIMESTAMP=$BUILD_STARTED_ISO" >> $GITHUB_ENV
+              echo "✅ Extracted build timestamp: $BUILD_STARTED_ISO"
+            else
+              echo "⚠️ Could not extract timestamp from build info response"
+            fi
           else
             echo "BUILD_INFO_PUBLISH_STATUS=FAILED" >> $GITHUB_ENV
             exit 1
@@ -617,6 +629,7 @@ jobs:
         run: |
           echo "docker_build_push_status=${DOCKER_BUILD_PUSH_STATUS:-UNKNOWN}" >> $GITHUB_OUTPUT
           echo "build_info_publish_status=${BUILD_INFO_PUBLISH_STATUS:-UNKNOWN}" >> $GITHUB_OUTPUT
+          echo "build_started_timestamp=${BUILD_STARTED_TIMESTAMP:-}" >> $GITHUB_OUTPUT
           echo "coverage_evidence_status=${COVERAGE_EVIDENCE_STATUS:-UNKNOWN}" >> $GITHUB_OUTPUT
           echo "sast_evidence_status=${SAST_EVIDENCE_STATUS:-UNKNOWN}" >> $GITHUB_OUTPUT
           echo "quality_evidence_status=${QUALITY_EVIDENCE_STATUS:-UNKNOWN}" >> $GITHUB_OUTPUT
@@ -666,6 +679,7 @@ jobs:
           SERVICE_NAME=$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')
           APP_VERSION=${{ needs.build-test-publish.outputs.app_version }}
           IMAGE_TAG=${{ needs.build-test-publish.outputs.image_tag }}
+          BUILD_STARTED_TIMESTAMP="${{ needs.build-test-publish.outputs.build_started_timestamp }}"
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           BUILD_INFO_REPO="${{ vars.PROJECT_KEY }}-build-info"
           # Recompute canonical build reference for the build job
@@ -681,6 +695,7 @@ jobs:
           echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
+          echo "BUILD_STARTED_TIMESTAMP=$BUILD_STARTED_TIMESTAMP" >> $GITHUB_ENV
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
           echo "BUILD_INFO_REPO=$BUILD_INFO_REPO" >> $GITHUB_ENV
           echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
@@ -776,8 +791,9 @@ jobs:
           echo "🏷️ Application Version Tag (demo simulation): $APP_TAG"
           
           # Create application version with build sources
-          BUILD_STARTED=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
-          APP_VERSION_PAYLOAD=$(cat << EOF
+          # Use actual build timestamp from build info publish step
+          if [[ -n "$BUILD_STARTED_TIMESTAMP" ]]; then
+            APP_VERSION_PAYLOAD=$(cat << EOF
           {
             "version": "$APP_VERSION",
             "tag": "$APP_TAG",
@@ -788,12 +804,33 @@ jobs:
                   "number": "$BUILD_NUMBER",
                   "repository_key": "$BUILD_INFO_REPO",
                   "include_dependencies": true,
-                  "started": "$BUILD_STARTED"
+                  "started": "$BUILD_STARTED_TIMESTAMP"
                 }
               ]
             }
           }
-          EOF
+EOF
+            echo "✅ Using actual build timestamp: $BUILD_STARTED_TIMESTAMP"
+          else
+            # Fallback: omit timestamp and let JFrog find latest build
+            APP_VERSION_PAYLOAD=$(cat << EOF
+          {
+            "version": "$APP_VERSION",
+            "tag": "$APP_TAG",
+            "sources": {
+              "builds": [
+                {
+                  "name": "$BUILD_NAME",
+                  "number": "$BUILD_NUMBER",
+                  "repository_key": "$BUILD_INFO_REPO",
+                  "include_dependencies": true
+                }
+              ]
+            }
+          }
+EOF
+            echo "⚠️ No build timestamp available, omitting from payload"
+          fi
           )
           
           # Debug: show sanitized curl and payload
