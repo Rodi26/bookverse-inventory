@@ -786,48 +786,13 @@ jobs:
           APP_TAG="${TAG_OPTIONS[$TAG_INDEX]}"
           echo "🏷️ Application Version Tag (demo simulation): $APP_TAG"
           
-          # Create application version with build sources
-          # Use actual build timestamp from build info publish step
+          # Create application version with build sources (simplified single-line JSON)
           if [[ -n "$BUILD_STARTED_TIMESTAMP" ]]; then
-            APP_VERSION_PAYLOAD=$(cat << EOF
-          {
-            "version": "$APP_VERSION",
-            "tag": "$APP_TAG",
-            "sources": {
-              "builds": [
-                {
-                  "name": "$BUILD_NAME",
-                  "number": "$BUILD_NUMBER",
-                  "repository_key": "$BUILD_INFO_REPO",
-                  "include_dependencies": true,
-                  "started": "$BUILD_STARTED_TIMESTAMP"
-                }
-              ]
-            }
-          }
-          EOF
-          )
             echo "✅ Using actual build timestamp: $BUILD_STARTED_TIMESTAMP"
+            APP_VERSION_PAYLOAD="{\"version\":\"$APP_VERSION\",\"tag\":\"$APP_TAG\",\"sources\":{\"builds\":[{\"name\":\"$BUILD_NAME\",\"number\":\"$BUILD_NUMBER\",\"repository_key\":\"$BUILD_INFO_REPO\",\"include_dependencies\":true,\"started\":\"$BUILD_STARTED_TIMESTAMP\"}]}}"
           else
-            # Fallback: omit timestamp and let JFrog find latest build
-            APP_VERSION_PAYLOAD=$(cat << EOF
-          {
-            "version": "$APP_VERSION",
-            "tag": "$APP_TAG",
-            "sources": {
-              "builds": [
-                {
-                  "name": "$BUILD_NAME",
-                  "number": "$BUILD_NUMBER",
-                  "repository_key": "$BUILD_INFO_REPO",
-                  "include_dependencies": true
-                }
-              ]
-            }
-          }
-          EOF
-          )
-            echo "⚠️ No build timestamp available, omitting from payload"
+            echo "⚠️ No build timestamp available, omitting from payload"  
+            APP_VERSION_PAYLOAD="{\"version\":\"$APP_VERSION\",\"tag\":\"$APP_TAG\",\"sources\":{\"builds\":[{\"name\":\"$BUILD_NAME\",\"number\":\"$BUILD_NUMBER\",\"repository_key\":\"$BUILD_INFO_REPO\",\"include_dependencies\":true}]}}"
           fi
           
           # Debug: show sanitized curl and payload
