@@ -497,16 +497,27 @@ jobs:
              && BUILD_PUBLISH_RESULT=$(jf rt bp  --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"); then
             echo "BUILD_INFO_PUBLISH_STATUS=SUCCESS" >> $GITHUB_ENV
             
-            # Query build info API to get exact timestamp format
-            BUILD_INFO_RESPONSE=$(curl -s -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
-              "$JF_URL/artifactory/api/build/$BUILD_NAME/$BUILD_NUMBER?project=${{ vars.PROJECT_KEY }}" || echo "")
+            # Extract timestamp from build publish result (optimized - no extra API call)
+            BUILD_UI_URL=$(echo "$BUILD_PUBLISH_RESULT" | jq -r '.buildInfoUiUrl // empty' 2>/dev/null || echo "")
             
-            if [[ -n "$BUILD_INFO_RESPONSE" ]]; then
-              BUILD_STARTED_TIMESTAMP=$(echo "$BUILD_INFO_RESPONSE" | jq -r '.buildInfo.started // empty' 2>/dev/null || echo "")
-              if [[ -n "$BUILD_STARTED_TIMESTAMP" && "$BUILD_STARTED_TIMESTAMP" != "null" && "$BUILD_STARTED_TIMESTAMP" != "empty" ]]; then
+            if [[ -n "$BUILD_UI_URL" ]]; then
+              # Extract epoch milliseconds from UI URL: .../builds/NAME/NUMBER/TIMESTAMP/published
+              EPOCH_MS=$(echo "$BUILD_UI_URL" | sed -n 's|.*/builds/[^/]*/[^/]*/\([0-9]*\)/published.*|\1|p')
+              
+              if [[ -n "$EPOCH_MS" && "$EPOCH_MS" =~ ^[0-9]+$ ]]; then
+                # Convert to JFrog's exact timestamp format: YYYY-MM-DDTHH:MM:SS.mmm+0000
+                EPOCH_SEC=$((EPOCH_MS / 1000))
+                MILLISECS=$((EPOCH_MS % 1000))
+                BUILD_STARTED_TIMESTAMP=$(date -u -r "$EPOCH_SEC" "+%Y-%m-%dT%H:%M:%S" 2>/dev/null || date -u -d "@$EPOCH_SEC" "+%Y-%m-%dT%H:%M:%S")
+                BUILD_STARTED_TIMESTAMP="${BUILD_STARTED_TIMESTAMP}.$(printf "%03d" $MILLISECS)+0000"
+                
                 echo "BUILD_STARTED_TIMESTAMP=$BUILD_STARTED_TIMESTAMP" >> $GITHUB_ENV
-                echo "✅ Using exact build timestamp: $BUILD_STARTED_TIMESTAMP"
+                echo "✅ Extracted timestamp from build publish result: $BUILD_STARTED_TIMESTAMP"
+              else
+                echo "⚠️ Could not extract valid timestamp from UI URL: $BUILD_UI_URL"
               fi
+            else
+              echo "⚠️ No buildInfoUiUrl in publish result"
             fi
           else
             echo "BUILD_INFO_PUBLISH_STATUS=FAILED" >> $GITHUB_ENV
