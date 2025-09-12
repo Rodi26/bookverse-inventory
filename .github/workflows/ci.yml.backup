@@ -497,16 +497,15 @@ jobs:
              && BUILD_PUBLISH_RESULT=$(jf rt bp  --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"); then
             echo "BUILD_INFO_PUBLISH_STATUS=SUCCESS" >> $GITHUB_ENV
             
-            # Query build info API to get exact timestamp format
-            BUILD_INFO_RESPONSE=$(curl -s -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
-              "$JF_URL/artifactory/api/build/$BUILD_NAME/$BUILD_NUMBER?project=${{ vars.PROJECT_KEY }}" || echo "")
-            
-            if [[ -n "$BUILD_INFO_RESPONSE" ]]; then
-              BUILD_STARTED_TIMESTAMP=$(echo "$BUILD_INFO_RESPONSE" | jq -r '.buildInfo.started // empty' 2>/dev/null || echo "")
-              if [[ -n "$BUILD_STARTED_TIMESTAMP" && "$BUILD_STARTED_TIMESTAMP" != "null" && "$BUILD_STARTED_TIMESTAMP" != "empty" ]]; then
-                echo "BUILD_STARTED_TIMESTAMP=$BUILD_STARTED_TIMESTAMP" >> $GITHUB_ENV
-                echo "✅ Using exact build timestamp: $BUILD_STARTED_TIMESTAMP"
-              fi
+            # Extract timestamp from build info URL in the response
+            BUILD_TIMESTAMP=$(echo "$BUILD_PUBLISH_RESULT" | grep -o '/[0-9]\{13\}/' | tr -d '/' || echo "")
+            if [[ -n "$BUILD_TIMESTAMP" ]]; then
+              # Convert epoch milliseconds to ISO 8601 format
+              BUILD_STARTED_ISO=$(date -d "@$((BUILD_TIMESTAMP / 1000))" -u +%Y-%m-%dT%H:%M:%S.%3NZ 2>/dev/null || echo "")
+              echo "BUILD_STARTED_TIMESTAMP=$BUILD_STARTED_ISO" >> $GITHUB_ENV
+              echo "✅ Extracted build timestamp: $BUILD_STARTED_ISO"
+            else
+              echo "⚠️ Could not extract timestamp from build info response"
             fi
           else
             echo "BUILD_INFO_PUBLISH_STATUS=FAILED" >> $GITHUB_ENV
@@ -787,13 +786,41 @@ jobs:
           APP_TAG="${TAG_OPTIONS[$TAG_INDEX]}"
           echo "🏷️ Application Version Tag (demo simulation): $APP_TAG"
           
-          # Create application version with build sources (simplified single-line JSON)
+          # Create application version with build sources
+          # Use actual build timestamp from build info publish step
           if [[ -n "$BUILD_STARTED_TIMESTAMP" ]]; then
             echo "✅ Using actual build timestamp: $BUILD_STARTED_TIMESTAMP"
-            APP_VERSION_PAYLOAD="{\"version\":\"$APP_VERSION\",\"tag\":\"$APP_TAG\",\"sources\":{\"builds\":[{\"name\":\"$BUILD_NAME\",\"number\":\"$BUILD_NUMBER\",\"repository_key\":\"$BUILD_INFO_REPO\",\"include_dependencies\":true,\"started\":\"$BUILD_STARTED_TIMESTAMP\"}]}}"
+            APP_VERSION_PAYLOAD="{
+              \"version\": \"$APP_VERSION\",
+              \"tag\": \"$APP_TAG\",
+              \"sources\": {
+                \"builds\": [
+                  {
+                    \"name\": \"$BUILD_NAME\",
+                    \"number\": \"$BUILD_NUMBER\",
+                    \"repository_key\": \"$BUILD_INFO_REPO\",
+                    \"include_dependencies\": true,
+                    \"started\": \"$BUILD_STARTED_TIMESTAMP\"
+                  }
+                ]
+              }
+            }"
           else
-            echo "⚠️ No build timestamp available, omitting from payload"  
-            APP_VERSION_PAYLOAD="{\"version\":\"$APP_VERSION\",\"tag\":\"$APP_TAG\",\"sources\":{\"builds\":[{\"name\":\"$BUILD_NAME\",\"number\":\"$BUILD_NUMBER\",\"repository_key\":\"$BUILD_INFO_REPO\",\"include_dependencies\":true}]}}"
+            echo "⚠️ No build timestamp available, omitting from payload"
+            APP_VERSION_PAYLOAD="{
+              \"version\": \"$APP_VERSION\",
+              \"tag\": \"$APP_TAG\",
+              \"sources\": {
+                \"builds\": [
+                  {
+                    \"name\": \"$BUILD_NAME\",
+                    \"number\": \"$BUILD_NUMBER\",
+                    \"repository_key\": \"$BUILD_INFO_REPO\",
+                    \"include_dependencies\": true
+                  }
+                ]
+              }
+            }"
           fi
           
           # Debug: show sanitized curl and payload
@@ -1008,4 +1035,3 @@ jobs:
           echo "**✅ Application version prepared and ready for governance and promotion to DEV.**" >> $GITHUB_STEP_SUMMARY
 
   # Legacy 'attach-verified-only' job removed; verified-only flow deprecated.
-# Trigger workflow with exact timestamp fix
