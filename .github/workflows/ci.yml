@@ -499,19 +499,30 @@ jobs:
             
             # Query build info API to get exact timestamp format
             echo "🔍 Querying build info to get exact timestamp..."
+            echo "   Build: $BUILD_NAME #$BUILD_NUMBER"
+            echo "   URL: $JF_URL/artifactory/api/build/$BUILD_NAME/$BUILD_NUMBER?project=${{ vars.PROJECT_KEY }}"
+            
             BUILD_INFO_RESPONSE=$(curl -s -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
               "$JF_URL/artifactory/api/build/$BUILD_NAME/$BUILD_NUMBER?project=${{ vars.PROJECT_KEY }}" || echo "")
             
-            if [[ -n "$BUILD_INFO_RESPONSE" ]]; then
+            echo "📋 Build info response length: ${#BUILD_INFO_RESPONSE}"
+            
+            if [[ -n "$BUILD_INFO_RESPONSE" && "${#BUILD_INFO_RESPONSE}" -gt 10 ]]; then
+              echo "📋 Response sample: $(echo "$BUILD_INFO_RESPONSE" | head -c 200)..."
+              
               BUILD_STARTED_TIMESTAMP=$(echo "$BUILD_INFO_RESPONSE" | jq -r '.buildInfo.started // empty' 2>/dev/null || echo "")
-              if [[ -n "$BUILD_STARTED_TIMESTAMP" && "$BUILD_STARTED_TIMESTAMP" != "null" ]]; then
+              echo "📋 Extracted timestamp: '$BUILD_STARTED_TIMESTAMP'"
+              
+              if [[ -n "$BUILD_STARTED_TIMESTAMP" && "$BUILD_STARTED_TIMESTAMP" != "null" && "$BUILD_STARTED_TIMESTAMP" != "empty" ]]; then
                 echo "BUILD_STARTED_TIMESTAMP=$BUILD_STARTED_TIMESTAMP" >> $GITHUB_ENV
                 echo "✅ Extracted exact build timestamp: $BUILD_STARTED_TIMESTAMP"
               else
                 echo "⚠️ Could not extract started timestamp from build info"
+                echo "   jq extraction failed or timestamp field missing"
               fi
             else
-              echo "⚠️ Could not query build info API"
+              echo "⚠️ Could not query build info API or empty response"
+              echo "   Response: $BUILD_INFO_RESPONSE"
             fi
           else
             echo "BUILD_INFO_PUBLISH_STATUS=FAILED" >> $GITHUB_ENV
