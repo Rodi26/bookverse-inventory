@@ -1013,3 +1013,4 @@ jobs:
           echo "**✅ Application version prepared and ready for governance and promotion to DEV.**" >> $GITHUB_STEP_SUMMARY
 
   # Legacy 'attach-verified-only' job removed; verified-only flow deprecated.
+# Trigger workflow with exact timestamp fix
