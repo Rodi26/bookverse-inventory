@@ -459,7 +459,7 @@ jobs:
 
       - name: "[Build Info] Publish"
         env:
-          JFROG_CLI_LOG_LEVEL: DEBUG
+          JFROG_CLI_LOG_LEVEL: INFO
         run: |
           set -euo pipefail
           # Ensure jq
