@@ -805,7 +805,8 @@ jobs:
               ]
             }
           }
-EOF
+          EOF
+          )
             echo "✅ Using actual build timestamp: $BUILD_STARTED_TIMESTAMP"
           else
             # Fallback: omit timestamp and let JFrog find latest build
@@ -824,7 +825,8 @@ EOF
               ]
             }
           }
-EOF
+          EOF
+          )
             echo "⚠️ No build timestamp available, omitting from payload"
           fi
           
