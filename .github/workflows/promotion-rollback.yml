@@ -127,18 +127,13 @@ jobs:
               -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" \
               -H "Accept: application/json")
             if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 300 ]]; then
-              echo "🔍 Debug: API Response received (HTTP $HTTP_STATUS)"
-              echo "🔍 Debug: Available versions and their release_status:"
-              jq -r '.versions[] | "\(.version): \(.release_status // "null")"' "$RESP_FILE" | head -10
-              echo "🔍 Debug: Looking for RELEASED or TRUSTED_RELEASE versions..."
+              # First try to find RELEASED or TRUSTED_RELEASE versions (preferred)
               TARGET_VERSION=$(jq -r '.versions[] | select((.release_status|tostring|ascii_upcase)=="RELEASED" or (.release_status|tostring|ascii_upcase)=="TRUSTED_RELEASE") | .version' "$RESP_FILE" | head -n1)
-              echo "🔍 Debug: Found target version: '${TARGET_VERSION:-empty}'"
               
               # If no RELEASED/TRUSTED_RELEASE versions found, try PRE_RELEASE as fallback
               if [ -z "${TARGET_VERSION:-}" ] || [ "$TARGET_VERSION" = "null" ]; then
-                echo "🔍 Debug: No RELEASED/TRUSTED_RELEASE versions found, trying PRE_RELEASE as fallback..."
+                echo "ℹ️ No RELEASED/TRUSTED_RELEASE versions found, using latest PRE_RELEASE version"
                 TARGET_VERSION=$(jq -r '.versions[] | select((.release_status|tostring|ascii_upcase)=="PRE_RELEASE") | .version' "$RESP_FILE" | head -n1)
-                echo "🔍 Debug: Found PRE_RELEASE target version: '${TARGET_VERSION:-empty}'"
               fi
             fi
             rm -f "$RESP_FILE"
@@ -275,11 +270,8 @@ jobs:
           fi
 
           # Finalize validation status after all checks
-          if [ ${#VALIDATION_ERRORS[@]} -gt 0 ]; then
-            STATUS="FAILED"
-            MSG="Validation failed: ${VALIDATION_ERRORS[*]}"
-          fi
-
+          STATUS="SUCCESS"
+          MSG="Rollback executed for ${APPLICATION_KEY}@${TARGET_VERSION}"
           if [ ${#VALIDATION_ERRORS[@]} -gt 0 ]; then
             STATUS="FAILED"
             MSG="Validation failed: ${VALIDATION_ERRORS[*]}"
