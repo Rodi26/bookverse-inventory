@@ -5,6 +5,6 @@ applications:
       build: 3.14.22
     packages:
       - type: docker
-        name: inventory-api
-        seed: 1.5.12
+        name: inventory
+        seed: 1.5.11
 
