@@ -498,7 +498,8 @@ jobs:
             echo "BUILD_INFO_PUBLISH_STATUS=SUCCESS" >> $GITHUB_ENV
             
             # Extract timestamp from build publish result (optimized - no extra API call)
-            BUILD_UI_URL=$(echo "$BUILD_PUBLISH_RESULT" | jq -r '.buildInfoUiUrl // empty' 2>/dev/null || echo "")
+            # Parse the UI URL from JFrog CLI log output instead of non-existent JSON field
+            BUILD_UI_URL=$(echo "$BUILD_PUBLISH_RESULT" | grep -o 'https://[^[:space:]]*builds/[^[:space:]]*' | head -1 || echo "")
             
             if [[ -n "$BUILD_UI_URL" ]]; then
               # Extract epoch milliseconds from UI URL: .../builds/NAME/NUMBER/TIMESTAMP/published
@@ -517,7 +518,7 @@ jobs:
                 echo "⚠️ Could not extract valid timestamp from UI URL: $BUILD_UI_URL"
               fi
             else
-              echo "⚠️ No buildInfoUiUrl in publish result"
+              echo "⚠️ Could not extract build UI URL from publish result"
             fi
           else
             echo "BUILD_INFO_PUBLISH_STATUS=FAILED" >> $GITHUB_ENV
