@@ -365,24 +365,21 @@ jobs:
           BASE="${{ vars.JFROG_URL }}/apptrust/api/v1"
           APP_KEY="$APPLICATION_KEY"
           
-          # Create application version payload with sources
+          # Create application version payload with sources (object, not array)
           CREATE_PAYLOAD=$(jq -n \
             --arg version "$APP_VERSION" \
             --arg build_name "$BUILD_NAME" \
             --arg build_number "$BUILD_NUMBER" \
-            --arg repo_key "${{ vars.PROJECT_KEY }}-inventory-internal-docker-nonprod-local" \
             '{
               version: $version,
               build_name: $build_name,
               build_number: $build_number,
               description: "Auto-created from CI pipeline",
-              sources: [
-                {
-                  type: "build",
-                  build_name: $build_name,
-                  build_number: $build_number
-                }
-              ]
+              sources: {
+                type: "build",
+                build_name: $build_name,
+                build_number: $build_number
+              }
             }')
           
           echo "📋 Creating application version with payload:"
