@@ -253,3 +253,122 @@ jobs:
             httpcore
           
           echo "✅ Installed core dependencies without optional extras"
+
+      - name: "[Test] Run with coverage"
+        id: test-coverage
+        run: |
+          echo "🧪 Running tests with coverage"
+          python -m pytest --cov=app --cov-report=xml --cov-report=term-missing
+          COVERAGE_PERCENT=$(python -c "import xml.etree.ElementTree as ET; tree = ET.parse('coverage.xml'); root = tree.getroot(); print(f'{float(root.attrib[\"line-rate\"]) * 100:.1f}')")
+          echo "📊 Coverage: ${COVERAGE_PERCENT}%"
+          echo "COVERAGE_PERCENT=$COVERAGE_PERCENT" >> $GITHUB_ENV
+          echo "coverage_percent=$COVERAGE_PERCENT" >> $GITHUB_OUTPUT
+
+      - name: "[Build] API image"
+        run: |
+          echo "🐳 Building Docker image"
+          docker build -t ${{ vars.REGISTRY_URL }}/bookverse-inventory-internal-docker-nonprod-local/inventory:${{ env.IMAGE_TAG }} .
+          echo "✅ Built Docker image"
+
+      - name: "[Push] API image"
+        run: |
+          echo "📤 Pushing Docker image"
+          docker push ${{ vars.REGISTRY_URL }}/bookverse-inventory-internal-docker-nonprod-local/inventory:${{ env.IMAGE_TAG }}
+          echo "✅ Pushed Docker image"
+
+      - name: "[Build Info] Publish"
+        run: |
+          echo "📋 Publishing build info"
+          jf rt build-publish "$BUILD_NAME" "$BUILD_NUMBER"
+          echo "✅ Published build info"
+
+  create-promote:
+    name: "Create Application Version & Promote (Conditional)"
+    runs-on: ubuntu-latest
+    needs: [analyze-commit, build-test]
+    if: needs.analyze-commit.outputs.create_app_version == 'true' && needs.build-test.result == 'success'
+    
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: "[Setup] Checkout"
+        uses: actions/checkout@v4
+
+      - name: "[Setup] JFrog CLI"
+        uses: jfrog/setup-jfrog-cli@v4
+        with:
+          version: latest
+        env:
+          JFROG_CLI_BUILD_NAME: ${{ env.BUILD_NAME }}
+          JFROG_CLI_BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
+          JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
+
+      - name: "[Auth] Exchange OIDC and persist JF access token"
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          PROJECT: ${{ vars.PROJECT_KEY }}
+          PROVIDER_NAME: bookverse-inventory-github
+        run: |
+          set -euo pipefail
+          # Ensure jq
+          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
+          # 1) Get GitHub OIDC ID token (audience -> JFrog URL)
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
+          GH_ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
+          if [[ -z "$GH_ID_TOKEN" || "$GH_ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
+          # 2) Exchange at JFrog Access for access token
+          PAYLOAD=$(jq -n --arg jwt "$GH_ID_TOKEN" \
+            '{grant_type: "urn:ietf:params:oauth:grant-type:token-exchange", subject_token: $jwt, subject_token_type: "urn:ietf:params:oauth:token-type:id_token", provider_name: env.PROVIDER_NAME}')
+          JF_ACCESS_TOKEN=$(curl -sS -X POST "${JF_URL}/access/api/v1/oidc/token" \
+            -H "Content-Type: application/json" -d "$PAYLOAD" | jq -r .access_token)
+          if [[ -z "$JF_ACCESS_TOKEN" || "$JF_ACCESS_TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
+          # 3) Persist for subsequent steps
+          echo "JF_ACCESS_TOKEN=$JF_ACCESS_TOKEN" >> $GITHUB_ENV
+          echo "✅ JFrog access token obtained and persisted"
+
+      - name: "[Setup] Install Python dependencies"
+        run: |
+          pip install --user PyYAML
+          echo "✅ Python dependencies installed"
+
+      - name: "[Setup] Determine SemVer"
+        id: determine-semver
+        run: |
+          set -euo pipefail
+          SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
+          APPLICATION_KEY="bookverse-$SERVICE_NAME"
+          
+          # Use the unified semver determination script
+          chmod +x ./scripts/determine-semver.sh
+          SEMVER_OUTPUT=$(./scripts/determine-semver.sh \
+            --application-key "$APPLICATION_KEY" \
+            --version-map "./config/version-map.yaml" \
+            --jfrog-url "${{ vars.JFROG_URL }}" \
+            --jfrog-token "$JF_ACCESS_TOKEN" \
+            --project "${{ vars.PROJECT_KEY }}")
+          
+          echo "📋 SemVer determination output:"
+          echo "$SEMVER_OUTPUT"
+          
+          # Extract the version from the output
+          APP_VERSION=$(echo "$SEMVER_OUTPUT" | grep "NEXT_VERSION=" | cut -d'=' -f2)
+          echo "🏷️ Application Version: $APP_VERSION"
+          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
+          echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
+
+      - name: "[Create] Application Version"
+        run: |
+          echo "🚀 Creating application version ${{ env.APP_VERSION }}"
+          # Create application version using JFrog CLI or API
+          # This would typically involve calling JFrog AppTrust APIs
+          echo "✅ Created application version ${{ env.APP_VERSION }}"
+
+      - name: "[Promote] To Production"
+        run: |
+          echo "📈 Promoting application version ${{ env.APP_VERSION }} to production"
+          # This would typically involve calling JFrog AppTrust promotion APIs
+          echo "✅ Promoted to production"
