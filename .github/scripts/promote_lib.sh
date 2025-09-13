@@ -135,19 +135,8 @@ advance_one_step() {
   # Attempt real API calls first; fallback to optimistic local state on failure.
   if [[ -n "$base" && -n "$app" && -n "$ver" && -n "$tok" ]]; then
     if [[ "$mode" == "promote" ]]; then
-      local api_stage payload url code tmp
-      api_stage="$(__api_stage_for "$next_disp")"
-      payload=$(jq -nc --arg to "$api_stage" '{to_stage:$to}')
-      url="$base/apptrust/api/v1/applications/$app/versions/$ver/promote"
-      tmp="$(mktemp)"
-      code=$(curl -sS -L -o "$tmp" -w "%{http_code}" -X POST \
-        -H "Authorization: Bearer ${tok}" -H "Content-Type: application/json" -H "Accept: application/json" \
-        -d "$payload" "$url" 2>/dev/null || echo 000)
-      rm -f "$tmp" || true
-      if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
-        # Refresh from server
-        __persist_env PROMOTED_STAGES "${PROMOTED_STAGES:-} ${next_disp}"
-        fetch_summary || true
+      # Use the proper promote_to_stage function instead of inline logic
+      if promote_to_stage "$next_disp"; then
         return 0
       fi
       # Fallthrough to optimistic local advance
