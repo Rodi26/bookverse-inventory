@@ -26,25 +26,6 @@ __bv__trim_base() {
   printf "%s" "$base"
 }
 
-display_stage_for() {
-  # Convert API stage (possibly project-prefixed) to display stage
-  # Usage: display_stage_for "bookverse-STAGING" -> "STAGING"
-  local s="${1:-}"
-  local p="${PROJECT_KEY:-}"
-  if [[ -z "$s" ]]; then
-    printf "%s\n" "UNASSIGNED"
-    return 0
-  fi
-  if [[ "$s" == "PROD" || "$s" == "$p-PROD" ]]; then
-    printf "%s\n" "PROD"
-    return 0
-  fi
-  if [[ -n "$p" && "$s" == "$p-"* ]]; then
-    printf "%s\n" "${s#${p}-}"
-    return 0
-  fi
-  printf "%s\n" "$s"
-}
 
 __api_stage_for() {
   # Convert display stage (e.g., STAGING) to API stage (project-prefixed when applicable)
