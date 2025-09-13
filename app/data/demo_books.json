@@ -115,7 +115,7 @@
     ],
     "description": "The magical beginning of Harry Potter's journey. Discover the wizarding world as Harry learns he's a wizard and begins his education at Hogwarts School of Witchcraft and Wizardry.",
     "price": 15.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1170803558i/72193.jpg",
+    "cover_image_url": "/static/images/book_7_placeholder.jpg",
     "rating": 4.7,
     "id": 7
   },
@@ -370,7 +370,7 @@
     ],
     "description": "Reclusive Hollywood icon Evelyn Hugo finally decides to tell her life story\u2014but only to unknown journalist Monique Grant. A tale of love, ambition, and the price of fame.",
     "price": 16.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1618913179i/32620332.jpg",
+    "cover_image_url": "/static/images/book_22_placeholder.jpg",
     "rating": 4.5,
     "id": 22
   },
@@ -387,7 +387,7 @@
     ],
     "description": "Alicia Berenson refuses to speak after allegedly murdering her husband. Psychotherapist Theo Faber is determined to understand why, leading to shocking revelations.",
     "price": 14.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1582398803i/40097951.jpg",
+    "cover_image_url": "/static/images/book_23_placeholder.jpg",
     "rating": 4.1,
     "id": 23
   },
@@ -591,7 +591,7 @@
     ],
     "description": "Clare and Henry's love story is complicated by Henry's genetic disorder that causes him to time travel involuntarily. A beautiful tale of love transcending time.",
     "price": 16.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1590733281i/18619684.jpg",
+    "cover_image_url": "/static/images/book_35_placeholder.jpg",
     "rating": 3.9,
     "id": 35
   },
@@ -608,7 +608,7 @@
     ],
     "description": "Charlie navigates his freshman year of high school with the help of two charismatic seniors. A poignant story about friendship, first love, and finding your place.",
     "price": 12.99,
-    "cover_image_url": "https://images-na.ssl-images-amazon.com/images/S/compressed.photo.goodreads.com/books/1494863315i/22628.jpg",
+    "cover_image_url": "/static/images/book_36_placeholder.jpg",
     "rating": 4.2,
     "id": 36
   },
