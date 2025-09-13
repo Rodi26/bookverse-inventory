@@ -1,8 +1,8 @@
-# Demo requirements with PyPI fallback support
-# PRODUCTION NOTE: Real systems would use full dependency specifications with pinned versions
-fastapi>=0.100.0
-uvicorn[standard]>=0.20.0
-requests>=2.25.0
-pytest>=7.0.0
-pytest-cov>=4.0.0
-httpx>=0.24.0
+# Exact versions available in local PyPI repository
+# These match the packages we uploaded to bookverse-pypi-cache-local
+fastapi==0.111.0
+uvicorn==0.30.0
+requests==2.31.0
+pytest==8.3.2
+pytest-cov==4.0.0
+httpx==0.27.0
