@@ -359,7 +359,6 @@ jobs:
       SERVICE_NAME: "inventory"
       APPLICATION_KEY: "bookverse-inventory"
       APP_VERSION: ${{ needs.build-test-publish.outputs.app_version }}
-      JF_ACCESS_TOKEN: ${{ needs.build-test-publish.outputs.jf_access_token }}
 
     steps:
       - name: "[Setup] Checkout"
@@ -463,7 +462,7 @@ jobs:
           RESP_BODY=$(mktemp)
           HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
             "$BASE/applications/$APP_KEY/versions?async=false" \
-            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+            -H "Authorization: Bearer ${{ steps.exchange-oidc.outputs.token }}" \
             -H "Content-Type: application/json" \
             -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
             -d "$APP_VERSION_PAYLOAD" \
@@ -494,7 +493,7 @@ jobs:
           CONTENT_FILE=$(mktemp)
           CONTENT_STATUS=$(curl -sS -L -o "$CONTENT_FILE" -w "%{http_code}" \
             "$BASE/applications/$APP_KEY/versions/$APP_VERSION/content" \
-            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+            -H "Authorization: Bearer ${{ steps.exchange-oidc.outputs.token }}" \
             -H "Accept: application/json")
           
           if [[ "$CONTENT_STATUS" != "200" ]]; then
@@ -523,7 +522,7 @@ jobs:
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           export APPLICATION_KEY="$APPLICATION_KEY"
           export APP_VERSION="${{ env.APP_VERSION }}"
-          export APPTRUST_ACCESS_TOKEN="$JF_ACCESS_TOKEN"
+          export APPTRUST_ACCESS_TOKEN="${{ steps.exchange-oidc.outputs.token }}"
           
           # Source the promotion library
           source .github/scripts/promote_lib.sh
