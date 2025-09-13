@@ -1,2 +1,7 @@
-# Minimal requirements for E2E testing - bypassing PyPI virtual repo issue
-# PRODUCTION NOTE: Real systems would use full dependency specifications
+# Demo requirements with PyPI fallback support
+# PRODUCTION NOTE: Real systems would use full dependency specifications with pinned versions
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+requests>=2.25.0
+pytest>=7.0.0
+pytest-cov>=4.0.0
