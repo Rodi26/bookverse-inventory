@@ -225,7 +225,11 @@ jobs:
           export JF_PROJECT="${{ vars.PROJECT_KEY }}"
           export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
           jf pip-config --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
-          jf pip install -r requirements.txt --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
+          if ! jf pip install -r requirements.txt --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"; then
+            echo "⚠️ jf pip install failed; falling back to public PyPI"
+            pip install -r requirements.txt -i https://pypi.org/simple
+          fi
+          echo "✅ Installed project dependencies"
 
       - name: "[Test] Run with coverage"
         id: test-coverage
