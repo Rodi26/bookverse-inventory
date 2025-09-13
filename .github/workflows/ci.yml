@@ -387,7 +387,7 @@ jobs:
                     name: $build_name,
                     number: $build_number,
                     repository_key: $repo_key,
-                    include_dependencies: true
+                    include_dependencies: false
                   }
                 ]
               }
