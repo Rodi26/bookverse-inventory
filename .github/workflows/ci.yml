@@ -280,7 +280,7 @@ jobs:
 
     env:
       BUILD_NAME: "bookverse-inventory_CI_create-promote"
-      BUILD_NUMBER: ${{ github.run_number }}
+      BUILD_NUMBER: ${{ github.run_number }}-${{ github.run_attempt }}
       SERVICE_NAME: "inventory"
       APPLICATION_KEY: "bookverse-inventory"
 
