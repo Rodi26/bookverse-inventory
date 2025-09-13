@@ -12,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from app.main import app
 from app.database import get_db
 from app.models import Base
+from app.auth import get_current_user
 
 # Test database URL (in-memory SQLite)
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -34,8 +35,22 @@ def override_get_db():
         db.close()
 
 
-# Override the dependency
+# Mock auth user for tests
+def override_get_current_user():
+    """Mock authenticated user for tests"""
+    from app.auth import AuthUser
+    mock_claims = {
+        "sub": "test-user-123",
+        "email": "test@example.com",
+        "name": "Test User",
+        "roles": ["user"],
+        "scope": "bookverse:api"
+    }
+    return AuthUser(mock_claims)
+
+# Override the dependencies
 app.dependency_overrides[get_db] = override_get_db
+app.dependency_overrides[get_current_user] = override_get_current_user
 
 # Disable lifespan for tests
 @pytest.fixture
