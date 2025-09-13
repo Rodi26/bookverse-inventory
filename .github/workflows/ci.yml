@@ -248,18 +248,52 @@ jobs:
 
       - name: "[Build] API image"
         run: |
-          echo "🐳 Building Docker image (demo simplified)"
-          echo "📝 DEMO NOTE: In production, this would build and push actual Docker images"
-          echo "✅ Docker image build simulated for E2E demo"
+          set -euo pipefail
+          # Use JFrog CLI to authenticate pushes without requiring docker login
+          SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
+          jf c use "$SERVER_ID" || true
+          # Ensure project header is sent for OIDC-based commands like `jf docker`
+          export JF_PROJECT="${{ vars.PROJECT_KEY }}"
+          # Also set build project explicitly for JFrog CLI commands
+          export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
 
-      - name: "[Push] API image"
-        run: |
-          echo "📤 Pushing Docker image (demo simplified)"
-          echo "📝 DEMO NOTE: In production, this would push to actual registry"
-          echo "✅ Docker image push simulated for E2E demo"
+          # Using OIDC-based server configuration from setup action; no admin token required
+          # Use precomputed IMAGE_TAG/IMAGE_NAME from set-app-version step to avoid drift
+          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
+          REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
+            IMAGE_NAME="$REGISTRY_URL/$REPO_KEY/$SERVICE_NAME:$IMAGE_TAG"
+            echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          echo "Using precomputed image tag: $IMAGE_TAG"
+
+          # Build and push (plain docker) using subdomain host; then create build-info
+          jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
+          docker push "$IMAGE_NAME"
+
+          # Build-info will be published in a later step via bag/bce/bp
+          echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
+          echo "✅ Built and pushed Docker image (OIDC docker push + build-info)"
 
       - name: "[Build Info] Publish"
         run: |
+          # Associate the pushed Docker image with the build-info before publishing
+          REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
+          echo "🔗 Adding docker image to build-info: image=$IMAGE_NAME repo=$REPO_KEY"
+          # Resolve pushed image digest and write in required format: image:tag@sha256:...
+          DIGEST=$(docker inspect "$IMAGE_NAME" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
+          if [[ -z "$DIGEST" || "$DIGEST" == "<no value>" ]]; then
+            docker pull "$IMAGE_NAME" >/dev/null 2>&1 || true
+            DIGEST=$(docker inspect "$IMAGE_NAME" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
+          fi
+          if [[ -z "$DIGEST" || "$DIGEST" == "<no value>" ]]; then
+            echo "❌ Could not resolve image digest for $IMAGE_NAME" >&2; exit 1
+          fi
+          echo "${IMAGE_NAME%@*}@${DIGEST}" > images.txt
+          jf rt build-docker-create "$REPO_KEY" \
+            --image-file images.txt \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER" \
+            --project "${{ vars.PROJECT_KEY }}"
+          
           jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
           jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
           if BUILD_PUBLISH_RESULT=$(jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"); then
