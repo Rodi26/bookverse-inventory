@@ -257,7 +257,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "🧪 Running tests with coverage"
-          pytest tests/test_api.py --maxfail=1 --disable-warnings -q \
+          pytest --maxfail=1 --disable-warnings -q \
                  --cov=app --cov-report=xml:coverage.xml --cov-report=html:htmlcov
           echo "TESTS_PASSED=true" >> $GITHUB_ENV
           # Extract coverage percent from coverage.xml
