@@ -523,7 +523,15 @@ jobs:
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           export APPLICATION_KEY="$APPLICATION_KEY"
           export APP_VERSION="${{ env.APP_VERSION }}"
-          export APPTRUST_ACCESS_TOKEN="${{ steps.exchange-oidc.outputs.token }}"
+          
+          # Get the OIDC token from the previous step's output
+          OIDC_TOKEN="${{ steps.exchange-oidc.outputs.token }}"
+          if [[ -z "$OIDC_TOKEN" ]]; then
+            echo "❌ Failed to get OIDC token from exchange step" >&2
+            exit 1
+          fi
+          export APPTRUST_ACCESS_TOKEN="$OIDC_TOKEN"
+          echo "✅ APPTRUST_ACCESS_TOKEN set for promotion library"
           
           # Source the promotion library
           source .github/scripts/promote_lib.sh
