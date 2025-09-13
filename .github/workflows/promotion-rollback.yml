@@ -6,9 +6,9 @@ name: Rollback
 # 1) Exchange GitHub OIDC ID token for JFrog access token (no secrets required)
 # 2) Resolve the target version (input or latest promoted) using minted token
 # 3) Capture BEFORE current_stage via Content API using minted token
-# 4) Execute rollback via .github/scripts/apptrust_rollback.py, which calls:
+# 4) Execute rollback via scripts/apptrust_rollback.py, which calls:
 #    POST /apptrust/api/v1/applications/{app}/versions/{ver}/rollback
-#    with body { from_stage: <current_stage> } using minted token
+#    with body { from_stage: "PROD" } using minted token (PROD for safety)
 # 5) Capture AFTER current_stage and compute expected previous stage using the
 #    lifecycle definition (bookverse-lifecycle or default DEV→QA→STAGING→PROD)
 # 6) Validate: stage_after must equal previous(stage_before)
@@ -161,11 +161,11 @@ jobs:
 
           STATUS="SUCCESS"
           MSG=""
-          echo "🔁 Executing rollback via .github/scripts/apptrust_rollback.py"
+          echo "🔁 Executing rollback via scripts/apptrust_rollback.py"
           # Set environment variables for the rollback script to use minted token
           export APPTRUST_BASE_URL="${{ vars.JFROG_URL }}$APPTRUST_BASE_URL"
           export APPTRUST_ACCESS_TOKEN="$APPTRUST_ACCESS_TOKEN"
-          if python3 .github/scripts/apptrust_rollback.py \
+          if python3 scripts/apptrust_rollback.py \
             --app "$APP_KEY" \
             --version "$TARGET_VERSION"; then
             MSG="Rollback executed for $APP_KEY@$TARGET_VERSION"
