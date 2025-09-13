@@ -125,12 +125,29 @@ jobs:
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           
-          # Get JFrog access token from JFrog CLI
-          JFROG_TOKEN=$(jf c show | grep "Access token" | awk '{print $3}' || echo "")
-          if [[ -z "$JFROG_TOKEN" ]]; then
-            echo "❌ Failed to get JFrog token from CLI" >&2
+          # Get OIDC token from GitHub Actions and exchange for JFrog token
+          echo "🔐 Exchanging OIDC token for JFrog access token"
+          OIDC_TOKEN=$(curl -sLS -H "User-Agent: actions/oidc-client" -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=${{ vars.JFROG_URL }}" | jq -r '.value')
+          
+          if [[ -z "$OIDC_TOKEN" || "$OIDC_TOKEN" == "null" ]]; then
+            echo "❌ Failed to get OIDC token" >&2
             exit 1
           fi
+          
+          # Exchange OIDC token for JFrog access token
+          JFROG_TOKEN_RESPONSE=$(curl -sS -X POST "${{ vars.JFROG_URL }}/access/api/v1/oidc/token" \
+            -H "Content-Type: application/json" \
+            -d "{\"grant_type\": \"urn:ietf:params:oauth:grant-type:token-exchange\", \"subject_token\": \"$OIDC_TOKEN\", \"subject_token_type\": \"urn:ietf:params:oauth:token-type:id_token\", \"provider_name\": \"bookverse-inventory-github\"}")
+          
+          JFROG_TOKEN=$(echo "$JFROG_TOKEN_RESPONSE" | jq -r '.access_token // empty')
+          if [[ -z "$JFROG_TOKEN" ]]; then
+            echo "❌ Failed to exchange OIDC token for JFrog token" >&2
+            echo "Response: $JFROG_TOKEN_RESPONSE" >&2
+            exit 1
+          fi
+          
+          echo "✅ Successfully obtained JFrog access token via OIDC"
           
           # Use the unified semver determination script
           chmod +x ./scripts/determine-semver.sh
@@ -501,6 +518,33 @@ jobs:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
 
+      - name: "[Setup] Get OIDC Token for Application Creation"
+        run: |
+          # Get OIDC token from GitHub Actions and exchange for JFrog token
+          echo "🔐 Exchanging OIDC token for JFrog access token (Application Creation)"
+          OIDC_TOKEN=$(curl -sLS -H "User-Agent: actions/oidc-client" -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=${{ vars.JFROG_URL }}" | jq -r '.value')
+          
+          if [[ -z "$OIDC_TOKEN" || "$OIDC_TOKEN" == "null" ]]; then
+            echo "❌ Failed to get OIDC token" >&2
+            exit 1
+          fi
+          
+          # Exchange OIDC token for JFrog access token
+          JFROG_TOKEN_RESPONSE=$(curl -sS -X POST "${{ vars.JFROG_URL }}/access/api/v1/oidc/token" \
+            -H "Content-Type: application/json" \
+            -d "{\"grant_type\": \"urn:ietf:params:oauth:grant-type:token-exchange\", \"subject_token\": \"$OIDC_TOKEN\", \"subject_token_type\": \"urn:ietf:params:oauth:token-type:id_token\", \"provider_name\": \"bookverse-inventory-github\"}")
+          
+          JF_OIDC_TOKEN=$(echo "$JFROG_TOKEN_RESPONSE" | jq -r '.access_token // empty')
+          if [[ -z "$JF_OIDC_TOKEN" ]]; then
+            echo "❌ Failed to exchange OIDC token for JFrog token" >&2
+            echo "Response: $JFROG_TOKEN_RESPONSE" >&2
+            exit 1
+          fi
+          
+          echo "✅ Successfully obtained JFrog access token via OIDC"
+          echo "JF_OIDC_TOKEN=$JF_OIDC_TOKEN" >> $GITHUB_ENV
+
       - name: "[Release] Create application version"
         run: |
           echo "🚀 Creating AppTrust application version: $APP_VERSION"
@@ -552,12 +596,12 @@ jobs:
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
           JF_URL='${{ vars.JFROG_URL }}'
           PROJECT='${{ vars.PROJECT_KEY }}'
-          if [[ -z "${JF_ACCESS_TOKEN:-}" ]]; then
-            echo "❌ Missing JF_ACCESS_TOKEN in environment. Ensure earlier auth step persisted it." >&2; exit 1; fi
+          if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
+            echo "❌ Missing JF_OIDC_TOKEN in environment. Ensure OIDC token exchange succeeded." >&2; exit 1; fi
           
           RESP_FILE=$(mktemp)
           CODE=$(curl -sS -L -X POST "$JF_URL/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
-            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+            -H "Authorization: Bearer $JF_OIDC_TOKEN" \
             -H "X-JFrog-Project: $PROJECT" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
