@@ -401,8 +401,8 @@ jobs:
           APP_TAG="${TAG_OPTIONS[$TAG_INDEX]}"
           
           # Create application version payload using exact same approach as recommendations service
-          # Use the build name from the build-test job where build info was published
-          ACTUAL_BUILD_NAME="bookverse-inventory_CI_build-test"
+          # Use the build name from the build-test-publish job where build info was published
+          ACTUAL_BUILD_NAME="${{ needs.build-test-publish.outputs.build_name }}"
           
           # Create payload using string concatenation (same as recommendations service)
           APP_VERSION_PAYLOAD='{"version":"'$APP_VERSION'","tag":"'$APP_TAG'","sources":{"builds":[{"name":"'$ACTUAL_BUILD_NAME'","number":"'$BUILD_NUMBER'","repository_key":"'${{ vars.PROJECT_KEY }}'-build-info","include_dependencies":false}]}}'
