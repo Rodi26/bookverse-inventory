@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y \
 
 # Copy and install Python dependencies
 COPY requirements.txt .
+COPY libs libs
+RUN pip install --no-cache-dir ./libs/bookverse-core
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code and scripts
