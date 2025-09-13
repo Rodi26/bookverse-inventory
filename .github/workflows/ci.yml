@@ -372,10 +372,12 @@ jobs:
           APP_TAG="${TAG_OPTIONS[$TAG_INDEX]}"
           
           # Create correct payload structure: sources.builds[] array
+          # Use the build name from the build-test job where build info was published
+          ACTUAL_BUILD_NAME="bookverse-inventory_CI_build-test"
           CREATE_PAYLOAD=$(jq -n \
             --arg version "$APP_VERSION" \
             --arg tag "$APP_TAG" \
-            --arg build_name "$BUILD_NAME" \
+            --arg build_name "$ACTUAL_BUILD_NAME" \
             --arg build_number "$BUILD_NUMBER" \
             --arg repo_key "${{ vars.PROJECT_KEY }}-build-info" \
             '{
