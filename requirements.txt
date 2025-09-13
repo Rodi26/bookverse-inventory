@@ -10,7 +10,6 @@ python-dotenv==1.1.1
 python-jose[cryptography]>=3.2.0
 python-multipart==0.0.20
 
-# Core dependencies that FastAPI needs
-starlette==0.37.2
+# Core dependencies that FastAPI needs (let FastAPI manage starlette version)
 pydantic==2.11.9
 typing-extensions==4.15.0
