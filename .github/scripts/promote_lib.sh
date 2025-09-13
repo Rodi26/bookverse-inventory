@@ -462,41 +462,5 @@ attach_evidence_for() {
   esac
 }
 
-# Compute the next stage and perform a single transition:
-# - If next != FINAL_STAGE → promote_to_stage(next) + attach stage evidence
-# - If next == FINAL_STAGE and ALLOW_RELEASE=true → release_version() + PROD evidence
-# - If ALLOW_RELEASE=false, the release step is deferred to the dedicated
-#   "Release to PROD" workflow step.
-advance_one_step() {
-  local allow_release="${ALLOW_RELEASE:-false}"
-  # Build stages array from STAGES_STR
-  IFS=' ' read -r -a STAGES <<< "${STAGES_STR:-}"
-  local current_index=-1
-  if [[ -z "${CURRENT_STAGE:-}" || "${CURRENT_STAGE}" == "UNASSIGNED" ]]; then
-    current_index=-1
-  else
-    local i; for i in "${!STAGES[@]}"; do
-      if [[ "$(api_stage_for "${STAGES[$i]}")" == "$(api_stage_for "${CURRENT_STAGE}")" ]]; then current_index=$i; break; fi
-    done
-  fi
-  local target_index=-1
-  local j; for j in "${!STAGES[@]}"; do if [[ "${STAGES[$j]}" == "${TARGET_NAME}" ]]; then target_index=$j; break; fi; done
-  if [[ "$target_index" -lt 0 ]]; then echo "❌ Target stage '${TARGET_NAME}' not found in lifecycle. Available: ${STAGES[*]}" >&2; return 1; fi
-  if [[ "$current_index" -ge "$target_index" ]]; then echo "ℹ️ Current stage (${CURRENT_STAGE:-UNASSIGNED}) is at or beyond target (${TARGET_NAME}). Nothing to promote."; return 0; fi
-  local next_index=$((current_index+1))
-  if [[ "$next_index" -gt "$target_index" ]]; then echo "ℹ️ Next stage would exceed target (${TARGET_NAME}). Nothing to promote."; return 0; fi
-  local next_stage_display="${STAGES[$next_index]}"
-  if [[ "$next_stage_display" == "$FINAL_STAGE" ]]; then
-    if [[ "$allow_release" == "true" ]]; then
-      release_version || return 1
-      attach_evidence_prod || true
-    else
-      echo "⏭️ Skipping release step (deferred to dedicated step)"
-    fi
-  else
-    promote_to_stage "$next_stage_display" || return 1
-    attach_evidence_for "$next_stage_display" || true
-  fi
-}
 
 
