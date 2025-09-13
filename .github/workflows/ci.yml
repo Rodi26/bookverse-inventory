@@ -225,7 +225,7 @@ jobs:
           export JF_PROJECT="${{ vars.PROJECT_KEY }}"
           export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
           jf pip-config --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
-          jf pip install -r requirements.txt --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"; then
+          jf pip install -r requirements.txt --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
 
       - name: "[Test] Run with coverage"
         id: test-coverage
