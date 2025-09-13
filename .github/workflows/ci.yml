@@ -361,6 +361,10 @@ jobs:
         run: |
           echo "🚀 Creating application version ${{ env.APP_VERSION }}"
           
+          # Allow time for build info to be indexed by AppTrust
+          echo "⏳ Waiting 10 seconds for build info to be indexed..."
+          sleep 10
+          
           # Create application version using correct AppTrust API payload structure
           # Based on working implementation from recommendations service
           BASE="${{ vars.JFROG_URL }}/apptrust/api/v1"
