@@ -50,7 +50,7 @@ jobs:
           chmod +x ./scripts/analyze-commit.sh
           ./scripts/analyze-commit.sh
 
-  build-test:
+  build-test-publish:
     name: "Build & Test (Always Runs)"
     needs: analyze-commit
     runs-on: ubuntu-latest
@@ -264,15 +264,45 @@ jobs:
 
       - name: "[Build Info] Publish"
         run: |
-          echo "📋 Publishing build info"
-          jf rt build-publish "$BUILD_NAME" "$BUILD_NUMBER"
-          echo "✅ Published build info"
+          jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          if BUILD_PUBLISH_RESULT=$(jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"); then
+            echo "BUILD_INFO_PUBLISH_STATUS=SUCCESS" >> $GITHUB_ENV
+            
+            # Extract timestamp from build publish result (optimized - no extra API call)
+            # Parse the UI URL from JFrog CLI log output instead of non-existent JSON field
+            BUILD_UI_URL=$(echo "$BUILD_PUBLISH_RESULT" | grep -o 'https://[^[:space:]]*builds/[^[:space:]]*' | head -1 || echo "")
+            
+            if [[ -n "$BUILD_UI_URL" ]]; then
+              # Extract epoch milliseconds from UI URL: .../builds/NAME/NUMBER/TIMESTAMP/published
+              EPOCH_MS=$(echo "$BUILD_UI_URL" | sed -n 's|.*/builds/[^/]*/[^/]*/\([0-9]*\)/published.*|\1|p')
+              
+              if [[ -n "$EPOCH_MS" && "$EPOCH_MS" =~ ^[0-9]+$ ]]; then
+                # Convert to JFrog's exact timestamp format: YYYY-MM-DDTHH:MM:SS.mmm+0000
+                EPOCH_SEC=$((EPOCH_MS / 1000))
+                MILLISECS=$((EPOCH_MS % 1000))
+                BUILD_STARTED_TIMESTAMP=$(date -u -r "$EPOCH_SEC" "+%Y-%m-%dT%H:%M:%S" 2>/dev/null || date -u -d "@$EPOCH_SEC" "+%Y-%m-%dT%H:%M:%S")
+                BUILD_STARTED_TIMESTAMP="${BUILD_STARTED_TIMESTAMP}.$(printf "%03d" $MILLISECS)+0000"
+                
+                echo "BUILD_STARTED_TIMESTAMP=$BUILD_STARTED_TIMESTAMP" >> $GITHUB_ENV
+                echo "✅ Extracted timestamp from build publish result: $BUILD_STARTED_TIMESTAMP"
+              else
+                echo "⚠️ Could not extract valid timestamp from UI URL: $BUILD_UI_URL"
+              fi
+            else
+              echo "⚠️ Could not extract build UI URL from publish result"
+            fi
+          else
+            echo "BUILD_INFO_PUBLISH_STATUS=FAILED" >> $GITHUB_ENV
+            echo "❌ Failed to publish build info" >&2
+            exit 1
+          fi
 
   create-promote:
     name: "Create Application Version & Promote (Conditional)"
     runs-on: ubuntu-latest
-    needs: [analyze-commit, build-test]
-    if: needs.analyze-commit.outputs.create_app_version == 'true' && needs.build-test.result == 'success'
+    needs: [analyze-commit, build-test-publish]
+    if: needs.analyze-commit.outputs.create_app_version == 'true' && needs.build-test-publish.result == 'success'
     
     permissions:
       contents: read
@@ -280,9 +310,11 @@ jobs:
 
     env:
       BUILD_NAME: "bookverse-inventory_CI_create-promote"
-      BUILD_NUMBER: ${{ github.run_number }}-${{ github.run_attempt }}
+      BUILD_NUMBER: ${{ needs.build-test-publish.outputs.build_number }}
       SERVICE_NAME: "inventory"
       APPLICATION_KEY: "bookverse-inventory"
+      APP_VERSION: ${{ needs.build-test-publish.outputs.app_version }}
+      JF_ACCESS_TOKEN: ${{ needs.build-test-publish.outputs.jf_access_token }}
 
     steps:
       - name: "[Setup] Checkout"
@@ -293,7 +325,7 @@ jobs:
         with:
           version: latest
         env:
-          JFROG_CLI_BUILD_NAME: ${{ env.BUILD_NAME }}
+          JFROG_CLI_BUILD_NAME: ${{ needs.build-test-publish.outputs.build_name }}
           JFROG_CLI_BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
           JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
 
