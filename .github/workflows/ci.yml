@@ -194,7 +194,8 @@ jobs:
       - name: "[Build Info] Collect Python deps"
         run: |
           jf pip-config --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
-          jf pip install pip\<25 --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
+          # Skip pip upgrade for demo - use system pip
+          echo "📦 Using system pip for demo simplicity"
 
       - name: "[Test] Install deps"
         run: |
