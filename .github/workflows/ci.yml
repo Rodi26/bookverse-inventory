@@ -125,13 +125,20 @@ jobs:
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           
+          # Get JFrog access token from JFrog CLI
+          JFROG_TOKEN=$(jf c show | grep "Access token" | awk '{print $3}' || echo "")
+          if [[ -z "$JFROG_TOKEN" ]]; then
+            echo "❌ Failed to get JFrog token from CLI" >&2
+            exit 1
+          fi
+          
           # Use the unified semver determination script
           chmod +x ./scripts/determine-semver.sh
           SEMVER_OUTPUT=$(./scripts/determine-semver.sh \
             --application-key "$APPLICATION_KEY" \
             --version-map "./config/version-map.yaml" \
             --jfrog-url "${{ vars.JFROG_URL }}" \
-            --jfrog-token "$JF_ACCESS_TOKEN" \
+            --jfrog-token "$JFROG_TOKEN" \
             --project-key "${{ vars.PROJECT_KEY }}" \
             --packages "$SERVICE_NAME" \
             --verbose)
