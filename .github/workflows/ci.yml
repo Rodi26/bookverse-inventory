@@ -277,6 +277,12 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    
+    env:
+      BUILD_NAME: "bookverse-inventory_CI_create-promote"
+      BUILD_NUMBER: ${{ github.run_number }}
+      SERVICE_NAME: "inventory"
+      APPLICATION_KEY: "bookverse-inventory"
 
     steps:
       - name: "[Setup] Checkout"
@@ -354,12 +360,114 @@ jobs:
       - name: "[Create] Application Version"
         run: |
           echo "🚀 Creating application version ${{ env.APP_VERSION }}"
-          # Create application version using JFrog CLI or API
-          # This would typically involve calling JFrog AppTrust APIs
-          echo "✅ Created application version ${{ env.APP_VERSION }}"
+          
+          # Create application version using AppTrust API
+          BASE="${{ vars.JFROG_URL }}/apptrust/api/v1"
+          APP_KEY="$APPLICATION_KEY"
+          
+          # Create application version payload
+          CREATE_PAYLOAD=$(jq -n \
+            --arg version "$APP_VERSION" \
+            --arg build_name "$BUILD_NAME" \
+            --arg build_number "$BUILD_NUMBER" \
+            '{
+              version: $version,
+              build_name: $build_name,
+              build_number: $build_number,
+              description: "Auto-created from CI pipeline"
+            }')
+          
+          echo "📋 Creating application version with payload:"
+          echo "$CREATE_PAYLOAD" | jq .
+          
+          # Call AppTrust API to create application version
+          RESP=$(mktemp)
+          CODE=$(curl -sS -L -o "$RESP" -w "%{http_code}" \
+            -X POST "$BASE/applications/$APP_KEY/versions" \
+            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d "$CREATE_PAYLOAD" || echo 000)
+          
+          if [[ "$CODE" -ge 200 && "$CODE" -lt 300 ]]; then
+            echo "✅ Created application version $APP_VERSION"
+            cat "$RESP" | jq . || cat "$RESP"
+          else
+            echo "⚠️ Application version creation returned HTTP $CODE"
+            cat "$RESP" || true
+            # For demo purposes, continue even if version already exists
+            if [[ "$CODE" == "409" ]]; then
+              echo "📝 Version $APP_VERSION already exists, continuing with promotion..."
+            else
+              echo "❌ Failed to create application version" >&2
+              rm -f "$RESP"
+              exit 1
+            fi
+          fi
+          rm -f "$RESP"
 
-      - name: "[Promote] To Production"
+      - name: "[Auto-Promote] Through Stages"
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
-          echo "📈 Promoting application version ${{ env.APP_VERSION }} to production"
-          # This would typically involve calling JFrog AppTrust promotion APIs
-          echo "✅ Promoted to production"
+          echo "📈 Starting automatic promotion for ${{ env.APP_VERSION }}"
+          
+          # Set up promotion environment variables
+          export JFROG_URL="${{ vars.JFROG_URL }}"
+          export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
+          export APPLICATION_KEY="$APPLICATION_KEY"
+          export APP_VERSION="${{ env.APP_VERSION }}"
+          export APPTRUST_ACCESS_TOKEN="$JF_ACCESS_TOKEN"
+          
+          # Source the promotion library
+          source .github/scripts/promote_lib.sh
+          
+          # Set up lifecycle stages (demo-optimized: promote directly to PROD)
+          export STAGES_STR="DEV QA STAGING PROD"
+          export FINAL_STAGE="PROD"
+          export ALLOW_RELEASE=true
+          
+          echo "🎯 Demo Mode: Auto-promoting through all stages to PROD"
+          echo "📝 Production Note: Real systems would have approval gates and gradual rollout"
+          
+          # Fetch current status
+          fetch_summary
+          echo "📊 Current stage: ${CURRENT_STAGE:-UNASSIGNED}"
+          
+          # Promote through each stage automatically
+          MAX_PROMOTIONS=4  # Safety limit
+          PROMOTION_COUNT=0
+          
+          while [[ $PROMOTION_COUNT -lt $MAX_PROMOTIONS ]]; do
+            fetch_summary
+            CURRENT_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
+            
+            echo "🔄 Promotion step $((PROMOTION_COUNT + 1)): Currently at $CURRENT_DISPLAY"
+            
+            if [[ "$CURRENT_DISPLAY" == "PROD" ]]; then
+              echo "🎉 Already at PROD - promotion complete!"
+              break
+            fi
+            
+            # Perform one promotion step
+            if advance_one_step; then
+              echo "✅ Promotion step $((PROMOTION_COUNT + 1)) successful"
+              PROMOTION_COUNT=$((PROMOTION_COUNT + 1))
+              sleep 2  # Brief pause between promotions
+            else
+              echo "❌ Promotion step $((PROMOTION_COUNT + 1)) failed"
+              exit 1
+            fi
+          done
+          
+          # Final status check
+          fetch_summary
+          FINAL_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
+          
+          if [[ "$FINAL_DISPLAY" == "PROD" ]]; then
+            echo "🎉 SUCCESS: Application version $APP_VERSION promoted to PROD!"
+            echo "📈 Automatic promotion completed in $PROMOTION_COUNT steps"
+          else
+            echo "⚠️ Promotion incomplete - final stage: $FINAL_DISPLAY"
+            exit 1
+          fi
