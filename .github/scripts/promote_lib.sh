@@ -36,7 +36,7 @@ __api_stage_for() {
     return 0
   fi
   if [[ "$d" == "PROD" ]]; then
-    if [[ -n "$p" ]]; then printf "%s\n" "$p-PROD"; else printf "%s\n" "PROD"; fi
+    printf "%s\n" "PROD"
     return 0
   fi
   # If already prefixed, return as-is
