@@ -113,6 +113,38 @@ jobs:
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
           JFROG_CLI_BUILD_NAME: ${{ env.BUILD_NAME }}
           JFROG_CLI_BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
+          JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
+
+      - name: "[Setup] Verify JFrog Authentication"
+        run: |
+          echo "🔐 Verifying JFrog CLI authentication and connectivity..."
+          jf rt ping
+          echo "✅ JFrog authentication successful"
+
+      - name: "[Auth] Exchange OIDC and persist JF access token"
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          PROJECT: ${{ vars.PROJECT_KEY }}
+          PROVIDER_NAME: bookverse-inventory-github
+        run: |
+          set -euo pipefail
+          # Ensure jq
+          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
+          # 1) Get GitHub OIDC ID token (audience -> JFrog URL)
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
+          GH_ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
+          if [[ -z "$GH_ID_TOKEN" || "$GH_ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
+          # 2) Exchange at JFrog Access for access token
+          PAYLOAD=$(jq -n --arg jwt "$GH_ID_TOKEN" \
+            '{grant_type: "urn:ietf:params:oauth:grant-type:token-exchange", subject_token: $jwt, subject_token_type: "urn:ietf:params:oauth:token-type:id_token", provider_name: env.PROVIDER_NAME}')
+          JF_ACCESS_TOKEN=$(curl -sS -X POST "${JF_URL}/access/api/v1/oidc/token" \
+            -H "Content-Type: application/json" -d "$PAYLOAD" | jq -r .access_token)
+          if [[ -z "$JF_ACCESS_TOKEN" || "$JF_ACCESS_TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
+          # 3) Persist for subsequent steps
+          echo "JF_ACCESS_TOKEN=$JF_ACCESS_TOKEN" >> $GITHUB_ENV
+          echo "✅ JFrog access token obtained and persisted"
 
       - name: "[Setup] Install Python dependencies"
         run: |
@@ -125,29 +157,13 @@ jobs:
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           
-          # Get OIDC token from GitHub Actions and exchange for JFrog token
-          echo "🔐 Exchanging OIDC token for JFrog access token"
-          OIDC_TOKEN=$(curl -sLS -H "User-Agent: actions/oidc-client" -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=${{ vars.JFROG_URL }}" | jq -r '.value')
-          
-          if [[ -z "$OIDC_TOKEN" || "$OIDC_TOKEN" == "null" ]]; then
-            echo "❌ Failed to get OIDC token" >&2
+          # Use the persisted JF_ACCESS_TOKEN from the auth step
+          if [[ -z "${JF_ACCESS_TOKEN:-}" ]]; then
+            echo "❌ Missing JF_ACCESS_TOKEN. Ensure OIDC exchange step succeeded." >&2
             exit 1
           fi
           
-          # Exchange OIDC token for JFrog access token
-          JFROG_TOKEN_RESPONSE=$(curl -sS -X POST "${{ vars.JFROG_URL }}/access/api/v1/oidc/token" \
-            -H "Content-Type: application/json" \
-            -d "{\"grant_type\": \"urn:ietf:params:oauth:grant-type:token-exchange\", \"subject_token\": \"$OIDC_TOKEN\", \"subject_token_type\": \"urn:ietf:params:oauth:token-type:id_token\", \"provider_name\": \"bookverse-inventory-github\"}")
-          
-          JFROG_TOKEN=$(echo "$JFROG_TOKEN_RESPONSE" | jq -r '.access_token // empty')
-          if [[ -z "$JFROG_TOKEN" ]]; then
-            echo "❌ Failed to exchange OIDC token for JFrog token" >&2
-            echo "Response: $JFROG_TOKEN_RESPONSE" >&2
-            exit 1
-          fi
-          
-          echo "✅ Successfully obtained JFrog access token via OIDC"
+          echo "✅ Using persisted JFrog access token for semver determination"
           
           # Use the unified semver determination script
           chmod +x ./scripts/determine-semver.sh
@@ -155,7 +171,7 @@ jobs:
             --application-key "$APPLICATION_KEY" \
             --version-map "./config/version-map.yaml" \
             --jfrog-url "${{ vars.JFROG_URL }}" \
-            --jfrog-token "$JFROG_TOKEN" \
+            --jfrog-token "$JF_ACCESS_TOKEN" \
             --project-key "${{ vars.PROJECT_KEY }}" \
             --packages "$SERVICE_NAME" \
             --verbose)
@@ -189,16 +205,25 @@ jobs:
       - name: "[Diag] Python deps"
         run: |
           echo "🔎 Checking Artifactory connectivity and PyPI virtual repo"
+          # Ensure project context is set for JFrog CLI commands
+          export JF_PROJECT="${{ vars.PROJECT_KEY }}"
+          export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
           jf rt ping
 
       - name: "[Build Info] Collect Python deps"
         run: |
+          # Ensure project context is set for JFrog CLI commands
+          export JF_PROJECT="${{ vars.PROJECT_KEY }}"
+          export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
           jf pip-config --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
           # Skip pip upgrade for demo - use system pip
           echo "📦 Using system pip for demo simplicity"
 
       - name: "[Test] Install deps"
         run: |
+          # Ensure project context is set for JFrog CLI commands
+          export JF_PROJECT="${{ vars.PROJECT_KEY }}"
+          export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
           jf pip-config --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
           jf pip install -r requirements.txt --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER"
 
@@ -519,32 +544,25 @@ jobs:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
 
-      - name: "[Setup] Get OIDC Token for Application Creation"
+      - name: "[Setup] Re-authenticate JFrog CLI for Application Creation"
         run: |
-          # Get OIDC token from GitHub Actions and exchange for JFrog token
-          echo "🔐 Exchanging OIDC token for JFrog access token (Application Creation)"
-          OIDC_TOKEN=$(curl -sLS -H "User-Agent: actions/oidc-client" -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=${{ vars.JFROG_URL }}" | jq -r '.value')
+          # Re-establish JFrog CLI authentication for the new job context
+          echo "🔐 Re-establishing JFrog CLI authentication for application creation"
+          # Get OIDC token and exchange for JFrog access token
+          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
           
-          if [[ -z "$OIDC_TOKEN" || "$OIDC_TOKEN" == "null" ]]; then
-            echo "❌ Failed to get OIDC token" >&2
-            exit 1
-          fi
+          GH_ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${{ vars.JFROG_URL }}" | jq -r .value)
+          if [[ -z "$GH_ID_TOKEN" || "$GH_ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
           
-          # Exchange OIDC token for JFrog access token
-          JFROG_TOKEN_RESPONSE=$(curl -sS -X POST "${{ vars.JFROG_URL }}/access/api/v1/oidc/token" \
-            -H "Content-Type: application/json" \
-            -d "{\"grant_type\": \"urn:ietf:params:oauth:grant-type:token-exchange\", \"subject_token\": \"$OIDC_TOKEN\", \"subject_token_type\": \"urn:ietf:params:oauth:token-type:id_token\", \"provider_name\": \"bookverse-inventory-github\"}")
+          PAYLOAD=$(jq -n --arg jwt "$GH_ID_TOKEN" \
+            '{grant_type: "urn:ietf:params:oauth:grant-type:token-exchange", subject_token: $jwt, subject_token_type: "urn:ietf:params:oauth:token-type:id_token", provider_name: "bookverse-inventory-github"}')
+          JF_ACCESS_TOKEN=$(curl -sS -X POST "${{ vars.JFROG_URL }}/access/api/v1/oidc/token" \
+            -H "Content-Type: application/json" -d "$PAYLOAD" | jq -r .access_token)
+          if [[ -z "$JF_ACCESS_TOKEN" || "$JF_ACCESS_TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
           
-          JF_OIDC_TOKEN=$(echo "$JFROG_TOKEN_RESPONSE" | jq -r '.access_token // empty')
-          if [[ -z "$JF_OIDC_TOKEN" ]]; then
-            echo "❌ Failed to exchange OIDC token for JFrog token" >&2
-            echo "Response: $JFROG_TOKEN_RESPONSE" >&2
-            exit 1
-          fi
-          
-          echo "✅ Successfully obtained JFrog access token via OIDC"
-          echo "JF_OIDC_TOKEN=$JF_OIDC_TOKEN" >> $GITHUB_ENV
+          echo "JF_ACCESS_TOKEN=$JF_ACCESS_TOKEN" >> $GITHUB_ENV
+          echo "✅ JFrog access token obtained for application creation"
 
       - name: "[Release] Create application version"
         run: |
@@ -597,12 +615,12 @@ jobs:
           if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
           JF_URL='${{ vars.JFROG_URL }}'
           PROJECT='${{ vars.PROJECT_KEY }}'
-          if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
-            echo "❌ Missing JF_OIDC_TOKEN in environment. Ensure OIDC token exchange succeeded." >&2; exit 1; fi
+          if [[ -z "${JF_ACCESS_TOKEN:-}" ]]; then
+            echo "❌ Missing JF_ACCESS_TOKEN in environment. Ensure OIDC token exchange succeeded." >&2; exit 1; fi
           
           RESP_FILE=$(mktemp)
           CODE=$(curl -sS -L -X POST "$JF_URL/apptrust/api/v1/applications/$APPLICATION_KEY/versions?async=false" \
-            -H "Authorization: Bearer $JF_OIDC_TOKEN" \
+            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
             -H "X-JFrog-Project: $PROJECT" \
             -H "Content-Type: application/json" \
             -H "Accept: application/json" \
