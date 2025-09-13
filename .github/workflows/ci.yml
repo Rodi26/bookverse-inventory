@@ -114,7 +114,7 @@ jobs:
           JFROG_CLI_BUILD_NAME: ${{ env.BUILD_NAME }}
           JFROG_CLI_BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
           JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
-
+          
       - name: "[Setup] Verify JFrog Authentication"
         run: |
           echo "🔐 Verifying JFrog CLI authentication and connectivity..."
@@ -340,8 +340,13 @@ jobs:
           echo "📋 SemVer determination output:"
           echo "$SEMVER_OUTPUT"
           
-          # Extract the version from the output
-          APP_VERSION=$(echo "$SEMVER_OUTPUT" | grep "NEXT_VERSION=" | cut -d'=' -f2)
+          # Extract the version from the output (the script sets environment variables directly)
+          # Look for "App Version: X.Y.Z" in the output
+          APP_VERSION=$(echo "$SEMVER_OUTPUT" | grep "App Version:" | sed 's/.*App Version: //')
+          if [[ -z "$APP_VERSION" ]]; then
+            echo "⚠️ Could not extract version from output, using default"
+            APP_VERSION="1.0.0"
+          fi
           echo "🏷️ Application Version: $APP_VERSION"
           echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
           echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
