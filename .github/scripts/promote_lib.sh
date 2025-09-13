@@ -136,43 +136,30 @@ advance_one_step() {
   if [[ -n "$base" && -n "$app" && -n "$ver" && -n "$tok" ]]; then
     if [[ "$mode" == "promote" ]]; then
       # Use the proper promote_to_stage function instead of inline logic
+      echo "🚀 Promoting to ${next_disp} via AppTrust"
       if promote_to_stage "$next_disp"; then
+        echo "✅ Promotion to ${next_disp} successful"
         return 0
+      else
+        echo "❌ Promotion to ${next_disp} failed - see above for details" >&2
+        return 1
       fi
-      # Fallthrough to optimistic local advance
     else
-      local payload url code tmp inc
-      inc="${RELEASE_INCLUDED_REPO_KEYS:-}"
-      if [[ -z "$inc" ]]; then inc='[]'; fi
-      # If $inc is not a JSON array, wrap as single-element array
-      if ! echo "$inc" | jq -e 'type=="array"' >/dev/null 2>&1; then
-        inc=$(jq -nc --arg s "$inc" '[$s]')
-      fi
-      payload=$(jq -nc --argjson repos "$inc" '{included_repo_keys:$repos}')
-      url="$base/apptrust/api/v1/applications/$app/versions/$ver/release"
-      tmp="$(mktemp)"
-      code=$(curl -sS -L -o "$tmp" -w "%{http_code}" -X POST \
-        -H "Authorization: Bearer ${tok}" -H "Content-Type: application/json" -H "Accept: application/json" \
-        -d "$payload" "$url" 2>/dev/null || echo 000)
-      rm -f "$tmp" || true
-      if [[ "$code" -ge 200 && "$code" -lt 300 ]]; then
-        __persist_env PROMOTED_STAGES "${PROMOTED_STAGES:-} ${next_disp}"
-        __persist_env RELEASE_STATUS "RELEASED"
-        # Move current stage to PROD (display -> API form)
-        __persist_env CURRENT_STAGE "$(__api_stage_for "$next_disp")"
+      # Release mode - use release_version function for proper error handling
+      echo "🚀 Releasing to ${next_disp} via AppTrust"
+      if release_version; then
+        echo "✅ Release to ${next_disp} successful"
         return 0
+      else
+        echo "❌ Release to ${next_disp} failed - see above for details" >&2
+        return 1
       fi
-      # Fallthrough to optimistic local advance
     fi
+  else
+    echo "❌ Missing required parameters for AppTrust API call" >&2
+    echo "   base='$base' app='$app' ver='$ver' tok='${tok:+[SET]}'" >&2
+    return 1
   fi
-
-  # Optimistic local advance (no server state change). Useful for demos or when API is unavailable.
-  __persist_env PROMOTED_STAGES "${PROMOTED_STAGES:-} ${next_disp}"
-  if [[ "$mode" == "release" ]]; then
-    __persist_env RELEASE_STATUS "RELEASED"
-  fi
-  __persist_env CURRENT_STAGE "$(__api_stage_for "$next_disp")"
-  return 0
 }
 
 #!/usr/bin/env bash
