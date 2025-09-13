@@ -277,7 +277,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    
+
     env:
       BUILD_NAME: "bookverse-inventory_CI_create-promote"
       BUILD_NUMBER: ${{ github.run_number }}
@@ -359,15 +359,93 @@ jobs:
 
       - name: "[Create] Application Version"
         run: |
-          echo "🚀 Preparing application version ${{ env.APP_VERSION }}"
+          echo "🚀 Creating application version ${{ env.APP_VERSION }}"
           
-          # TODO: Fix AppTrust application version creation API payload
-          # For now, focus on testing the automatic promotion functionality
-          # The promotion will work with existing versions or create as needed
+          # Create application version using correct AppTrust API payload structure
+          # Based on working implementation from recommendations service
+          BASE="${{ vars.JFROG_URL }}/apptrust/api/v1"
+          APP_KEY="$APPLICATION_KEY"
           
-          echo "📝 DEMO NOTE: Skipping direct version creation for now"
-          echo "📝 PRODUCTION NOTE: Would create version via AppTrust API here"
-          echo "✅ Ready for automatic promotion testing"
+          # Generate demo tag (similar to recommendations service)
+          TAG_OPTIONS=(release hotfix feature bugfix enhancement security performance refactor)
+          TAG_INDEX=$((${GITHUB_RUN_NUMBER:-0} % ${#TAG_OPTIONS[@]}))
+          APP_TAG="${TAG_OPTIONS[$TAG_INDEX]}"
+          
+          # Create correct payload structure: sources.builds[] array
+          CREATE_PAYLOAD=$(jq -n \
+            --arg version "$APP_VERSION" \
+            --arg tag "$APP_TAG" \
+            --arg build_name "$BUILD_NAME" \
+            --arg build_number "$BUILD_NUMBER" \
+            --arg repo_key "${{ vars.PROJECT_KEY }}-build-info" \
+            '{
+              version: $version,
+              tag: $tag,
+              sources: {
+                builds: [
+                  {
+                    name: $build_name,
+                    number: $build_number,
+                    repository_key: $repo_key,
+                    include_dependencies: true
+                  }
+                ]
+              }
+            }')
+          
+          echo "📋 Creating application version with correct payload:"
+          echo "$CREATE_PAYLOAD" | jq .
+          
+          # Call AppTrust API to create application version
+          RESP=$(mktemp)
+          CODE=$(curl -sS -L -o "$RESP" -w "%{http_code}" \
+            -X POST "$BASE/applications/$APP_KEY/versions?async=false" \
+            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
+            -d "$CREATE_PAYLOAD" || echo 000)
+          
+          echo "🔢 HTTP Status: $CODE"
+          echo "📨 Response Body:"
+          cat "$RESP" | jq . 2>/dev/null || cat "$RESP"
+          echo ""
+          
+          if [[ "$CODE" -ge 200 && "$CODE" -lt 300 ]]; then
+            echo "✅ Created application version $APP_VERSION"
+          else
+            echo "⚠️ Application version creation returned HTTP $CODE"
+            # For demo purposes, continue even if version already exists
+            if [[ "$CODE" == "409" ]]; then
+              echo "📝 Version $APP_VERSION already exists, continuing with promotion..."
+            else
+              echo "❌ Failed to create application version" >&2
+              rm -f "$RESP"
+              exit 1
+            fi
+          fi
+          rm -f "$RESP"
+          
+          # Validate version was created successfully
+          echo "🔍 Validating application version creation..."
+          CONTENT_RESP=$(mktemp)
+          CONTENT_CODE=$(curl -sS -L -o "$CONTENT_RESP" -w "%{http_code}" \
+            "$BASE/applications/$APP_KEY/versions/$APP_VERSION/content" \
+            -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+            -H "Accept: application/json" || echo 000)
+          
+          if [[ "$CONTENT_CODE" == "200" ]]; then
+            VERSION_STATE=$(jq -r '.status // empty' "$CONTENT_RESP" 2>/dev/null || echo "")
+            echo "📊 Version State: $VERSION_STATE"
+            if [[ "$VERSION_STATE" == "COMPLETED" ]]; then
+              echo "✅ Application version validated (COMPLETED): $APP_KEY@$APP_VERSION"
+            else
+              echo "⚠️ Version state: $VERSION_STATE (may still be processing)"
+            fi
+          else
+            echo "⚠️ Could not validate version (HTTP $CONTENT_CODE), but continuing..."
+          fi
+          rm -f "$CONTENT_RESP"
 
       - name: "[Auto-Promote] Through Stages"
         env:
