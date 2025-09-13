@@ -24,7 +24,7 @@ API_PREFIX = f"/api/{API_VERSION}"
 
 # Service Information
 SERVICE_NAME = "BookVerse Inventory Service"
-SERVICE_VERSION = "1.0.0-demo"
+SERVICE_VERSION = os.getenv("SERVICE_VERSION", "1.0.0-dev")  # Get from environment, fallback to dev version
 SERVICE_DESCRIPTION = "Demo inventory service showcasing JFrog AppTrust capabilities"
 
 # Demo Settings

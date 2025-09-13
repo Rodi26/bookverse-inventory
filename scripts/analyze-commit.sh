@@ -75,43 +75,51 @@ fi
 # Rule 1: Explicit [skip-version] tag
 if [[ "$COMMIT_MSG" =~ \[skip-version\] ]]; then
     build_info_only "Explicit [skip-version] tag"
+    exit 0
 fi
 
 # Rule 2: Documentation-only changes
 # Checks if commit message starts with 'docs:' AND only documentation-related files changed
 if [[ "$COMMIT_MSG" =~ ^docs?: ]] && [[ -n "$CHANGED_FILES" ]] && [[ $(echo "$CHANGED_FILES" | grep -v '\.md$\|^docs/\|^README' | wc -l) -eq 0 ]]; then
     build_info_only "Documentation-only changes"
+    exit 0
 fi
 
 # Rule 3: Test-only changes
 # Checks if commit message starts with 'test:' AND only test-related files changed
 if [[ "$COMMIT_MSG" =~ ^test?: ]] && [[ -n "$CHANGED_FILES" ]] && [[ $(echo "$CHANGED_FILES" | grep -v '^tests\?/\|_test\.\|\.test\.' | wc -l) -eq 0 ]]; then
     build_info_only "Test-only changes"
+    exit 0
 fi
 
 # Rule 4: Conventional commits (feat, fix, perf, refactor)
 if [[ "$COMMIT_MSG" =~ ^(feat|fix|perf|refactor): ]]; then
     create_app_version "Conventional commit: feat/fix/perf/refactor"
+    exit 0
 fi
 
 # Rule 5: Explicit [release] or [version] tag
 if [[ "$COMMIT_MSG" =~ \[(release|version)\] ]]; then
     create_app_version "Explicit [release] or [version] tag"
+    exit 0
 fi
 
 # Rule 6: Release or hotfix branches
 if [[ "$GITHUB_REF" =~ ^refs/heads/(release|hotfix)/ ]]; then
     create_app_version "Release or hotfix branch"
+    exit 0
 fi
 
 # Rule 7: Main branch pushes
 if [[ "$GITHUB_REF" == "refs/heads/main" ]] && [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
     create_app_version "Push to main branch"
+    exit 0
 fi
 
 # Rule 8: Pull request merges to main (release-ready)
 if [[ "$GITHUB_BASE_REF" == "main" ]] && [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
     create_app_version "Pull request merge to main"
+    exit 0
 fi
 
 # =============================================================================
@@ -119,6 +127,7 @@ fi
 # =============================================================================
 
 # DEMO DEFAULT: Create application version for pipeline visibility
+# This is the default behavior when no specific rules match
 create_app_version "Demo mode: showing full CI/CD pipeline (unclassified commit)"
 
 # PRODUCTION NOTE: Real systems would use:

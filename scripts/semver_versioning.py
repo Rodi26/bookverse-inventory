@@ -76,8 +76,11 @@ def compute_next_application_version(app_key: str, vm: Dict[str, Any], jfrog_url
     latest_url = f"{base}/applications/{urllib.parse.quote(app_key)}/versions?limit=1&order_by=created&order_asc=false"
     try:
         latest_payload = http_get(latest_url, headers)
-    except Exception:
-        latest_payload = {}
+    except Exception as e:
+        print(f"ERROR: Failed to fetch latest version from AppTrust API: {e}", file=sys.stderr)
+        print(f"URL: {latest_url}", file=sys.stderr)
+        # This is a critical error that should not be silently ignored
+        sys.exit(1)
 
     def first_version(obj: Any) -> Optional[str]:
         if isinstance(obj, dict):
@@ -101,8 +104,11 @@ def compute_next_application_version(app_key: str, vm: Dict[str, Any], jfrog_url
     url = f"{base}/applications/{urllib.parse.quote(app_key)}/versions?limit=50&order_by=created&order_asc=false"
     try:
         payload = http_get(url, headers)
-    except Exception:
-        payload = {}
+    except Exception as e:
+        print(f"ERROR: Failed to fetch versions from AppTrust API: {e}", file=sys.stderr)
+        print(f"URL: {url}", file=sys.stderr)
+        # This is a critical error that should not be silently ignored
+        sys.exit(1)
 
     def extract_versions(obj: Any) -> List[str]:
         if isinstance(obj, dict):
@@ -146,8 +152,11 @@ def compute_next_build_number(app_key: str, vm: Dict[str, Any], jfrog_url: str, 
     vlist_url = f"{base}/applications/{urllib.parse.quote(app_key)}/versions?limit=1&order_by=created&order_asc=false"
     try:
         vlist = http_get(vlist_url, headers)
-    except Exception:
-        vlist = {}
+    except Exception as e:
+        print(f"ERROR: Failed to fetch build number from AppTrust API: {e}", file=sys.stderr)
+        print(f"URL: {vlist_url}", file=sys.stderr)
+        # This is a critical error that should not be silently ignored
+        sys.exit(1)
 
     def first_version(obj: Any) -> Optional[str]:
         if isinstance(obj, dict):

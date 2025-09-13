@@ -89,14 +89,14 @@ rm -f "$CONTENT_RESP"
 # Step 4: Test promotion to DEV
 echo "🚀 Step 4: Testing promotion to DEV..."
 TARGET_STAGE="bookverse-DEV"
-PROMOTE_PAYLOAD=$(jq -nc --arg to "$TARGET_STAGE" '{to_stage:$to}')
+PROMOTE_PAYLOAD=$(jq -nc --arg to "$TARGET_STAGE" '{target_stage:$to, promotion_type:"move"}')
 
 echo "📋 Promotion payload:"
 echo "$PROMOTE_PAYLOAD" | jq .
 
 PROMOTE_RESP=$(mktemp)
 PROMOTE_STATUS=$(curl -sS -L -o "$PROMOTE_RESP" -w "%{http_code}" -X POST \
-  "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/promote" \
+  "${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/promote?async=false" \
   -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json" \
