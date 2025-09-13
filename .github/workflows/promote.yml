@@ -99,7 +99,7 @@ jobs:
           else
             echo "🔎 Fetching latest application version for $APPLICATION_KEY"
             BASE="${{ vars.JFROG_URL }}"; BASE="${BASE%/}"
-            jq_expr='.results[0].version // .data[0].version // .items[0].version // .versions[0].version // .results[0].name // .data[0].name // .items[0].name // .versions[0].name // empty'
+            jq_expr='(.results // .data // .items // .versions)[0].version'
             RESP=$(curl -sS -H "Authorization: Bearer $APPTRUST_ACCESS_TOKEN" -H "Accept: application/json" "$BASE/apptrust/api/v1/applications/$APPLICATION_KEY/versions?order_by=created&limit=1" || true)
             if LATEST_VERSION=$(echo "$RESP" | jq -er "$jq_expr" 2>/dev/null); then APP_VERSION="$LATEST_VERSION"; fi
             if [ -z "$APP_VERSION" ]; then
