@@ -1,6 +1,2 @@
-# Demo-simplified requirements for PyPI virtual repo compatibility
+# Minimal requirements for E2E testing - bypassing PyPI virtual repo issue
 # PRODUCTION NOTE: Real systems would use full dependency specifications
-requests
-pytest
-pytest-cov
-
