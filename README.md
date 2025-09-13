@@ -126,3 +126,4 @@ The rollback utility `scripts/apptrust_rollback.py` now supports both OIDC-minte
 jf c add --interactive=false --url "$JFROG_URL" --access-token ""
 python scripts/apptrust_rollback.py --app bookverse-inventory --version 1.2.3
 ```
+# Test commit for app version creation
