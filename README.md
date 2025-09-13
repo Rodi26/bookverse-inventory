@@ -131,3 +131,8 @@ python scripts/apptrust_rollback.py --app bookverse-inventory --version 1.2.3
 ## Testing Status
 - Testing inventory CI pipeline with current fixes
 - Checking AppTrust application version creation
+
+
+## E2E Rollback Testing
+- Testing complete E2E flow including rollback functionality
+- Current test run: Sat Sep 13 22:23:13 IDT 2025
