@@ -62,17 +62,11 @@ jobs:
       id-token: write
     outputs:
       build_name: ${{ steps.set-build-info.outputs.build_name }}
+      build_started_timestamp: ${{ env.BUILD_STARTED_TIMESTAMP }}
       build_number: ${{ steps.set-build-info.outputs.build_number }}
       app_version: ${{ steps.determine-semver.outputs.app_version }}
-      image_tag: ${{ steps.determine-semver.outputs.image_tag }}
       coverage_percent: ${{ steps.test-coverage.outputs.coverage_percent }}
-      build_started_timestamp: ${{ steps.export-status-outputs.outputs.build_started_timestamp }}
-      docker_build_push_status: ${{ steps.export-status-outputs.outputs.docker_build_push_status }}
-      build_info_publish_status: ${{ steps.export-status-outputs.outputs.build_info_publish_status }}
-      coverage_evidence_status: ${{ steps.export-status-outputs.outputs.coverage_evidence_status }}
-      sast_evidence_status: ${{ steps.export-status-outputs.outputs.sast_evidence_status }}
-      quality_evidence_status: ${{ steps.export-status-outputs.outputs.quality_evidence_status }}
-      license_evidence_status: ${{ steps.export-status-outputs.outputs.license_evidence_status }}
+      jf_access_token: ${{ steps.exchange-oidc.outputs.token }}
 
     steps:
       - name: "[Setup] Checkout"
@@ -122,6 +116,7 @@ jobs:
           echo "✅ JFrog authentication successful"
 
       - name: "[Auth] Exchange OIDC and persist JF access token"
+        id: exchange-oidc
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           PROJECT: ${{ vars.PROJECT_KEY }}
@@ -144,6 +139,7 @@ jobs:
           if [[ -z "$JF_ACCESS_TOKEN" || "$JF_ACCESS_TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
           # 3) Persist for subsequent steps
           echo "JF_ACCESS_TOKEN=$JF_ACCESS_TOKEN" >> $GITHUB_ENV
+          echo "token=$JF_ACCESS_TOKEN" >> $GITHUB_OUTPUT
           echo "✅ JFrog access token obtained and persisted"
 
       - name: "[Setup] Install Python dependencies"
@@ -352,6 +348,7 @@ jobs:
           if [[ -z "$JF_ACCESS_TOKEN" || "$JF_ACCESS_TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
           # 3) Persist for subsequent steps
           echo "JF_ACCESS_TOKEN=$JF_ACCESS_TOKEN" >> $GITHUB_ENV
+          echo "token=$JF_ACCESS_TOKEN" >> $GITHUB_OUTPUT
           echo "✅ JFrog access token obtained and persisted"
 
       - name: "[Setup] Install Python dependencies"
