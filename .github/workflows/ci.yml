@@ -374,6 +374,7 @@ jobs:
           JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
 
       - name: "[Auth] Exchange OIDC and persist JF access token"
+        id: exchange-oidc
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           PROJECT: ${{ vars.PROJECT_KEY }}
