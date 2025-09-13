@@ -1,8 +1,12 @@
 name: CI
 
-# NOTE: Manual trigger only during development phase
-# Will be changed to automatic triggers (push/PR) when demo is ready
+# DEMO-READY: Automatic triggers enabled for full CI/CD pipeline demonstration
+# PRODUCTION NOTE: Real systems would have additional branch protection and approval gates
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       reason:
@@ -10,6 +14,11 @@ on:
         required: false
         default: 'Manual testing'
         type: string
+      force_app_version:
+        description: 'Force application version creation (override commit filter)'
+        required: false
+        default: false
+        type: boolean
 
 
 jobs:
