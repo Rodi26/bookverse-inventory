@@ -335,7 +335,7 @@ jobs:
             --version-map "./config/version-map.yaml" \
             --jfrog-url "${{ vars.JFROG_URL }}" \
             --jfrog-token "$JF_ACCESS_TOKEN" \
-            --project "${{ vars.PROJECT_KEY }}")
+            --project-key "${{ vars.PROJECT_KEY }}")
           
           echo "📋 SemVer determination output:"
           echo "$SEMVER_OUTPUT"
