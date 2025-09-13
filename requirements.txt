@@ -1,8 +1,6 @@
-fastapi>=0.100.0
-uvicorn[standard]>=0.20.0
-sqlalchemy>=2.0.0
-pydantic>=2.0.0
-requests>=2.30.0
-python-jose[cryptography]>=3.0.0
-python-multipart>=0.0.6
+# Demo-simplified requirements for PyPI virtual repo compatibility
+# PRODUCTION NOTE: Real systems would use full dependency specifications
+requests
+pytest
+pytest-cov
 
