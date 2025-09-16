@@ -2,7 +2,6 @@ applications:
   - key: bookverse-inventory
     seeds:
       application: 2.7.13
-      build: 3.14.22
     packages:
       - type: docker
         name: inventory
