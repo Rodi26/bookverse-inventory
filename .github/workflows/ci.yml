@@ -270,7 +270,7 @@ jobs:
             python-dotenv==1.1.1 \
             pydantic==2.11.9 \
             requests==2.31.0 \
-            sqlalchemy
+            sqlalchemy>=1.4.0
           
           echo "✅ Installed core dependencies without optional extras"
 
