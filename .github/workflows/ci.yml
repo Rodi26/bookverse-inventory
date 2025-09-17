@@ -75,7 +75,7 @@ jobs:
       - name: "[Setup] Checkout bookverse-infra for evidence library"
         uses: actions/checkout@v4
         with:
-          repository: 'https://github.com/swampup-tutorials/bookverse-infra.git'
+          repository: 'swampup-tutorials/bookverse-infra'
           ref: 'main'
           path: 'bookverse-infra'
 
@@ -421,7 +421,7 @@ jobs:
       - name: "[Setup] Checkout bookverse-infra for evidence library"
         uses: actions/checkout@v4
         with:
-          repository: 'https://github.com/swampup-tutorials/bookverse-infra.git'
+          repository: 'swampup-tutorials/bookverse-infra'
           ref: 'main'
           path: 'bookverse-infra'
 
