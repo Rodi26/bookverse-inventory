@@ -75,7 +75,7 @@ jobs:
       - name: "[Setup] Checkout bookverse-infra for evidence library"
         uses: actions/checkout@v4
         with:
-          repository: 'swampup-tutorials/bookverse-infra'
+          repository: 'yonatanp-jfrog/bookverse-infra'
           ref: 'main'
           path: 'bookverse-infra'
 
@@ -421,7 +421,7 @@ jobs:
       - name: "[Setup] Checkout bookverse-infra for evidence library"
         uses: actions/checkout@v4
         with:
-          repository: 'swampup-tutorials/bookverse-infra'
+          repository: 'yonatanp-jfrog/bookverse-infra'
           ref: 'main'
           path: 'bookverse-infra'
 
