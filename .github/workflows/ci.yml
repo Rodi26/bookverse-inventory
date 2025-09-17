@@ -255,15 +255,22 @@ jobs:
         run: |
           jf pip-config --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
           
-          # Install minimal dependencies for demo testing
-          echo "📦 Installing minimal dependencies from local repository..."
+          # Install dependencies needed for testing (matching recommendations service pattern)
+          echo "📦 Installing test dependencies from local repository..."
           jf pip install --no-deps --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" \
             pytest==8.3.2 \
             pytest-cov==4.0.0 \
             coverage \
             pluggy \
             iniconfig \
-            packaging
+            packaging \
+            fastapi==0.111.0 \
+            uvicorn==0.30.0 \
+            httpx==0.27.0 \
+            python-dotenv==1.1.1 \
+            pydantic==2.11.9 \
+            requests==2.31.0 \
+            sqlalchemy
           
           echo "✅ Installed core dependencies without optional extras"
 
