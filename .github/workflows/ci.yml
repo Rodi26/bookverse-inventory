@@ -72,6 +72,13 @@ jobs:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
+      - name: "[Setup] Checkout bookverse-infra for evidence library"
+        uses: actions/checkout@v4
+        with:
+          repository: 'https://github.com/swampup-tutorials/bookverse-infra.git'
+          ref: 'main'
+          path: 'bookverse-infra'
+
       - name: "[Info] Trigger Information"
         run: |
           echo "🚀 CI Pipeline: Build & Test Phase"
@@ -176,7 +183,7 @@ jobs:
           
           echo "✅ Using persisted JFrog access token for semver determination"
           
-          # Use the unified semver determination script
+          # Use the unified semver determination script with package specification
           chmod +x ./scripts/determine-semver.sh
           SEMVER_OUTPUT=$(./scripts/determine-semver.sh \
             --application-key "$APPLICATION_KEY" \
@@ -184,25 +191,39 @@ jobs:
             --jfrog-url "${{ vars.JFROG_URL }}" \
             --jfrog-token "$JF_ACCESS_TOKEN" \
             --project-key "${{ vars.PROJECT_KEY }}" \
-            --packages "$SERVICE_NAME" \
+            --packages "inventory" \
             --verbose)
           
-          # Extract APP_VERSION from the Python script's JSON output
-          APP_VERSION=$(echo "$SEMVER_OUTPUT" | grep '{"application_key"' | jq -r '.app_version')
-          if [[ -z "$APP_VERSION" || "$APP_VERSION" == "null" ]]; then
+          echo "📋 SemVer determination output:"
+          echo "$SEMVER_OUTPUT"
+          echo ""
+          
+          # Extract package versions from the output
+          INVENTORY_VERSION=$(echo "$SEMVER_OUTPUT" | grep '"inventory":' | sed 's/.*"inventory": *"\([^"]*\)".*/\1/')
+          APP_VERSION=$(echo "$SEMVER_OUTPUT" | grep "App Version:" | sed 's/.*App Version: //')
+          
+          if [[ -z "$INVENTORY_VERSION" ]]; then
+            echo "❌ Failed to extract INVENTORY_VERSION from semver output" >&2
+            exit 1
+          fi
+          
+          if [[ -z "$APP_VERSION" ]]; then
             echo "❌ Failed to extract APP_VERSION from semver output" >&2
             exit 1
           fi
           
-          # Set IMAGE_TAG to the Docker package tag
-          DOCKER_TAG_VAR="DOCKER_TAG_$(echo "$SERVICE_NAME" | tr '[:lower:]' '[:upper:]' | tr '-' '_')"
-          if [[ -n "${!DOCKER_TAG_VAR:-}" ]]; then
-            IMAGE_TAG="${!DOCKER_TAG_VAR}"
-          else
-            IMAGE_TAG="$BUILD_NUMBER"
-          fi
+          # Set package versions as environment variables
+          echo "INVENTORY_VERSION=$INVENTORY_VERSION" >> $GITHUB_ENV
           
+          # For backward compatibility, set IMAGE_TAG to the inventory version (semver format)
+          IMAGE_TAG="$INVENTORY_VERSION"
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          
+          echo "🏷️ Package Versions:"
+          echo "  📦 inventory (Docker): $INVENTORY_VERSION"
+          echo "  🏷️ Application: $APP_VERSION"
+          echo "  🔢 Build Number (for build info): $BUILD_NUMBER"
+          
           echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
@@ -213,28 +234,25 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: "[Diag] Python deps"
+      - name: "[Setup] JFrog Environment (Consolidated)"
+        run: |
+          echo "🔧 Setting up consolidated JFrog environment for all subsequent steps"
+          # Centralized JFrog environment setup (bookverse-devops pattern)
+          echo "JF_PROJECT=${{ vars.PROJECT_KEY }}" >> $GITHUB_ENV
+          echo "JFROG_CLI_BUILD_PROJECT=${{ vars.PROJECT_KEY }}" >> $GITHUB_ENV
+          echo "JFROG_CLI_BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
+          echo "JFROG_CLI_BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
+          echo "✅ JFrog environment configured for all subsequent steps"
+
+      - name: "[Diag] Python deps (Optimized)"
         run: |
           echo "🔎 Checking Artifactory connectivity and PyPI virtual repo"
-          # Ensure project context is set for JFrog CLI commands
-          export JF_PROJECT="${{ vars.PROJECT_KEY }}"
-          export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
           jf rt ping
-
-      - name: "[Build Info] Collect Python deps"
-        run: |
-          # Ensure project context is set for JFrog CLI commands
-          export JF_PROJECT="${{ vars.PROJECT_KEY }}"
-          export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
           jf pip-config --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
-          # Skip pip upgrade for demo - use system pip
-          echo "📦 Using system pip for demo simplicity"
+          echo "📦 JFrog connectivity verified, PyPI virtual repo configured"
 
-      - name: "[Test] Install deps"
+      - name: "[Test] Install deps (Optimized with bookverse-core)"
         run: |
-          # Ensure project context is set for JFrog CLI commands
-          export JF_PROJECT="${{ vars.PROJECT_KEY }}"
-          export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
           jf pip-config --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
           
           # Install minimal dependencies for demo testing
@@ -287,6 +305,25 @@ jobs:
           # Build-info will be published in a later step via bag/bce/bp
           echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
           echo "✅ Built and pushed Docker image (OIDC docker push + build-info)"
+
+      - name: "[Evidence] Inventory Image Package Evidence"
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          echo "📊 Generating evidence for inventory image package"
+          
+          # Source the evidence library
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          
+          # Set package-specific environment variables
+          export PACKAGE_NAME="inventory"
+          export PACKAGE_VERSION="$INVENTORY_VERSION"
+          
+          # Attach Docker package evidence
+          # Evidence: PyTest Results (unit test coverage) + SAST Scan (static security analysis)
+          attach_docker_package_evidence "$PACKAGE_NAME" "$PACKAGE_VERSION"
+          
+          echo "✅ Inventory image package evidence attached: pytest-results, sast-scan"
 
       - name: "[Build Info] Publish"
         run: |
@@ -343,6 +380,23 @@ jobs:
             exit 1
           fi
 
+      - name: "[Evidence] Build Evidence"
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          echo "🏗️ Generating evidence for build-info"
+          
+          # Source the evidence library
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          
+          # Build evidence uses auto-detected environment variables
+          
+          # Attach build evidence
+          # Evidence: FOSSA License Scan (dependency license compliance) + SonarQube Quality Gate (code quality analysis)
+          attach_build_evidence
+          
+          echo "✅ Build evidence attached: fossa-license-scan, sonar-quality-gate"
+
   create-promote:
     name: "Create Application Version & Promote (Conditional)"
     runs-on: ubuntu-latest
@@ -364,8 +418,15 @@ jobs:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
+      - name: "[Setup] Checkout bookverse-infra for evidence library"
+        uses: actions/checkout@v4
+        with:
+          repository: 'https://github.com/swampup-tutorials/bookverse-infra.git'
+          ref: 'main'
+          path: 'bookverse-infra'
+
       - name: "[Setup] JFrog CLI"
-        uses: jfrog/setup-jfrog-cli@v4
+        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
         with:
           version: latest
         env:
@@ -511,6 +572,23 @@ jobs:
             exit 1
           fi
           echo "✅ Application version created and validated (COMPLETED): $APP_KEY@$APP_VERSION"
+
+      - name: "[Evidence] Application Version Evidence"
+        env:
+          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+        run: |
+          echo "📋 Generating evidence for application version (UNASSIGNED stage)"
+          
+          # Source the evidence library
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          
+          # Application evidence uses auto-detected environment variables
+          
+          # Attach application evidence for UNASSIGNED stage
+          # Evidence: SLSA Provenance (supply chain security) + Jira Release (release tracking and approval)
+          attach_application_unassigned_evidence
+          
+          echo "✅ Application version evidence attached: slsa-provenance, jira-release"
 
       - name: "[Auto-Promote] Through Stages"
         env:

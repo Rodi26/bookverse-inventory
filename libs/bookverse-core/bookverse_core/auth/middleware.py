@@ -76,7 +76,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header[7:]  # Remove "Bearer " prefix
         
-        # Validate token if present - FAIL FAST on invalid tokens
+        # Validate token if present
         if token:
             try:
                 user = await validate_jwt_token(token)
@@ -84,17 +84,9 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                 request.state.authenticated = True
                 logger.debug(f"✅ User authenticated: {user.email}")
             except Exception as e:
-                logger.error(f"❌ AUTHENTICATION FAILED - Token validation error: {e}")
-                # FAIL FAST: Invalid token means immediate 401 response
-                return JSONResponse(
-                    status_code=401,
-                    content={
-                        "detail": f"Authentication failed: {str(e)}",
-                        "error_code": "invalid_token",
-                        "type": "authentication_error"
-                    },
-                    headers={"WWW-Authenticate": "Bearer"}
-                )
+                logger.warning(f"⚠️ Token validation failed: {e}")
+                # Don't fail here - let endpoints handle auth requirements
+                pass
         
         # Check if authentication is required for this path
         path_requires_auth = any(

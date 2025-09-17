@@ -1,16 +1,54 @@
 """
 API routes for BookVerse Inventory Service - Demo Version
 Simplified 5-endpoint API optimized for demo showcase.
+
+MIGRATION SUCCESS: Now using bookverse-core utilities for standardized API development!
 """
 
-import logging
 import math
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
+
+# Import standardized logging utilities
+from bookverse_core.utils.logging import (
+    get_logger,
+    log_request_start,
+    log_request_end,
+    log_error_with_context,
+    log_demo_info
+)
+
+# Import bookverse-core response models and validation utilities
+from bookverse_core.api.responses import (
+    SuccessResponse, 
+    PaginatedResponse,
+    HealthResponse,
+    create_success_response,
+    create_paginated_response,
+    create_health_response
+)
+from bookverse_core.api.pagination import (
+    PaginationParams,
+    create_pagination_params,
+    create_pagination_meta,
+)
+from bookverse_core.utils.validation import (
+    sanitize_string,
+    create_validation_error_message
+)
+from bookverse_core.api.exceptions import (
+    BookVerseHTTPException,
+    raise_validation_error,
+    raise_not_found_error,
+    raise_upstream_error,
+    raise_internal_error,
+    handle_service_exception,
+    create_error_context
+)
 
 from .database import get_db
 from .auth import AuthUser, RequireUser, get_auth_status, test_auth_connection
@@ -18,52 +56,58 @@ from .services import BookService, InventoryService, TransactionService
 from .schemas import (
     BookResponse, BookCreate, BookUpdate, BookListResponse, BookListItem,
     InventoryDetailResponse, InventoryListResponse, InventoryAdjustment,
-    TransactionResponse, TransactionListResponse, HealthResponse,
-    PaginationMeta
+    TransactionResponse, TransactionListResponse, PaginationMeta
 )
 from .config import SERVICE_NAME, SERVICE_VERSION, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Create API router
 router = APIRouter()
 
 
-def create_pagination_meta(total: int, page: int, per_page: int) -> PaginationMeta:
-    """Create pagination metadata"""
-    pages = max(1, math.ceil(total / per_page))
-    return PaginationMeta(
-        total=total,
-        page=page,
-        per_page=per_page,
-        pages=pages,
-        has_next=page < pages,
-        has_prev=page > 1
-    )
+# Note: Using bookverse_core.api.pagination.create_pagination_meta instead of local implementation
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check(db: Session = Depends(get_db)):
+async def health_check(request: Request, db: Session = Depends(get_db)):
     """
     Health check endpoint for monitoring and load balancers
+    Uses standardized bookverse-core health response utilities.
     """
+    log_request_start(logger, request, "Health check")
+    
     try:
         # Test database connection
         from sqlalchemy import text
         db.execute(text("SELECT 1"))
         database_status = "healthy"
+        db_error = None
     except Exception as e:
-        logger.error(f"Database health check failed: {e}")
         database_status = "unhealthy"
-        raise HTTPException(status_code=503, detail="Database unavailable")
+        db_error = str(e)
+        log_error_with_context(logger, e, {"endpoint": "health_check", "component": "database"})
+
+    # Test auth service connectivity
+    auth_status_data = await test_auth_connection()
+    auth_status = auth_status_data.get("status", "unknown")
     
-    return HealthResponse(
-        status="healthy",
-        service=SERVICE_NAME,
-        version=SERVICE_VERSION,
-        timestamp=datetime.utcnow(),
-        database=database_status
+    # Overall service status
+    overall_status = "healthy" if database_status == "healthy" and auth_status == "healthy" else "unhealthy"
+    
+    response = create_health_response(
+        service_name=SERVICE_NAME,
+        service_version=SERVICE_VERSION,
+        status=overall_status,
+        checks={
+            "database": {"status": database_status, "error": db_error},
+            "auth": auth_status_data,
+            "service": {"status": "healthy", "uptime": "unknown"}
+        }
     )
+    
+    log_request_end(logger, request, 200)
+    return response
 
 
 @router.get("/auth/status")
@@ -113,7 +157,16 @@ async def list_books(
         # Convert to response format
         books = [BookListItem(**book_data) for book_data in books_data]
         
-        pagination = create_pagination_meta(total, page, per_page)
+        # Create pagination using local PaginationMeta class
+        pages = max(1, math.ceil(total / per_page))
+        pagination = PaginationMeta(
+            total=total,
+            page=page,
+            per_page=per_page,
+            pages=pages,
+            has_next=page < pages,
+            has_prev=page > 1
+        )
         
         return BookListResponse(books=books, pagination=pagination)
     
@@ -227,7 +280,16 @@ async def list_inventory(
         # Convert to response format
         inventory = [InventoryDetailResponse(**item) for item in inventory_data]
         
-        pagination = create_pagination_meta(total, page, per_page)
+        # Create pagination using local PaginationMeta class
+        pages = max(1, math.ceil(total / per_page))
+        pagination = PaginationMeta(
+            total=total,
+            page=page,
+            per_page=per_page,
+            pages=pages,
+            has_next=page < pages,
+            has_prev=page > 1
+        )
         
         return InventoryListResponse(inventory=inventory, pagination=pagination)
     
@@ -306,7 +368,16 @@ async def list_transactions(
         # Convert to response format
         transaction_list = [TransactionResponse.model_validate(t) for t in transactions]
         
-        pagination = create_pagination_meta(total, page, per_page)
+        # Create pagination using local PaginationMeta class
+        pages = max(1, math.ceil(total / per_page))
+        pagination = PaginationMeta(
+            total=total,
+            page=page,
+            per_page=per_page,
+            pages=pages,
+            has_next=page < pages,
+            has_prev=page > 1
+        )
         
         return TransactionListResponse(transactions=transaction_list, pagination=pagination)
     

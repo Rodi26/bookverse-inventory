@@ -46,11 +46,11 @@ async def get_current_user(
     # If no credentials provided
     if not credentials:
         if is_development_mode():
-            logger.warning("🔧 Development mode - allowing unauthenticated access (REMOVE IN PRODUCTION)")
+            logger.debug("🔧 Development mode - allowing unauthenticated access")
             return None
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authentication token. Please provide a valid Bearer token in the Authorization header.",
+            detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"}
         )
     
@@ -76,7 +76,7 @@ async def require_authentication(
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required. Please provide a valid Bearer token or ensure your token has not expired.",
+            detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"}
         )
     return user

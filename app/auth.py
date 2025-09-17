@@ -12,9 +12,10 @@ from datetime import datetime
 
 from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
-from bookverse_core.auth import AuthUser, validate_jwt_token
 import requests
+
+# Import centralized auth components
+from bookverse_core.auth import AuthUser, validate_jwt_token
 
 logger = logging.getLogger(__name__)
 
