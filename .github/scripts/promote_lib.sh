@@ -8,7 +8,7 @@
 # - APP_VERSION: SemVer of the application version
 # - JFROG_URL: base URL to JFrog platform (https://...)
 # - PROJECT_KEY: project key (e.g., bookverse)
-# - APPTRUST_ACCESS_TOKEN: OAuth access token (exchanged via OIDC)
+# - JF_OIDC_TOKEN: OIDC access token (from JFrog token exchange)
 # - STAGES_STR: space-separated display stage names (e.g., "DEV QA STAGING PROD")
 # - FINAL_STAGE: display name of release stage (usually PROD)
 # - ALLOW_RELEASE: "true" to allow release when at FINAL_STAGE
@@ -61,7 +61,7 @@ fetch_summary() {
   local base="$(__bv__trim_base)"
   local app="${APPLICATION_KEY:-}"
   local ver="${APP_VERSION:-}"
-  local tok="${APPTRUST_ACCESS_TOKEN:-}"
+  local tok="${JF_OIDC_TOKEN:-}"
   local url
   url="$base/apptrust/api/v1/applications/$app/versions/$ver/content"
 
@@ -125,7 +125,7 @@ advance_one_step() {
   base="$(__bv__trim_base)"
   app="${APPLICATION_KEY:-}"
   ver="${APP_VERSION:-}"
-  tok="${APPTRUST_ACCESS_TOKEN:-}"
+  tok="${JF_OIDC_TOKEN:-}"
   mode="promote"
 
   if [[ "${ALLOW_RELEASE:-false}" == "true" && "$next_disp" == "${FINAL_STAGE:-}" ]]; then
@@ -228,7 +228,7 @@ fetch_summary() {
   body=$(mktemp)
   url="${JFROG_URL}/apptrust/api/v1/applications/${APPLICATION_KEY}/versions/${APP_VERSION}/content"
   code=$(curl -sS -L -o "$body" -w "%{http_code}" \
-    -H "Authorization: Bearer ${APPTRUST_ACCESS_TOKEN}" \
+    -H "Authorization: Bearer ${JF_OIDC_TOKEN}" \
     -H "Accept: application/json" \
     "$url" || echo 000)
   if [[ "$code" -ge 200 && "$code" -lt 300 ]] && jq -e . >/dev/null 2>&1 < "$body"; then
@@ -255,7 +255,7 @@ apptrust_post() {
   local url="${JFROG_URL}${path}"
   local code
   code=$(curl -sS -L -X POST -o "$out_file" -w "%{http_code}" \
-    -H "Authorization: Bearer ${APPTRUST_ACCESS_TOKEN}" \
+    -H "Authorization: Bearer ${JF_OIDC_TOKEN}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
     -d "$data" "$url" || echo 000)
