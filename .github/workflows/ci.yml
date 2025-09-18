@@ -621,6 +621,124 @@ jobs:
           
           echo "✅ Application version evidence attached: slsa-provenance, jira-release"
 
+
+      - name: "[Promote & Evidence] DEV Stage"
+        run: |
+          echo "🚀 Promoting to DEV stage and generating evidence"
+          
+           # Use the JF_OIDC_TOKEN from the OIDC exchange step
+           if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
+             echo "❌ Missing JF_OIDC_TOKEN. Ensure OIDC exchange step succeeded." >&2
+             exit 1
+           fi
+           echo "✅ Using JF_OIDC_TOKEN for DEV promotion"
+          
+          # Source evidence library (includes promotion setup)
+          export APPTRUST_ACCESS_TOKEN="$JF_OIDC_TOKEN"
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          setup_promotion_environment
+          
+          # Promote to DEV
+          if advance_one_step; then
+            echo "✅ Successfully promoted to DEV"
+          else
+            echo "❌ Failed to promote to DEV"
+            exit 1
+          fi
+          
+          # Generate and attach DEV stage evidence
+          # Evidence: Smoke Tests (basic health checks in DEV environment)
+          attach_application_dev_evidence
+          echo "✅ DEV stage evidence attached: smoke-tests"
+
+      - name: "[Promote & Evidence] QA Stage"
+        run: |
+          echo "🔍 Promoting to QA stage and generating evidence"
+          
+           # Use the JF_OIDC_TOKEN from the OIDC exchange step
+           if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
+             echo "❌ Missing JF_OIDC_TOKEN. Ensure OIDC exchange step succeeded." >&2
+             exit 1
+           fi
+           echo "✅ Using JF_OIDC_TOKEN for QA promotion"
+          
+          # Source evidence library (includes promotion setup)
+          export APPTRUST_ACCESS_TOKEN="$JF_OIDC_TOKEN"
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          setup_promotion_environment
+          
+          # Promote to QA
+          if advance_one_step; then
+            echo "✅ Successfully promoted to QA"
+          else
+            echo "❌ Failed to promote to QA"
+            exit 1
+          fi
+          
+          # Generate and attach QA stage evidence
+          # Evidence: DAST Scan (dynamic security testing) + API Tests (integration testing)
+          attach_application_qa_evidence
+          echo "✅ QA stage evidence attached: dast-scan, api-tests"
+
+      - name: "[Promote & Evidence] STAGING Stage"
+        run: |
+          echo "🏗️ Promoting to STAGING stage and generating evidence"
+          
+           # Use the JF_OIDC_TOKEN from the OIDC exchange step
+           if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
+             echo "❌ Missing JF_OIDC_TOKEN. Ensure OIDC exchange step succeeded." >&2
+             exit 1
+           fi
+           echo "✅ Using JF_OIDC_TOKEN for STAGING promotion"
+          
+          # Source evidence library (includes promotion setup)
+          export APPTRUST_ACCESS_TOKEN="$JF_OIDC_TOKEN"
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          setup_promotion_environment
+          
+          # Promote to STAGING
+            if advance_one_step; then
+            echo "✅ Successfully promoted to STAGING"
+            else
+            echo "❌ Failed to promote to STAGING"
+              exit 1
+            fi
+          
+          # Generate and attach STAGING stage evidence
+          # Evidence: IaC Scan (infrastructure security) + Pentest (penetration testing) + Change Approval (management approval)
+          attach_application_staging_evidence
+          echo "✅ STAGING stage evidence attached: iac-scan, pentest, change-approval"
+
+      - name: "[Promote & Evidence] PROD Stage"
+        run: |
+          echo "🚀 Promoting to PROD stage and generating evidence"
+          
+           # Use the JF_OIDC_TOKEN from the OIDC exchange step
+           if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
+             echo "❌ Missing JF_OIDC_TOKEN. Ensure OIDC exchange step succeeded." >&2
+             exit 1
+           fi
+           echo "✅ Using JF_OIDC_TOKEN for PROD promotion"
+          
+          # Source evidence library (includes promotion setup)
+          export APPTRUST_ACCESS_TOKEN="$JF_OIDC_TOKEN"
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          setup_promotion_environment
+          
+          # Promote to PROD
+          if advance_one_step; then
+            echo "✅ Successfully promoted to PROD"
+          else
+            echo "❌ Failed to promote to PROD"
+            exit 1
+          fi
+
+          # Generate and attach PROD stage evidence
+          # Evidence: ArgoCD Deployment Verification (production deployment health and status)
+          attach_application_prod_evidence
+          echo "✅ PROD stage evidence attached: deployment-verification"
+          echo "🎉 SUCCESS: Application version $APP_VERSION promoted to PROD with all evidence attached!"
+
       - name: "[Auto-Promote] Through Stages"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
