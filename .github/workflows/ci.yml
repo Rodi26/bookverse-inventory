@@ -325,6 +325,10 @@ jobs:
       - name: "[Evidence] Inventory Image Package Evidence"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          SERVICE_NAME: inventory
+          PROJECT_KEY: ${{ vars.PROJECT_KEY }}
+          JFROG_URL: ${{ vars.JFROG_URL }}
+          JF_URL: ${{ vars.JFROG_URL }}
         run: |
           echo "📊 Generating evidence for inventory image package"
           
@@ -399,6 +403,10 @@ jobs:
       - name: "[Evidence] Build Evidence"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          SERVICE_NAME: inventory
+          PROJECT_KEY: ${{ vars.PROJECT_KEY }}
+          JFROG_URL: ${{ vars.JFROG_URL }}
+          JF_URL: ${{ vars.JFROG_URL }}
         run: |
           echo "🏗️ Generating evidence for build-info"
           
@@ -592,6 +600,12 @@ jobs:
       - name: "[Evidence] Application Version Evidence"
         env:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+          SERVICE_NAME: inventory
+          APPLICATION_KEY: ${{ env.APPLICATION_KEY }}
+          APP_VERSION: ${{ env.APP_VERSION }}
+          PROJECT_KEY: ${{ vars.PROJECT_KEY }}
+          JFROG_URL: ${{ vars.JFROG_URL }}
+          JF_URL: ${{ vars.JFROG_URL }}
         run: |
           echo "📋 Generating evidence for application version (UNASSIGNED stage)"
           
