@@ -465,32 +465,26 @@ jobs:
           JFROG_CLI_BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
           JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
 
-      - name: "[Auth] Exchange OIDC and persist JF access token"
-        id: exchange-oidc
-        env:
-          JF_URL: ${{ vars.JFROG_URL }}
-          PROJECT: ${{ vars.PROJECT_KEY }}
-          PROVIDER_NAME: bookverse-inventory-github
+      - name: "[Auth] OIDC Token Exchange (bookverse-devops shared script)"
         run: |
           set -euo pipefail
-          # Ensure jq
-          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
-          # 1) Get GitHub OIDC ID token (audience -> JFrog URL)
-          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
-            echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
-          GH_ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
-          if [[ -z "$GH_ID_TOKEN" || "$GH_ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
-          # 2) Exchange at JFrog Access for access token
-          PAYLOAD=$(jq -n --arg jwt "$GH_ID_TOKEN" \
-            '{grant_type: "urn:ietf:params:oauth:grant-type:token-exchange", subject_token: $jwt, subject_token_type: "urn:ietf:params:oauth:token-type:id_token", provider_name: env.PROVIDER_NAME}')
-          JF_ACCESS_TOKEN=$(curl -sS -X POST "${JF_URL}/access/api/v1/oidc/token" \
-            -H "Content-Type: application/json" -d "$PAYLOAD" | jq -r .access_token)
-          if [[ -z "$JF_ACCESS_TOKEN" || "$JF_ACCESS_TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
-          # 3) Persist for subsequent steps
-          echo "JF_ACCESS_TOKEN=$JF_ACCESS_TOKEN" >> $GITHUB_ENV
-          echo "token=$JF_ACCESS_TOKEN" >> $GITHUB_OUTPUT
-          echo "✅ JFrog access token obtained and persisted"
+          echo "🔐 Exchanging OIDC token using shared script from bookverse-devops"
+          
+          # Use shared OIDC exchange script with proper parameters
+          EXCHANGE_SCRIPT="bookverse-infra/libraries/bookverse-devops/scripts/exchange-oidc-token.sh"
+          if [[ -f "$EXCHANGE_SCRIPT" ]]; then
+            chmod +x "$EXCHANGE_SCRIPT"
+            "$EXCHANGE_SCRIPT" \
+              --service-name "inventory" \
+              --provider-name "bookverse-inventory-github" \
+              --jfrog-url "${{ vars.JFROG_URL }}" \
+              --docker-registry "${{ vars.DOCKER_REGISTRY }}" \
+              --verbose
+            echo "✅ OIDC token exchange completed using shared script"
+          else
+            echo "❌ OIDC exchange script not found at $EXCHANGE_SCRIPT" >&2
+            exit 1
+          fi
 
       - name: "[Setup] Install Python dependencies"
         run: |
