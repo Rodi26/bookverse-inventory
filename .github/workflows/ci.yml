@@ -460,7 +460,14 @@ jobs:
         uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
         with:
           version: latest
+          oidc-provider-name: bookverse-inventory-github
+          oidc-audience: ${{ vars.JFROG_URL }}
+          disable-job-summary: true
+          disable-auto-build-publish: true
+          disable-auto-evidence-collection: false
         env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
           JFROG_CLI_BUILD_NAME: ${{ needs.build-test-publish.outputs.build_name }}
           JFROG_CLI_BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
           JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
