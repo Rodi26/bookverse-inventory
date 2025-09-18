@@ -42,6 +42,13 @@ jobs:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
+      - name: "[Setup] Checkout bookverse-infra for evidence library"
+        uses: actions/checkout@v4
+        with:
+          repository: 'yonatanp-jfrog/bookverse-infra'
+          ref: 'main'
+          path: 'bookverse-infra'
+
       - name: "[Setup] Prereqs (jq)"
         run: |
           sudo apt-get update -y
@@ -134,7 +141,8 @@ jobs:
           # Initialize lifecycle data
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-          source .github/scripts/promote_lib.sh
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          setup_promotion_environment
           echo "📦 Application: $APPLICATION_KEY"
           echo "🏷️ Version: $APP_VERSION"
           fetch_summary
@@ -195,7 +203,8 @@ jobs:
           # move to the first lifecycle stage. Release is never attempted here.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-          source .github/scripts/promote_lib.sh
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          setup_promotion_environment
           fetch_summary
           # Compute expectation
           CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
@@ -234,7 +243,8 @@ jobs:
           # attached by the library immediately after promote.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-          source .github/scripts/promote_lib.sh
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          setup_promotion_environment
             fetch_summary
           CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
           IFS=' ' read -r -a STAGES <<< "${STAGES_STR:-}"
@@ -276,7 +286,8 @@ jobs:
           # attached during this transition.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-          source .github/scripts/promote_lib.sh
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          setup_promotion_environment
             fetch_summary
           CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
           IFS=' ' read -r -a STAGES <<< "${STAGES_STR:-}"
@@ -319,7 +330,8 @@ jobs:
           # ALLOW_RELEASE=false here.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-          source .github/scripts/promote_lib.sh
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          setup_promotion_environment
           fetch_summary
           CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
           IFS=' ' read -r -a STAGES <<< "${STAGES_STR:-}"
@@ -590,7 +602,8 @@ jobs:
           # release_version(), which invokes the AppTrust Release API.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
-          source .github/scripts/promote_lib.sh
+          source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
+          setup_promotion_environment
           fetch_summary
           CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
           echo "PROMO_RELEASE_EXPECTED=RELEASE to ${FINAL_STAGE}" >> $GITHUB_ENV
