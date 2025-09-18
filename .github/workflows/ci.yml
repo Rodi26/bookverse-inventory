@@ -145,7 +145,7 @@ jobs:
             -H "Content-Type: application/json" -d "$PAYLOAD" | jq -r .access_token)
           if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then echo "❌ Failed to exchange OIDC token" >&2; exit 1; fi
           # Persist access token for later steps (TTL ~60m)
-          echo "JF_ACCESS_TOKEN=$TOKEN" >> $GITHUB_ENV
+          echo "JF_OIDC_TOKEN=$TOKEN" >> $GITHUB_ENV
           echo "token=$TOKEN" >> $GITHUB_OUTPUT
           # 3) Docker login to the registry using access token
           # Derive username from token payload (sub/username), fallback to oauth2_access_token
@@ -175,9 +175,9 @@ jobs:
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
           
-          # Use the persisted JF_ACCESS_TOKEN from the auth step
-          if [[ -z "${JF_ACCESS_TOKEN:-}" ]]; then
-            echo "❌ Missing JF_ACCESS_TOKEN. Ensure OIDC exchange step succeeded." >&2
+          # Use the persisted JF_OIDC_TOKEN from the auth step
+          if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
+            echo "❌ Missing JF_OIDC_TOKEN. Ensure OIDC exchange step succeeded." >&2
             exit 1
           fi
           
@@ -189,7 +189,7 @@ jobs:
             --application-key "$APPLICATION_KEY" \
             --version-map "./config/version-map.yaml" \
             --jfrog-url "${{ vars.JFROG_URL }}" \
-            --jfrog-token "$JF_ACCESS_TOKEN" \
+            --jfrog-token "$JF_OIDC_TOKEN" \
             --project-key "${{ vars.PROJECT_KEY }}" \
             --packages "inventory" \
             --verbose)
@@ -466,6 +466,7 @@ jobs:
           JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
 
       - name: "[Auth] OIDC Token Exchange (bookverse-devops shared script)"
+        id: exchange-oidc
         run: |
           set -euo pipefail
           echo "🔐 Exchanging OIDC token using shared script from bookverse-devops"
@@ -504,7 +505,7 @@ jobs:
             --application-key "$APPLICATION_KEY" \
             --version-map "./config/version-map.yaml" \
             --jfrog-url "${{ vars.JFROG_URL }}" \
-            --jfrog-token "$JF_ACCESS_TOKEN" \
+            --jfrog-token "$JF_OIDC_TOKEN" \
             --project-key "${{ vars.PROJECT_KEY }}")
           
           echo "📋 SemVer determination output:"
