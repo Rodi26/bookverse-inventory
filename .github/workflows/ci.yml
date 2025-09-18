@@ -439,6 +439,11 @@ jobs:
       SERVICE_NAME: "inventory"
       APPLICATION_KEY: "bookverse-inventory"
       APP_VERSION: ${{ needs.build-test-publish.outputs.app_version }}
+      # Common promotion environment variables (matching checkout service)
+      EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
+      JFROG_URL: ${{ vars.JFROG_URL }}
+      JF_URL: ${{ vars.JFROG_URL }}
+      PROJECT_KEY: ${{ vars.PROJECT_KEY }}
 
     steps:
       - name: "[Setup] Checkout"
@@ -600,15 +605,6 @@ jobs:
           echo "✅ Application version created and validated (COMPLETED): $APP_KEY@$APP_VERSION"
 
       - name: "[Evidence] Application Version Evidence"
-        env:
-          EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
-          SERVICE_NAME: inventory
-          APPLICATION_KEY: ${{ env.APPLICATION_KEY }}
-          APP_VERSION: ${{ env.APP_VERSION }}
-          PROJECT_KEY: ${{ vars.PROJECT_KEY }}
-          JFROG_URL: ${{ vars.JFROG_URL }}
-          JF_URL: ${{ vars.JFROG_URL }}
-          PLATFORM_URL: ${{ vars.JFROG_URL }}
         run: |
           echo "📋 Generating evidence for application version (UNASSIGNED stage)"
           
