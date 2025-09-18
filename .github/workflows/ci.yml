@@ -253,26 +253,35 @@ jobs:
 
       - name: "[Test] Install deps (Optimized with bookverse-core)"
         run: |
-          jf pip-config --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
+          set -euo pipefail
           
-          # Install dependencies needed for testing (matching recommendations service pattern)
-          echo "📦 Installing test dependencies from local repository..."
-          jf pip install --no-deps --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" \
+          # Install bookverse-core first (required for imports)
+          python -m pip install --upgrade "pip<25"
+          pip install --no-cache-dir ./libs/bookverse-core
+          echo "✅ Installed bookverse-core from local libs"
+          
+          # Install application dependencies (following checkout pattern)
+          echo "📦 Installing dependencies using explicit package list to avoid build-info issues..."
+          jf pipc --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
+          
+          # Install core dependencies with explicit versions (like checkout)
+          jf pip install --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" \
+            fastapi==0.111.0 \
+            uvicorn==0.30.0 \
+            httpx==0.27.0 \
+            pydantic==2.11.9 \
+            python-dotenv==1.1.1 \
+            requests==2.31.0 \
+            SQLAlchemy \
             pytest==8.3.2 \
             pytest-cov==4.0.0 \
             coverage \
             pluggy \
             iniconfig \
             packaging \
-            fastapi==0.111.0 \
-            uvicorn==0.30.0 \
-            httpx==0.27.0 \
-            python-dotenv==1.1.1 \
-            pydantic==2.11.9 \
-            requests==2.31.0 \
-            sqlalchemy>=1.4.0
+            || echo "⚠️ Some packages may have been installed from public PyPI"
           
-          echo "✅ Installed core dependencies without optional extras"
+          echo "✅ Installed dependencies with bookverse-core from local libs"
 
       - name: "[Test] Run with coverage"
         id: test-coverage
