@@ -329,6 +329,7 @@ jobs:
           PROJECT_KEY: ${{ vars.PROJECT_KEY }}
           JFROG_URL: ${{ vars.JFROG_URL }}
           JF_URL: ${{ vars.JFROG_URL }}
+          PLATFORM_URL: ${{ vars.JFROG_URL }}
         run: |
           echo "📊 Generating evidence for inventory image package"
           
@@ -407,6 +408,7 @@ jobs:
           PROJECT_KEY: ${{ vars.PROJECT_KEY }}
           JFROG_URL: ${{ vars.JFROG_URL }}
           JF_URL: ${{ vars.JFROG_URL }}
+          PLATFORM_URL: ${{ vars.JFROG_URL }}
         run: |
           echo "🏗️ Generating evidence for build-info"
           
@@ -606,6 +608,7 @@ jobs:
           PROJECT_KEY: ${{ vars.PROJECT_KEY }}
           JFROG_URL: ${{ vars.JFROG_URL }}
           JF_URL: ${{ vars.JFROG_URL }}
+          PLATFORM_URL: ${{ vars.JFROG_URL }}
         run: |
           echo "📋 Generating evidence for application version (UNASSIGNED stage)"
           
