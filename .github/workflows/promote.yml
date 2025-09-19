@@ -501,7 +501,7 @@ jobs:
           echo "Ensuring repos exist: $DOCKER_REPO, $GENERIC_REPO"
           repo_exists() {
             local repo_key="$1"
-            curl -sS -H "Authorization: Bearer ${TOKEN}" -H "Accept: application/json" -H "X-JFrog-Project: ${PROJECT}" "$JF_URL/artifactory/api/repositories" | jq -e --arg k "$repo_key" '.[] | select(.key == $k) | .key' >/dev/null 2>&1
+            curl -sS -H "Authorization: Bearer ${TOKEN}" -H "Accept: application/json" "$JF_URL/artifactory/api/repositories" | jq -e --arg k "$repo_key" '.[] | select(.key == $k) | .key' >/dev/null 2>&1
           }
           create_repo() {
             local repo_key="$1"; local pkg="$2"
@@ -512,13 +512,13 @@ jobs:
               body='{"rclass":"local","packageType":"generic","environments":["PROD"],"blackedOut":false,"xrayIndex":false}'
             fi
             echo "Creating $repo_key (packageType=$pkg)"
-            curl -sS -L -X PUT "$JF_URL/artifactory/api/repositories/$repo_key" -H "Authorization: Bearer ${TOKEN}" -H "X-JFrog-Project: ${PROJECT}" -H "Content-Type: application/json" -d "$body" | cat
+            curl -sS -L -X PUT "$JF_URL/artifactory/api/repositories/$repo_key" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" -d "$body" | cat
           }
           patch_envs() {
             local repo_key="$1"
             echo "Patching $repo_key environments via v2 API"
             local resp
-            resp=$(curl -sS -L -w '\n%{http_code}' -X PATCH "$JF_URL/artifactory/api/v2/repositories/$repo_key" -H "Authorization: Bearer ${TOKEN}" -H "X-JFrog-Project: ${PROJECT}" -H "Content-Type: application/json" -d '{"environments":["PROD"],"blackedOut":false}')
+            resp=$(curl -sS -L -w '\n%{http_code}' -X PATCH "$JF_URL/artifactory/api/v2/repositories/$repo_key" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" -d '{"environments":["PROD"],"blackedOut":false}')
             local body="${resp%$'\n'*}"; local code="${resp##*$'\n'}"
             echo "$body" | cat
             echo "HTTP $code"
@@ -526,7 +526,7 @@ jobs:
             echo "v2 PATCH failed (HTTP $code). Falling back to v1 POST update"
             local cfg="$(mktemp)"; local upd
             local get_code
-            get_code=$(curl -sS -L -o "$cfg" -w "%{http_code}" -H "Authorization: Bearer ${TOKEN}" -H "X-JFrog-Project: ${PROJECT}" -H "Accept: application/json" "$JF_URL/artifactory/api/repositories/$repo_key" || echo 000)
+            get_code=$(curl -sS -L -o "$cfg" -w "%{http_code}" -H "Authorization: Bearer ${TOKEN}" -H "Accept: application/json" "$JF_URL/artifactory/api/repositories/$repo_key" || echo 000)
             if [[ "$get_code" -ge 200 && "$get_code" -lt 300 ]]; then
               upd=$(jq -c '.environments = ["PROD"] | .blackedOut = false' "$cfg")
             else
@@ -538,7 +538,7 @@ jobs:
               fi
             fi
             rm -f "$cfg"
-            curl -sS -L -X POST "$JF_URL/artifactory/api/repositories/$repo_key" -H "Authorization: Bearer ${TOKEN}" -H "X-JFrog-Project: ${PROJECT}" -H "Content-Type: application/json" -d "$upd" | cat
+            curl -sS -L -X POST "$JF_URL/artifactory/api/repositories/$repo_key" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" -d "$upd" | cat
           }
           ensure_repo_and_envs() {
             local repo_key="$1"; local pkg="$2"

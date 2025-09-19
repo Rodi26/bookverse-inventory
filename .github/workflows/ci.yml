@@ -493,7 +493,6 @@ jobs:
              "$BASE/applications/$APP_KEY/versions?async=false" \
              -H "Authorization: Bearer $JF_OIDC_TOKEN" \
               -H "Content-Type: application/json" \
-              -H "X-JFrog-Project: ${{ vars.PROJECT_KEY }}" \
               -d "$APP_VERSION_PAYLOAD" \
             --fail-with-body)
           
