@@ -35,9 +35,6 @@ jobs:
       id-token: write
       contents: read
     
-    # Evidence signing configuration:
-    # - secrets.EVIDENCE_PRIVATE_KEY: private key material (sensitive)
-    # - vars.EVIDENCE_KEY_ALIAS: non-secret alias passed to --key-alias
     steps:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
@@ -60,7 +57,6 @@ jobs:
           BASE="${{ vars.JFROG_URL }}"; BASE="${BASE%/}"
           if [[ -z "$BASE" ]]; then echo "Missing vars.JFROG_URL" >&2; exit 1; fi
           PROVIDER_NAME="bookverse-inventory-github"
-          # Mint GitHub OIDC ID token with audience = JFrog URL (align with CI workflow)
           JF_URL="$BASE"
           if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
             echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
@@ -120,8 +116,6 @@ jobs:
           echo "TARGET_STAGE=$TARGET_STAGE" >> $GITHUB_ENV
 
       - name: "[Setup] JFrog CLI"
-        # Temporary workaround: using forked action until upstream fix
-        # uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
         uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
         env:
           JF_URL: ${{ vars.JFROG_URL }}
@@ -135,10 +129,6 @@ jobs:
       - name: "[Setup] Promotion context"
         run: |
           set -euo pipefail
-          # This step resolves lifecycle, establishes CURRENT_STAGE, and prepares
-          # variables consumed by promote_lib.sh. See promote_lib.sh header docs
-          # for how advance_one_step orchestrates promote vs release.
-          # Initialize lifecycle data
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
@@ -169,7 +159,7 @@ jobs:
             STAGES+=("$display")
           done < <(printf "%s\n" "$NAMES")
           rm -f "$NORM_FILE"
-          if [[ ${#STAGES[@]} -eq 0 ]]; then
+          if [[ ${
             echo "ℹ️ Lifecycle '$LIFECYCLE_NAME' not found; falling back to default stages (DEV → QA → STAGING → PROD)" >&2
             STAGES=(DEV QA STAGING PROD)
           fi
@@ -199,14 +189,11 @@ jobs:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          # Single-step progression; if CURRENT_STAGE is UNASSIGNED, this will
-          # move to the first lifecycle stage. Release is never attempted here.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
           setup_promotion_environment
           fetch_summary
-          # Compute expectation
           CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
           IFS=' ' read -r -a STAGES <<< "${STAGES_STR:-}"
           EXPECTED_NEXT="${STAGES[0]:-UNKNOWN}"
@@ -239,8 +226,6 @@ jobs:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          # From DEV, advance to QA (no release). Evidence for QA gates is
-          # attached by the library immediately after promote.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
@@ -248,10 +233,9 @@ jobs:
             fetch_summary
           CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
           IFS=' ' read -r -a STAGES <<< "${STAGES_STR:-}"
-          # Find next after DEV
           EXPECTED_NEXT="UNKNOWN"
-          for ((i=0; i<${#STAGES[@]}; i++)); do
-            if [[ "${STAGES[$i]}" == "DEV" && $i -lt $((${#STAGES[@]}-1)) ]]; then EXPECTED_NEXT="${STAGES[$i+1]}"; fi
+          for ((i=0; i<${
+            if [[ "${STAGES[$i]}" == "DEV" && $i -lt $((${
           done
           echo "PROMO_DEV_EXPECTED=$EXPECTED_NEXT" >> $GITHUB_ENV
           if [[ "$CURR_DISPLAY" == "DEV" ]]; then
@@ -282,8 +266,6 @@ jobs:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          # From QA, advance to STAGING (no release). QA gate evidence is
-          # attached during this transition.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
@@ -291,10 +273,9 @@ jobs:
             fetch_summary
           CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
           IFS=' ' read -r -a STAGES <<< "${STAGES_STR:-}"
-          # Find next after QA
           EXPECTED_NEXT="UNKNOWN"
-          for ((i=0; i<${#STAGES[@]}; i++)); do
-            if [[ "${STAGES[$i]}" == "QA" && $i -lt $((${#STAGES[@]}-1)) ]]; then EXPECTED_NEXT="${STAGES[$i+1]}"; fi
+          for ((i=0; i<${
+            if [[ "${STAGES[$i]}" == "QA" && $i -lt $((${
           done
           echo "PROMO_QA_EXPECTED=$EXPECTED_NEXT" >> $GITHUB_ENV
           if [[ "$CURR_DISPLAY" == "QA" ]]; then
@@ -325,9 +306,6 @@ jobs:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          # From STAGING, advance_one_step would attempt release if allowed.
-          # We defer release to the dedicated step below by keeping
-          # ALLOW_RELEASE=false here.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
@@ -335,10 +313,9 @@ jobs:
           fetch_summary
           CURR_DISPLAY=$(display_stage_for "${CURRENT_STAGE:-}")
           IFS=' ' read -r -a STAGES <<< "${STAGES_STR:-}"
-          # Expected next is the element after STAGING (usually PROD)
           EXPECTED_NEXT="UNKNOWN"
-          for ((i=0; i<${#STAGES[@]}; i++)); do
-            if [[ "${STAGES[$i]}" == "STAGING" && $i -lt $((${#STAGES[@]}-1)) ]]; then EXPECTED_NEXT="${STAGES[$i+1]}"; fi
+          for ((i=0; i<${
+            if [[ "${STAGES[$i]}" == "STAGING" && $i -lt $((${
           done
           echo "PROMO_STAGING_EXPECTED=$EXPECTED_NEXT" >> $GITHUB_ENV
           if [[ "$CURR_DISPLAY" == "STAGING" ]]; then
@@ -368,7 +345,6 @@ jobs:
         id: decide-staging
         run: |
           set -euo pipefail
-          # PROMOTED_STAGES is space-separated, CURRENT_STAGE is API form (e.g., bookverse-STAGING)
           PS="${PROMOTED_STAGES:-}"
           CS="${CURRENT_STAGE:-}"
           attach="false"
@@ -380,20 +356,14 @@ jobs:
         if: ${{ steps.decide-staging.outputs.attach == 'true' }}
         run: |
           set -euo pipefail
-          # We use quoted here-docs (<<'EOF') to prevent the shell from expanding
-          # variables or command substitutions while creating templates. This keeps
-          # a clean, literal template that we populate later with envsubst.
 
-          # IaC template
           cat > iac-evidence.template.md <<'EOF'
-          # Snyk IaC Scan
 
           **Scan Tool:** Snyk IaC  
           **Scan Date:** ${NOW_TS}  
           **Repository:** ${{ github.repository }}  
           **Commit:** ${{ github.sha }}
 
-          ## Summary
           - Critical: 0
           - High: 1
           - Medium: 2
@@ -402,14 +372,11 @@ jobs:
           > Infrastructure-as-Code configuration findings for STAGING gate.
           EOF
 
-          # Pentest template
           cat > pentest-evidence.template.md <<'EOF'
-          # Cobalt.io Pentest Summary
 
           **Engagement ID:** ${ENG_ID}  
           **Completed:** ${NOW_TS}
 
-          ## Findings
           - Total: 1
           - Critical: 0
           - High: 0
@@ -419,9 +386,7 @@ jobs:
           > External penetration test summary attached for STAGING gate.
           EOF
 
-          # Change approval template
           cat > change-approval.template.md <<'EOF'
-          # ServiceNow Change Approval
 
           **Change ID:** ${CHG_ID}  
           **Status:** Approved  
@@ -435,14 +400,12 @@ jobs:
         if: ${{ steps.decide-staging.outputs.attach == 'true' }}
         run: |
           set -euo pipefail
-          # Export variables and use envsubst to safely substitute values into templates
           if ! command -v envsubst >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y gettext-base; fi
           export NOW_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           export ENG_ID="ENG-$(( (${GITHUB_RUN_NUMBER:-0} + ${GITHUB_RUN_ATTEMPT:-0}) % 9000 + 1000 ))"
           export CHG_ID="CHG-$(( (${GITHUB_RUN_NUMBER:-0} * 10 + ${GITHUB_RUN_ATTEMPT:-0}) ))"
           export APPROVER="user-${GITHUB_ACTOR}-${GITHUB_RUN_ATTEMPT:-1}"
 
-          # IaC predicate and markdown
           cat > iac-evidence.json <<JSON
           {
             "iacScan": {
@@ -470,7 +433,6 @@ jobs:
           fi
           echo "IAC_EVIDENCE_STATUS=$IAC_EVIDENCE_STATUS" >> $GITHUB_ENV
 
-          # Pentest predicate and markdown
           cat > pentest-evidence.json <<JSON
           {
             "pentest": {
@@ -497,7 +459,6 @@ jobs:
           fi
           echo "PENTEST_EVIDENCE_STATUS=$PENTEST_EVIDENCE_STATUS" >> $GITHUB_ENV
 
-          # Change approval predicate and markdown
           cat > change-approval.json <<JSON
           {
             "changeRequest": {
@@ -534,7 +495,6 @@ jobs:
           JF_URL='${{ vars.JFROG_URL }}'
           TOKEN="$APPTRUST_ACCESS_TOKEN"
           PROJECT='${{ vars.PROJECT_KEY }}'
-          # SERVICE_NAME is provided via GITHUB_ENV by the resolve step
           : "${SERVICE_NAME:?SERVICE_NAME not set}"
           DOCKER_REPO="${PROJECT}-${SERVICE_NAME}-internal-docker-release-local"
           GENERIC_REPO="${PROJECT}-${SERVICE_NAME}-internal-generic-release-local"
@@ -597,9 +557,6 @@ jobs:
           EVIDENCE_PRIVATE_KEY: ${{ secrets.EVIDENCE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          # Only here do we set ALLOW_RELEASE=true. advance_one_step computes
-          # that the next stage equals FINAL_STAGE (PROD) and calls
-          # release_version(), which invokes the AppTrust Release API.
           export JFROG_URL="${{ vars.JFROG_URL }}"
           export PROJECT_KEY="${{ vars.PROJECT_KEY }}"
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
@@ -610,7 +567,6 @@ jobs:
           if [[ "$CURR_DISPLAY" == "STAGING" ]]; then
             echo "PROMO_RELEASE_ATTEMPTED=true" >> $GITHUB_ENV
             ALLOW_RELEASE=true
-            # Explicitly set included repositories for release and ensure they exist
             svc_name="${SERVICE_NAME}"
             docker_repo="${{ vars.PROJECT_KEY }}-${svc_name}-internal-docker-release-local"
             generic_repo="${{ vars.PROJECT_KEY }}-${svc_name}-internal-generic-release-local"
@@ -685,12 +641,10 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          # Prepare display stages
           CURRENT_DISPLAY="${CURRENT_STAGE_BEFORE:-UNASSIGNED}"
           CURRENT_DISPLAY="${CURRENT_DISPLAY#bookverse-}"
           TARGET_DISPLAY="${TARGET_NAME:-${FINAL_STAGE:-UNKNOWN}}"
           export CURRENT_DISPLAY TARGET_DISPLAY
-          # Build lifecycle path that emphasizes CURRENT_DISPLAY ➔ TARGET_DISPLAY
           STAGES="${STAGES_STR:-DEV QA STAGING PROD}"
           IFS=' ' read -r -a STAGE_ARR <<< "$STAGES"
           idx_current=-1; idx_target=-1
@@ -704,7 +658,7 @@ jobs:
               if [[ -n "$pre" ]]; then sep=" → "; else sep=""; fi
               pre+="$sep${STAGE_ARR[$j]}"
             done
-            for ((j=idx_target+1;j<${#STAGE_ARR[@]};j++)); do
+            for ((j=idx_target+1;j<${
               if [[ -n "$post" ]]; then sep=" → "; else sep=""; fi
               post+="$sep${STAGE_ARR[$j]}"
             done
@@ -712,7 +666,6 @@ jobs:
           else
             LC_PATH="$STAGES"
           fi
-          # Determine OUTCOME
           OUTCOME="SUCCESS"
           for s in "${PROMO_UNASSIGNED_STATUS:-}" "${PROMO_DEV_STATUS:-}" "${PROMO_QA_STATUS:-}" "${PROMO_STAGING_STATUS:-}" "${PROMO_RELEASE_STATUS:-}"; do
             if [[ "$s" == "FAILED" ]]; then OUTCOME="FAILURE"; fi
@@ -722,11 +675,8 @@ jobs:
               if [[ "$s" == "FAILED" ]]; then OUTCOME="WARNING"; fi
             done
           fi
-          # Promotion method (best effort; default move)
           PROMOTION_METHOD="move"
-          # Select template ID
           TID="1"
-          # Generate ONLY the markdown summary via Node using the provided templates
           node - <<'NODE' | tee -a "$GITHUB_STEP_SUMMARY" >/dev/null
           (function(){
             function iconFor(status){
@@ -779,7 +729,7 @@ jobs:
               const hasEvidenceFail = evidences.some(e => (e.status||'').toUpperCase() === 'FAILED');
               const stepOutcome = promoResult === 'FAILURE' ? 'FAILURE' : (hasEvidenceFail ? 'WARNING' : 'SUCCESS');
               const lines = [];
-              lines.push(`### Step: ${from} → ${to}`);
+              lines.push(`
               lines.push(`- **Type:** ${kind}`);
               lines.push(`- **Constraints:** ${constraints || 'None'}`);
               lines.push(`- **Evidence Used:**`);
@@ -820,7 +770,7 @@ jobs:
             else if (outcomes.some(o => o === 'WARNING')) overall = 'WARNING';
 
             const exec = [
-              `### Executive Summary`,
+              `
               `- **Lifecycle:** ${lifecycleDefined}`,
               `- **Application:** ${app}`,
               `- **Version:** ${ver}`,
