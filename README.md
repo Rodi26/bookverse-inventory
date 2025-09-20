@@ -119,7 +119,6 @@ The rollback utility `scripts/apptrust_rollback.py` now supports both OIDC-minte
 
 ```bash
 # In GitHub Actions, OIDC tokens are minted and passed as environment variables
-# Primary mode: Uses APPTRUST_ACCESS_TOKEN (from OIDC exchange)
 # Fallback mode: Uses JFrog CLI OIDC if token-based auth fails
 
 # Local usage (requires jf on PATH and configured URL; no token needed):

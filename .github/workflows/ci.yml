@@ -643,7 +643,52 @@ jobs:
 
           attach_application_prod_evidence
           echo "✅ PROD stage evidence attached via shared library: deployment-verification"
+          
+          # Fetch release status for tag enforcement
+          source bookverse-infra/libraries/bookverse-devops/scripts/promote-lib.sh
+          fetch_summary
+          echo "RELEASE_STATUS=${RELEASE_STATUS:-}" >> $GITHUB_ENV
+          
           echo "🎉 SUCCESS: Application version $APP_VERSION promoted to PROD with all evidence attached!"
+
+      - name: "[Tags] Self-Healing Tag Management"
+        run: |
+          set -euo pipefail
+          echo "🏥 Running self-healing tag management for PROD release"
+          
+          # Check if we successfully released to PROD
+          if [[ "${RELEASE_STATUS:-}" != "RELEASED" && "${RELEASE_STATUS:-}" != "TRUSTED_RELEASE" ]]; then
+            echo "ℹ️ Skipping tag management; not a successful PROD release (status: ${RELEASE_STATUS:-UNKNOWN})"
+            exit 0
+          fi
+          
+          echo "✅ PROD release successful, running comprehensive tag validation and healing"
+          
+          # Set up environment for tag management library
+          export JFROG_URL='${{ vars.JFROG_URL }}'
+          export PROJECT_KEY='${{ vars.PROJECT_KEY }}'
+          export APPLICATION_KEY="$APPLICATION_KEY"
+          # JF_OIDC_TOKEN is already available from the OIDC exchange step
+          
+          # Load the self-healing tag management library
+          source bookverse-infra/libraries/bookverse-devops/scripts/tag-management-lib.sh
+          
+          # Run comprehensive tag validation and healing
+          # This will:
+          # 1. Find all versions and their current states
+          # 2. Identify the highest SemVer version in PROD (latest candidate)
+          # 3. Validate all tags are correct based on version states
+          # 4. Fix any inconsistencies (add/remove tags as needed)
+          # 5. Handle quarantined versions, non-SemVer versions, etc.
+          validate_and_heal_tags
+          
+          echo ""
+          echo "🎯 Tag management completed for version $APP_VERSION"
+          echo "📋 All versions now have correct tags based on their states:"
+          echo "   - 'latest': Highest SemVer version in PROD"
+          echo "   - 'quarantine': Versions that were rolled back"
+          echo "   - 'valid': Other valid SemVer versions"
+          echo "   - Non-SemVer versions: No special tags (ignored for 'latest')"
 
       - name: "📊 Enhanced Build Summary (bookverse-devops pattern)"
         if: always()
