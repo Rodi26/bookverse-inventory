@@ -135,3 +135,4 @@ python scripts/apptrust_rollback.py --app bookverse-inventory --version 1.2.3
 ## E2E Rollback Testing
 - Testing complete E2E flow including rollback functionality
 - Current test run: Sat Sep 13 22:23:13 IDT 2025
+# Test comment for Inventory tag management validation - Sat Sep 20 20:16:39 IDT 2025
