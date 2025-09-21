@@ -354,10 +354,10 @@ jobs:
           
           jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
           jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
-          if BUILD_PUBLISH_RESULT=$(jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"); then
+          if BUILD_PUBLISH_RESULT=$(jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER" 2>&1); then
             echo "BUILD_INFO_PUBLISH_STATUS=SUCCESS" >> $GITHUB_ENV
             
-            # Extract build UI URL from JFrog CLI output (handles both JSON and plain text formats)
+            # Extract build UI URL from JFrog CLI output (captures both stdout and stderr)
             BUILD_UI_URL=$(echo "$BUILD_PUBLISH_RESULT" | grep -o 'Browse it in Artifactory under https://[^[:space:]]*' | sed 's/Browse it in Artifactory under //' | head -1 || echo "$BUILD_PUBLISH_RESULT" | grep -o '"buildInfoUiUrl": *"[^"]*"' | sed 's/.*"buildInfoUiUrl": *"\([^"]*\)".*/\1/' | head -1 || echo "")
             
             if [[ -n "$BUILD_UI_URL" ]]; then
