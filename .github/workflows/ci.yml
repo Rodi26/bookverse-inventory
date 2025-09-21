@@ -286,7 +286,7 @@ jobs:
           echo "Using precomputed image tag: $IMAGE_TAG"
 
           jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
-          jf docker push "$IMAGE_NAME"
+          docker push "$IMAGE_NAME"
           
           echo "📋 Resolving image digest and associating with build-info..."
           
