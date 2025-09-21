@@ -76,7 +76,7 @@ jobs:
       build_number: ${{ steps.set-build-info.outputs.build_number }}
       app_version: ${{ steps.determine-semver.outputs.app_version }}
       coverage_percent: ${{ steps.test-coverage.outputs.coverage_percent }}
-      jf_access_token: ${{ steps.bookverse-jfcli-setup.outputs.oidc-user }}
+      jf_access_token: ${{ steps.determine-semver.outputs.oidc_token }}
 
     steps:
       - name: "[Setup] Checkout"
@@ -137,12 +137,17 @@ jobs:
           set -euo pipefail
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
-          OIDC_TOKEN="${{ steps.bookverse-jfcli-setup.outputs.oidc-user }}"
-          if [[ -z "$OIDC_TOKEN" ]]; then
-            echo "❌ Missing OIDC token from JFrog CLI setup step." >&2
+          # Extract OIDC token from JFrog CLI configuration
+          echo "🔍 Extracting OIDC token from JFrog CLI configuration..."
+          SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
+          echo "📋 Using server ID: $SERVER_ID"
+          
+          if OIDC_TOKEN=$(jf c show "$SERVER_ID" --format json 2>/dev/null | jq -r '.accessToken // empty' 2>/dev/null) && [[ -n "$OIDC_TOKEN" && "$OIDC_TOKEN" != "null" ]]; then
+            echo "✅ Successfully extracted OIDC token from JFrog CLI config"
+          else
+            echo "❌ Could not extract OIDC token from JFrog CLI configuration" >&2
             exit 1
           fi
-          echo "✅ Using OIDC token from JFrog CLI setup step output"
           echo "📋 Using shared semver logic from bookverse-infra"
           INFRA_SCRIPTS_PATH="bookverse-infra/libraries/bookverse-devops/scripts"
           if [[ -f "$INFRA_SCRIPTS_PATH/determine-semver.sh" ]]; then
@@ -191,6 +196,7 @@ jobs:
           
           echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
+          echo "oidc_token=$OIDC_TOKEN" >> $GITHUB_OUTPUT
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
 
       - name: "[Setup] Python"
