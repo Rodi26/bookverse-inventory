@@ -111,7 +111,7 @@ jobs:
           echo "APPLICATION_KEY=bookverse-inventory" >> $GITHUB_ENV
 
       - name: "[Setup] JFrog CLI"
-        uses: bookverse-infra/.github/actions/generate-oidc-token@main
+        uses: yonatanp-jfrog/bookverse-infra/.github/actions/generate-oidc-token@main
         with:
           version: latest
           oidc-provider-name: bookverse-inventory-github
@@ -134,7 +134,7 @@ jobs:
 
       - name: "[Auth] Enhanced OIDC Token Generation"
         id: enhanced-oidc
-        uses: bookverse-infra/.github/actions/generate-oidc-token@main
+        uses: yonatanp-jfrog/bookverse-infra/.github/actions/generate-oidc-token@main
         with:
           oidc-provider-url: ${{ vars.JFROG_URL }}
           oidc-provider-name: bookverse-inventory-github
@@ -411,7 +411,7 @@ jobs:
           path: 'bookverse-infra'
 
       - name: "[Setup] JFrog CLI"
-        uses: bookverse-infra/.github/actions/generate-oidc-token@main
+        uses: yonatanp-jfrog/bookverse-infra/.github/actions/generate-oidc-token@main
         with:
           version: latest
           oidc-provider-name: bookverse-inventory-github
