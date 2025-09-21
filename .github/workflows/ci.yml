@@ -295,7 +295,7 @@ jobs:
           echo "coverage_percent=$COVERAGE_PERCENT" >> $GITHUB_OUTPUT
 
       - name: "[Build] Docker Registry Authentication"
-        uses: ../../../bookverse-infra/.github/actions/docker-registry-auth@main
+        uses: yonatanp-jfrog/bookverse-infra/.github/actions/docker-registry-auth@main
         with:
           oidc-token: ${{ steps.jfrog-cli-auth.outputs.oidc-token }}
           registry-url: ${{ vars.JFROG_URL }}
