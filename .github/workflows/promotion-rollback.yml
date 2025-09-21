@@ -81,7 +81,8 @@ jobs:
           echo "JF_OIDC_TOKEN=$JF_OIDC_TOKEN" >> $GITHUB_ENV
 
       - name: "[Setup] JFrog CLI"
-        uses: bookverse-infra/.github/actions/generate-oidc-token@main
+        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        id: jfrog-cli-auth
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
