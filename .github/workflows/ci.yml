@@ -112,7 +112,7 @@ jobs:
 
       - name: "[Setup] JFrog CLI"
         uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
-        id: bookverse-jfcli-setup
+        id: jfrog-cli-auth
         with:
           oidc-provider-name: bookverse-inventory-github
           oidc-audience: ${{ vars.JFROG_URL }}
@@ -142,10 +142,21 @@ jobs:
           SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
           echo "📋 Using server ID: $SERVER_ID"
           
+          # Debug: Let's see what the config actually contains
+          echo "🔍 Debugging JFrog CLI config structure..."
+          jf c show "$SERVER_ID" --format json 2>/dev/null | jq '.' || echo "Failed to show config as JSON"
+          
+          # Try different approaches to get the token
           if OIDC_TOKEN=$(jf c show "$SERVER_ID" --format json 2>/dev/null | jq -r '.accessToken // empty' 2>/dev/null) && [[ -n "$OIDC_TOKEN" && "$OIDC_TOKEN" != "null" ]]; then
-            echo "✅ Successfully extracted OIDC token from JFrog CLI config"
+            echo "✅ Successfully extracted OIDC token from JFrog CLI config (accessToken field)"
+          elif OIDC_TOKEN=$(jf c show "$SERVER_ID" --format json 2>/dev/null | jq -r '.token // empty' 2>/dev/null) && [[ -n "$OIDC_TOKEN" && "$OIDC_TOKEN" != "null" ]]; then
+            echo "✅ Successfully extracted OIDC token from JFrog CLI config (token field)"
+          elif OIDC_TOKEN=$(jf c show "$SERVER_ID" --format json 2>/dev/null | jq -r '.access_token // empty' 2>/dev/null) && [[ -n "$OIDC_TOKEN" && "$OIDC_TOKEN" != "null" ]]; then
+            echo "✅ Successfully extracted OIDC token from JFrog CLI config (access_token field)"
           else
             echo "❌ Could not extract OIDC token from JFrog CLI configuration" >&2
+            echo "🔍 Available fields in config:"
+            jf c show "$SERVER_ID" --format json 2>/dev/null | jq 'keys' || echo "Failed to show config keys"
             exit 1
           fi
           echo "📋 Using shared semver logic from bookverse-infra"
@@ -394,7 +405,7 @@ jobs:
 
       - name: "[Setup] JFrog CLI"
         uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
-        id: bookverse-jfcli-setup
+        id: jfrog-cli-auth
         with:
           oidc-provider-name: bookverse-inventory-github
           oidc-audience: ${{ vars.JFROG_URL }}
