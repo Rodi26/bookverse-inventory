@@ -357,7 +357,8 @@ jobs:
           if BUILD_PUBLISH_RESULT=$(jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"); then
             echo "BUILD_INFO_PUBLISH_STATUS=SUCCESS" >> $GITHUB_ENV
             
-            BUILD_UI_URL=$(echo "$BUILD_PUBLISH_RESULT" | grep -o 'https://[^[:space:]]*builds/[^[:space:]]*' | head -1 || echo "")
+            # Extract build UI URL from JFrog CLI output (handles both JSON and plain text formats)
+            BUILD_UI_URL=$(echo "$BUILD_PUBLISH_RESULT" | grep -o 'Browse it in Artifactory under https://[^[:space:]]*' | sed 's/Browse it in Artifactory under //' | head -1 || echo "$BUILD_PUBLISH_RESULT" | grep -o '"buildInfoUiUrl": *"[^"]*"' | sed 's/.*"buildInfoUiUrl": *"\([^"]*\)".*/\1/' | head -1 || echo "")
             
             if [[ -n "$BUILD_UI_URL" ]]; then
               EPOCH_MS=$(echo "$BUILD_UI_URL" | sed -n 's|.*/builds/[^/]*/[^/]*/\([0-9]*\)/published.*|\1|p')
