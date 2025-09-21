@@ -295,53 +295,11 @@ jobs:
           echo "coverage_percent=$COVERAGE_PERCENT" >> $GITHUB_OUTPUT
 
       - name: "[Build] Docker Registry Authentication"
-        run: |
-          set -euo pipefail
-          echo "🔐 Authenticating Docker with JFrog registry..."
-          
-          # Get the OIDC token for Docker authentication
-          OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
-          if [[ -z "$OIDC_TOKEN" ]]; then
-            echo "❌ OIDC token not available for Docker authentication" >&2
-            exit 1
-          fi
-          
-          # Extract Docker registry from JFrog URL
-          DOCKER_REGISTRY="${{ vars.JFROG_URL }}"
-          DOCKER_REGISTRY="${DOCKER_REGISTRY#https://}"
-          DOCKER_REGISTRY="${DOCKER_REGISTRY#http://}"
-          
-          # Extract username from JWT token for Docker login
-          TOKEN_PAYLOAD=$(echo "$OIDC_TOKEN" | cut -d. -f2)
-          # Add padding if needed
-          case $((${#TOKEN_PAYLOAD} % 4)) in
-            2) TOKEN_PAYLOAD="${TOKEN_PAYLOAD}==" ;;
-            3) TOKEN_PAYLOAD="${TOKEN_PAYLOAD}=" ;;
-          esac
-          
-          CLAIMS=$(echo "$TOKEN_PAYLOAD" | tr '_-' '/+' | base64 -d 2>/dev/null || true)
-          DOCKER_USER=$(echo "$CLAIMS" | jq -r '.username // .sub // .subject // "oauth2_access_token"' 2>/dev/null || echo "oauth2_access_token")
-          
-          # If sub is in the form jfac@.../users/<username>, extract the trailing <username>
-          if [[ "$DOCKER_USER" == *"/users/"* ]]; then
-            DOCKER_USER=${DOCKER_USER##*/users/}
-          fi
-          
-          # Fallback to oauth2_access_token if no username found
-          if [[ -z "$DOCKER_USER" || "$DOCKER_USER" == "null" ]]; then
-            DOCKER_USER="oauth2_access_token"
-          fi
-          
-          echo "🐳 Authenticating Docker with registry: $DOCKER_REGISTRY"
-          echo "📋 Using username: $DOCKER_USER"
-          
-          # Perform Docker login
-          if echo "$OIDC_TOKEN" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin; then
-            echo "✅ Docker authentication successful"
-          else
-            echo "❌ Docker authentication failed" >&2
-            exit 1
-          fi
+        uses: ../../../bookverse-infra/.github/actions/docker-registry-auth@main
+        with:
+          oidc-token: ${{ steps.jfrog-cli-auth.outputs.oidc-token }}
+          registry-url: ${{ vars.JFROG_URL }}
+          verbosity: 'feedback'
 
       - name: "[Build] API image"
         run: |
