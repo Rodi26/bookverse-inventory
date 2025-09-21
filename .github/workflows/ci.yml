@@ -314,18 +314,13 @@ jobs:
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "Using precomputed image tag: $IMAGE_TAG"
 
-          # Set up Docker buildx for multi-platform builds
-          docker buildx create --name multiarch --driver docker-container --use
-          docker buildx inspect --bootstrap
-
-          # Build and push to JFrog Artifactory using correct pattern (linux/arm64 for Apple Silicon)
-          jf docker buildx build --platform linux/arm64 \
-            --tag "$IMAGE_NAME" \
-            --metadata-file=build-metadata --output=type=image --push .
+          # Build and push to JFrog Artifactory using regular docker build
+          jf docker build --tag "$IMAGE_NAME" .
+          jf docker push "$IMAGE_NAME"
           
-          # Create build-docker association using metadata file
+          # Create build-docker association using image name
           jf rt build-docker-create "$REPO_KEY" \
-            --image-file build-metadata --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" \
+            --image "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}"
 
           echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
