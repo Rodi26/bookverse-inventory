@@ -144,7 +144,12 @@ jobs:
           
           # Debug: Let's see what the config actually contains
           echo "🔍 Debugging JFrog CLI config structure..."
-          jf c show "$SERVER_ID" --format json 2>/dev/null | jq '.' || echo "Failed to show config as JSON"
+          echo "Raw config output:"
+          jf c show "$SERVER_ID" 2>/dev/null || echo "Failed to show config"
+          echo "---"
+          echo "Trying with --format json:"
+          jf c show "$SERVER_ID" --format json 2>/dev/null || echo "Failed to show config as JSON"
+          echo "---"
           
           # Try different approaches to get the token
           if OIDC_TOKEN=$(jf c show "$SERVER_ID" --format json 2>/dev/null | jq -r '.accessToken // empty' 2>/dev/null) && [[ -n "$OIDC_TOKEN" && "$OIDC_TOKEN" != "null" ]]; then
