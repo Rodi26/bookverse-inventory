@@ -288,8 +288,8 @@ jobs:
           docker buildx create --name multiarch --driver docker-container --use
           docker buildx inspect --bootstrap
 
-          # Build and push to JFrog Artifactory using correct pattern
-          jf docker buildx build --platform linux/amd64,linux/arm64 \
+          # Build and push to JFrog Artifactory using correct pattern (linux/amd64 only for faster builds)
+          jf docker buildx build --platform linux/amd64 \
             --tag "$IMAGE_NAME" \
             --metadata-file=build-metadata --output=type=image --push .
           
