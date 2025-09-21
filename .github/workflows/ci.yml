@@ -280,31 +280,18 @@ jobs:
           export JFROG_CLI_BUILD_PROJECT="${{ vars.PROJECT_KEY }}"
 
           REPO_KEY="${{ vars.PROJECT_KEY }}-$SERVICE_NAME-internal-docker-nonprod-local"
-          REGISTRY_URL="${{ vars.DOCKER_REGISTRY }}"
-            IMAGE_NAME="$REGISTRY_URL/$REPO_KEY/$SERVICE_NAME:$IMAGE_TAG"
-            echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          IMAGE_NAME="${{ vars.DOCKER_REGISTRY }}/$REPO_KEY/$SERVICE_NAME:$IMAGE_TAG"
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "Using precomputed image tag: $IMAGE_TAG"
 
-          jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
-          docker push "$IMAGE_NAME"
+          # Build and push to JFrog Artifactory using correct pattern
+          jf docker buildx build --platform linux/amd64,linux/arm64 \
+            --tag "$IMAGE_NAME" \
+            --metadata-file=build-metadata --output=type=image --push .
           
-          echo "📋 Resolving image digest and associating with build-info..."
-          
-          DIGEST=$(docker inspect "$IMAGE_NAME" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
-          if [[ -z "$DIGEST" || "$DIGEST" == "<no value>" ]]; then
-            docker pull "$IMAGE_NAME" >/dev/null 2>&1 || true
-            DIGEST=$(docker inspect "$IMAGE_NAME" --format='{{index .RepoDigests 0}}' 2>/dev/null | awk -F@ '{print $2}')
-          fi
-          if [[ -z "$DIGEST" || "$DIGEST" == "<no value>" ]]; then
-            echo "❌ Could not resolve image digest for $IMAGE_NAME" >&2; exit 1
-          fi
-          
-          echo "${IMAGE_NAME%@*}@${DIGEST}" > images.txt
-          echo "📋 Associating inventory image: $(cat images.txt)"
+          # Create build-docker association using metadata file
           jf rt build-docker-create "$REPO_KEY" \
-            --image-file images.txt \
-            --build-name "$BUILD_NAME" \
-            --build-number "$BUILD_NUMBER" \
+            --image-file build-metadata --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}"
 
           echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
