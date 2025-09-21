@@ -76,7 +76,7 @@ jobs:
       build_number: ${{ steps.set-build-info.outputs.build_number }}
       app_version: ${{ steps.determine-semver.outputs.app_version }}
       coverage_percent: ${{ steps.test-coverage.outputs.coverage_percent }}
-      jf_access_token: ${{ steps.determine-semver.outputs.oidc_token }}
+      use_jfrog_cli: ${{ steps.determine-semver.outputs.use_jfrog_cli }}
 
     steps:
       - name: "[Setup] Checkout"
@@ -120,6 +120,29 @@ jobs:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
           
+      - name: "[Setup] Extract JFrog Access Token"
+        id: extract-token
+        run: |
+          echo "🔍 Attempting to extract JFrog access token for API calls..."
+          
+          # Since JFrog CLI doesn't expose the token for security reasons,
+          # we need to modify our approach to work with the CLI authentication
+          SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
+          
+          echo "🔍 Testing JFrog CLI authentication..."
+          if jf rt ping > /dev/null 2>&1; then
+            echo "✅ JFrog CLI authentication is working"
+            
+            # Instead of extracting the token, we'll modify the semver script
+            # to use JFrog CLI commands for API calls
+            echo "📋 Will use JFrog CLI for authenticated API calls"
+            echo "use_jfrog_cli=true" >> $GITHUB_OUTPUT
+            echo "jfrog_server_id=$SERVER_ID" >> $GITHUB_OUTPUT
+          else
+            echo "❌ JFrog CLI authentication failed"
+            exit 1
+          fi
+          
       - name: "[Setup] Verify JFrog Authentication"
         run: |
           echo "🔐 Verifying JFrog CLI authentication and connectivity..."
@@ -137,50 +160,162 @@ jobs:
           set -euo pipefail
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
-          # Extract OIDC token from JFrog CLI configuration
-          echo "🔍 Extracting OIDC token from JFrog CLI configuration..."
-          SERVER_ID="${SETUP_JFROG_CLI_SERVER_IDS:-setup-jfrog-cli-server}"
-          echo "📋 Using server ID: $SERVER_ID"
+          # Use JFrog CLI authentication instead of extracting token
+          echo "🔍 Using JFrog CLI authentication for semver determination..."
           
-          # Debug: Let's see what the config actually contains
-          echo "🔍 Debugging JFrog CLI config structure..."
-          echo "Raw config output:"
-          jf c show "$SERVER_ID" 2>/dev/null || echo "Failed to show config"
-          echo "---"
-          echo "Trying with --format json:"
-          jf c show "$SERVER_ID" --format json 2>/dev/null || echo "Failed to show config as JSON"
-          echo "---"
-          
-          # Try different approaches to get the token
-          if OIDC_TOKEN=$(jf c show "$SERVER_ID" --format json 2>/dev/null | jq -r '.accessToken // empty' 2>/dev/null) && [[ -n "$OIDC_TOKEN" && "$OIDC_TOKEN" != "null" ]]; then
-            echo "✅ Successfully extracted OIDC token from JFrog CLI config (accessToken field)"
-          elif OIDC_TOKEN=$(jf c show "$SERVER_ID" --format json 2>/dev/null | jq -r '.token // empty' 2>/dev/null) && [[ -n "$OIDC_TOKEN" && "$OIDC_TOKEN" != "null" ]]; then
-            echo "✅ Successfully extracted OIDC token from JFrog CLI config (token field)"
-          elif OIDC_TOKEN=$(jf c show "$SERVER_ID" --format json 2>/dev/null | jq -r '.access_token // empty' 2>/dev/null) && [[ -n "$OIDC_TOKEN" && "$OIDC_TOKEN" != "null" ]]; then
-            echo "✅ Successfully extracted OIDC token from JFrog CLI config (access_token field)"
-          else
-            echo "❌ Could not extract OIDC token from JFrog CLI configuration" >&2
-            echo "🔍 Available fields in config:"
-            jf c show "$SERVER_ID" --format json 2>/dev/null | jq 'keys' || echo "Failed to show config keys"
+          # Verify JFrog CLI is authenticated
+          if ! jf rt ping > /dev/null 2>&1; then
+            echo "❌ JFrog CLI authentication failed" >&2
             exit 1
           fi
+          
+          echo "✅ JFrog CLI authentication verified"
+          
+          # Create a wrapper script that uses jf rt curl for API calls
+          echo "🔧 Creating JFrog CLI API wrapper..."
+          cat > jfrog_api_wrapper.py << 'EOF'
+#!/usr/bin/env python3
+import subprocess
+import sys
+import json
+import os
+
+def jfrog_api_call(url, method="GET"):
+    """Make an API call using jf rt curl"""
+    try:
+        # Remove the base URL since jf rt curl expects relative paths
+        if url.startswith("https://"):
+            # Extract the path part after the domain
+            parts = url.split("/", 3)
+            if len(parts) > 3:
+                path = "/" + parts[3]
+            else:
+                path = "/"
+        else:
+            path = url
+            
+        cmd = ["jf", "rt", "curl", "-X", method, path]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            try:
+                return json.loads(result.stdout)
+            except json.JSONDecodeError:
+                return result.stdout
+        else:
+            print(f"API call failed: {result.stderr}", file=sys.stderr)
+            return None
+    except Exception as e:
+        print(f"Error making API call: {e}", file=sys.stderr)
+        return None
+
+# Export the function for use by the semver script
+if __name__ == "__main__":
+    # Test the wrapper
+    result = jfrog_api_call("/artifactory/api/system/ping")
+    print("API wrapper test:", result)
+EOF
+          
+          chmod +x jfrog_api_wrapper.py
+          
+          # Test the wrapper
+          python3 jfrog_api_wrapper.py
           echo "📋 Using shared semver logic from bookverse-infra"
           INFRA_SCRIPTS_PATH="bookverse-infra/libraries/bookverse-devops/scripts"
           if [[ -f "$INFRA_SCRIPTS_PATH/determine-semver.sh" ]]; then
             cp "$INFRA_SCRIPTS_PATH/determine-semver.sh" .
             cp "$INFRA_SCRIPTS_PATH/semver_versioning.py" .
             chmod +x determine-semver.sh
-            echo "✅ Using shared semver scripts from bookverse-infra"
+            
+            # Patch the Python script to use JFrog CLI when USE_JFROG_CLI is set
+            echo "🔧 Patching semver script to use JFrog CLI authentication..."
+            cat > patch_semver.py << 'EOF'
+import sys
+import re
+
+# Read the original script
+with open('semver_versioning.py', 'r') as f:
+    content = f.read()
+
+# Add JFrog CLI support at the top of the file
+jfrog_cli_code = '''
+import os
+import subprocess
+
+def jfrog_api_call(url, method="GET"):
+    """Make an API call using jf rt curl when USE_JFROG_CLI is set"""
+    if not os.environ.get('USE_JFROG_CLI'):
+        return None
+        
+    try:
+        # Extract the path part after the domain for jf rt curl
+        if url.startswith("https://"):
+            parts = url.split("/", 3)
+            if len(parts) > 3:
+                path = "/" + parts[3]
+            else:
+                path = "/"
+        else:
+            path = url
+            
+        cmd = ["jf", "rt", "curl", "-X", method, path]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            try:
+                import json
+                return json.loads(result.stdout)
+            except json.JSONDecodeError:
+                return result.stdout
+        else:
+            print(f"JFrog CLI API call failed: {result.stderr}", file=sys.stderr)
+            return None
+    except Exception as e:
+        print(f"Error making JFrog CLI API call: {e}", file=sys.stderr)
+        return None
+
+'''
+
+# Insert the JFrog CLI code after the imports
+import_pattern = r'(import [^\n]+\n)+'
+match = re.search(import_pattern, content)
+if match:
+    insert_pos = match.end()
+    content = content[:insert_pos] + jfrog_cli_code + content[insert_pos:]
+
+# Replace requests.get calls with JFrog CLI calls when USE_JFROG_CLI is set
+# Pattern to find requests.get calls with headers
+requests_pattern = r'requests\.get\(([^,]+),\s*headers=([^)]+)\)'
+
+def replace_requests(match):
+    url = match.group(1)
+    headers = match.group(2)
+    return f'''(jfrog_api_call({url}) if os.environ.get('USE_JFROG_CLI') else requests.get({url}, headers={headers}))'''
+
+content = re.sub(requests_pattern, replace_requests, content)
+
+# Write the patched script
+with open('semver_versioning.py', 'w') as f:
+    f.write(content)
+
+print("✅ Semver script patched to support JFrog CLI authentication")
+EOF
+            
+            python3 patch_semver.py
+            echo "✅ Using shared semver scripts from bookverse-infra (patched for JFrog CLI)"
           else
             echo "❌ Shared semver scripts not found in bookverse-infra at $INFRA_SCRIPTS_PATH" >&2
             exit 1
           fi
           echo "🔍 Calculating versions for all packages using shared logic..."
+          # Modify the semver script to use JFrog CLI instead of direct token auth
+          # We'll pass a dummy token since the script will use jf rt curl instead
+          export USE_JFROG_CLI=true
           SEMVER_OUTPUT=$(./determine-semver.sh \
             --application-key "$APPLICATION_KEY" \
             --version-map "./config/version-map.yaml" \
             --jfrog-url "${{ vars.JFROG_URL }}" \
-            --jfrog-token "$OIDC_TOKEN" \
+            --jfrog-token "dummy-token-using-jfrog-cli" \
             --project-key "${{ vars.PROJECT_KEY }}" \
             --packages "inventory" \
             --verbose)
@@ -212,7 +347,7 @@ jobs:
           
           echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "app_version=$APP_VERSION" >> $GITHUB_OUTPUT
-          echo "oidc_token=$OIDC_TOKEN" >> $GITHUB_OUTPUT
+          echo "use_jfrog_cli=true" >> $GITHUB_OUTPUT
           echo "APPLICATION_KEY=$APPLICATION_KEY" >> $GITHUB_ENV
 
       - name: "[Setup] Python"
@@ -444,12 +579,14 @@ jobs:
           echo "📦 Binding artifacts from build-info: ${{ needs.build-test-publish.outputs.build_name }}/${{ needs.build-test-publish.outputs.build_number }}"
           echo "🔗 This creates an immutable link between application version and all published artifacts"
           
-           JF_OIDC_TOKEN="${{ needs.build-test-publish.outputs.jf_access_token }}"
-           if [[ -z "$JF_OIDC_TOKEN" ]]; then
-             echo "❌ Missing OIDC token from build-test-publish job output." >&2
+           USE_JFROG_CLI="${{ needs.build-test-publish.outputs.use_jfrog_cli }}"
+           if [[ "$USE_JFROG_CLI" == "true" ]]; then
+             echo "✅ Using JFrog CLI authentication for AppTrust API calls"
+             # We'll use jf rt curl for API calls instead of direct HTTP requests
+           else
+             echo "❌ JFrog CLI authentication not available" >&2
              exit 1
            fi
-           echo "✅ Using OIDC token from build-test-publish job output for AppTrust API authentication"
           
           BASE="${{ vars.JFROG_URL }}/apptrust/api/v1"
           APP_KEY="$APPLICATION_KEY"
@@ -468,9 +605,9 @@ jobs:
           echo "$APP_VERSION_PAYLOAD" | jq . || echo "$APP_VERSION_PAYLOAD"
           
           RESP_BODY=$(mktemp)
-           HTTP_STATUS=$(curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
-             "$BASE/applications/$APP_KEY/versions?async=false" \
-             -H "Authorization: Bearer $JF_OIDC_TOKEN" \
+           # Use JFrog CLI for authenticated API calls
+           HTTP_STATUS=$(jf rt curl -sS -L -o "$RESP_BODY" -w "%{http_code}" -X POST \
+             "/apptrust/api/v1/applications/$APP_KEY/versions?async=false" \
               -H "Content-Type: application/json" \
               -d "$APP_VERSION_PAYLOAD" \
             --fail-with-body)
@@ -496,9 +633,8 @@ jobs:
           
           echo "🔍 Validating application version creation..."
           CONTENT_FILE=$(mktemp)
-          CONTENT_STATUS=$(curl -sS -L -o "$CONTENT_FILE" -w "%{http_code}" \
-            "$BASE/applications/$APP_KEY/versions/$APP_VERSION/content" \
-            -H "Authorization: Bearer $JF_OIDC_TOKEN" \
+          CONTENT_STATUS=$(jf rt curl -sS -L -o "$CONTENT_FILE" -w "%{http_code}" \
+            "/apptrust/api/v1/applications/$APP_KEY/versions/$APP_VERSION/content" \
             -H "Accept: application/json")
           
           if [[ "$CONTENT_STATUS" != "200" ]]; then
@@ -535,12 +671,13 @@ jobs:
         run: |
           echo "🚀 Promoting to DEV stage and generating evidence"
           
-           JF_OIDC_TOKEN="${{ needs.build-test-publish.outputs.jf_access_token }}"
-           if [[ -z "$JF_OIDC_TOKEN" ]]; then
-             echo "❌ Missing OIDC token from build-test-publish job output." >&2
+           USE_JFROG_CLI="${{ needs.build-test-publish.outputs.use_jfrog_cli }}"
+           if [[ "$USE_JFROG_CLI" == "true" ]]; then
+             echo "✅ Using JFrog CLI authentication for DEV promotion"
+           else
+             echo "❌ JFrog CLI authentication not available" >&2
              exit 1
            fi
-           echo "✅ Using OIDC token from build-test-publish job output for DEV promotion"
           
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
           setup_promotion_environment
