@@ -111,7 +111,7 @@ jobs:
           echo "APPLICATION_KEY=bookverse-inventory" >> $GITHUB_ENV
 
       - name: "[Setup] JFrog CLI"
-        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        uses: bookverse-infra/.github/actions/generate-oidc-token@main
         with:
           version: latest
           oidc-provider-name: bookverse-inventory-github
@@ -132,17 +132,15 @@ jobs:
           jf rt ping
           echo "✅ JFrog authentication successful"
 
-      - name: "[Auth] OIDC Token Exchange (bookverse-devops shared script)"
-        id: exchange-oidc
-        run: |
-          echo "🔐 Using bookverse-devops shared OIDC exchange script"
-          bookverse-infra/libraries/bookverse-devops/scripts/exchange-oidc-token.sh \
-            --service-name "inventory" \
-            --provider-name "bookverse-inventory-github" \
-            --jfrog-url "${{ vars.JFROG_URL }}" \
-            --docker-registry "${{ vars.DOCKER_REGISTRY }}" \
-            --verbose
-          echo "✅ OIDC token exchange completed using shared bookverse-devops script"
+      - name: "[Auth] Enhanced OIDC Token Generation"
+        id: enhanced-oidc
+        uses: bookverse-infra/.github/actions/generate-oidc-token@main
+        with:
+          oidc-provider-url: ${{ vars.JFROG_URL }}
+          oidc-provider-name: bookverse-inventory-github
+          service-name: inventory
+          application-key: bookverse-inventory
+          version: latest
 
       - name: "[Setup] Install Python dependencies"
         run: |
@@ -287,7 +285,7 @@ jobs:
           echo "Using precomputed image tag: $IMAGE_TAG"
 
           jf docker build --pull -t "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" .
-          docker push "$IMAGE_NAME"
+          jf docker push "$IMAGE_NAME"
           
           echo "📋 Resolving image digest and associating with build-info..."
           
@@ -413,7 +411,7 @@ jobs:
           path: 'bookverse-infra'
 
       - name: "[Setup] JFrog CLI"
-        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        uses: bookverse-infra/.github/actions/generate-oidc-token@main
         with:
           version: latest
           oidc-provider-name: bookverse-inventory-github
@@ -428,11 +426,11 @@ jobs:
           JFROG_CLI_BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
           JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
 
-      - name: "[Auth] OIDC Token Exchange (bookverse-devops shared script)"
+      - name: "[Auth] Enhanced OIDC Token Generation"
         id: exchange-oidc
         run: |
           echo "🔐 Using bookverse-devops shared OIDC exchange script"
-          bookverse-infra/libraries/bookverse-devops/scripts/exchange-oidc-token.sh \
+          bookverse-infra/libraries/bookverse-devops/scripts/enhanced-oidc-auth.sh \
             --service-name "inventory" \
             --provider-name "bookverse-inventory-github" \
             --jfrog-url "${{ vars.JFROG_URL }}" \
@@ -668,7 +666,7 @@ jobs:
           export JFROG_URL='${{ vars.JFROG_URL }}'
           export PROJECT_KEY='${{ vars.PROJECT_KEY }}'
           export APPLICATION_KEY="$APPLICATION_KEY"
-          # JF_OIDC_TOKEN is already available from the OIDC exchange step
+          # JF_OIDC_TOKEN is available from enhanced OIDC token generation
           
           # Load the self-healing tag management library
           source bookverse-infra/libraries/bookverse-devops/scripts/tag-management-lib.sh

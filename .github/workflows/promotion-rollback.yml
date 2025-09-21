@@ -26,6 +26,11 @@ jobs:
       - name: "[Setup] Checkout"
         uses: actions/checkout@v4
 
+      - name: "[Setup] Checkout bookverse-infra for shared scripts"
+        uses: actions/checkout@v4
+        with:
+          repository: yonatanp-jfrog/bookverse-infra
+          path: bookverse-infra
 
       - name: "[Setup] Prereqs (jq)"
         run: |
@@ -76,7 +81,7 @@ jobs:
           echo "JF_OIDC_TOKEN=$JF_OIDC_TOKEN" >> $GITHUB_ENV
 
       - name: "[Setup] JFrog CLI"
-        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        uses: bookverse-infra/.github/actions/generate-oidc-token@main
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
@@ -137,9 +142,9 @@ jobs:
 
           STATUS="SUCCESS"
           MSG=""
-          echo "🔁 Executing rollback via scripts/apptrust_rollback.py"
+          echo "🔁 Executing rollback via shared script from bookverse-infra"
           export JFROG_URL="${{ vars.JFROG_URL }}"
-          if python3 scripts/apptrust_rollback.py \
+          if python3 bookverse-infra/libraries/bookverse-devops/scripts/apptrust_rollback.py \
             --app "$APP_KEY" \
             --version "$TARGET_VERSION"; then
             MSG="Rollback executed for $APP_KEY@$TARGET_VERSION"

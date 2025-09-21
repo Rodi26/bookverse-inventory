@@ -115,7 +115,7 @@ application:
 
 ### OIDC-based rollback (no tokens)
 
-The rollback utility `scripts/apptrust_rollback.py` now supports both OIDC-minted tokens (primary) and JFrog CLI fallback:
+The rollback utility (shared from `bookverse-infra`) supports both OIDC-minted tokens (primary) and JFrog CLI fallback:
 
 ```bash
 # In GitHub Actions, OIDC tokens are minted and passed as environment variables
@@ -123,7 +123,8 @@ The rollback utility `scripts/apptrust_rollback.py` now supports both OIDC-minte
 
 # Local usage (requires jf on PATH and configured URL; no token needed):
 jf c add --interactive=false --url "$JFROG_URL" --access-token ""
-python scripts/apptrust_rollback.py --app bookverse-inventory --version 1.2.3
+# Script is now shared from bookverse-infra/libraries/bookverse-devops/scripts/
+python bookverse-infra/libraries/bookverse-devops/scripts/apptrust_rollback.py --app bookverse-inventory --version 1.2.3
 ```
 # Test commit for app version creation
 
