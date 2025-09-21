@@ -110,15 +110,15 @@ jobs:
           echo "SERVICE_NAME=inventory" >> $GITHUB_ENV
           echo "APPLICATION_KEY=bookverse-inventory" >> $GITHUB_ENV
 
-          - name: "[Setup] JFrog CLI"
-          uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
-          id: bookverse-jfcli-setup
-          with:
-            oidc-provider-name: bookverse-inventory-github
-            oidc-audience: ${{ vars.JFROG_URL }}
-          env:
-            JF_URL: ${{ vars.JFROG_URL }}
-            JF_PROJECT: ${{ vars.PROJECT_KEY }}
+      - name: "[Setup] JFrog CLI"
+        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        id: bookverse-jfcli-setup
+        with:
+          oidc-provider-name: bookverse-inventory-github
+          oidc-audience: ${{ vars.JFROG_URL }}
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
           
       - name: "[Setup] Verify JFrog Authentication"
         run: |
