@@ -738,7 +738,14 @@ jobs:
           export JFROG_URL='${{ vars.JFROG_URL }}'
           export PROJECT_KEY='${{ vars.PROJECT_KEY }}'
           export APPLICATION_KEY="$APPLICATION_KEY"
-          # JF_OIDC_TOKEN is available from build-test-publish job output
+          
+          # Set OIDC token from promotion job JFrog CLI setup
+          export JF_OIDC_TOKEN="${{ steps.extract-promotion-token.outputs.promotion_oidc_token }}"
+          if [[ -z "$JF_OIDC_TOKEN" ]]; then
+            echo "❌ Missing OIDC token for tag management from promotion job JFrog CLI setup." >&2
+            exit 1
+          fi
+          echo "✅ Using OIDC token from promotion job JFrog CLI setup for tag management"
           
           # Load the self-healing tag management library
           source bookverse-infra/libraries/bookverse-devops/scripts/tag-management-lib.sh
