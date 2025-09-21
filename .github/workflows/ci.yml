@@ -76,7 +76,7 @@ jobs:
       build_number: ${{ steps.set-build-info.outputs.build_number }}
       app_version: ${{ steps.determine-semver.outputs.app_version }}
       coverage_percent: ${{ steps.test-coverage.outputs.coverage_percent }}
-      jf_access_token: ${{ steps.exchange-oidc.outputs.token }}
+      jf_access_token: ${{ steps.bookverse-jfcli-setup.outputs.oidc-user }}
 
     steps:
       - name: "[Setup] Checkout"
@@ -110,38 +110,21 @@ jobs:
           echo "SERVICE_NAME=inventory" >> $GITHUB_ENV
           echo "APPLICATION_KEY=bookverse-inventory" >> $GITHUB_ENV
 
-      - name: "[Setup] JFrog CLI"
-        uses: yonatanp-jfrog/bookverse-infra/.github/actions/generate-oidc-token@main
-        with:
-          version: latest
-          oidc-provider-url: ${{ vars.JFROG_URL }}
-          oidc-provider-name: bookverse-inventory-github
-          oidc-audience: ${{ vars.JFROG_URL }}
-          service-name: inventory
-          application-key: bookverse-inventory
-          project-key: ${{ vars.PROJECT_KEY }}
-        env:
-          JF_URL: ${{ vars.JFROG_URL }}
-          JF_PROJECT: ${{ vars.PROJECT_KEY }}
-          JFROG_CLI_BUILD_NAME: ${{ env.BUILD_NAME }}
-          JFROG_CLI_BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
-          JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
+          - name: "[Setup] JFrog CLI"
+          uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+          id: bookverse-jfcli-setup
+          with:
+            oidc-provider-name: bookverse-inventory-github
+            oidc-audience: ${{ vars.JFROG_URL }}
+          env:
+            JF_URL: ${{ vars.JFROG_URL }}
+            JF_PROJECT: ${{ vars.PROJECT_KEY }}
           
       - name: "[Setup] Verify JFrog Authentication"
         run: |
           echo "🔐 Verifying JFrog CLI authentication and connectivity..."
           jf rt ping
           echo "✅ JFrog authentication successful"
-
-      - name: "[Auth] Enhanced OIDC Token Generation"
-        id: enhanced-oidc
-        uses: yonatanp-jfrog/bookverse-infra/.github/actions/generate-oidc-token@main
-        with:
-          oidc-provider-url: ${{ vars.JFROG_URL }}
-          oidc-provider-name: bookverse-inventory-github
-          service-name: inventory
-          application-key: bookverse-inventory
-          version: latest
 
       - name: "[Setup] Install Python dependencies"
         run: |
@@ -154,11 +137,12 @@ jobs:
           set -euo pipefail
           SERVICE_NAME=${SERVICE_NAME:-$(echo ${{ github.event.repository.name }} | sed 's/bookverse-//')}
           APPLICATION_KEY="bookverse-$SERVICE_NAME"
-          if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
-            echo "❌ Missing JF_OIDC_TOKEN. Ensure OIDC exchange step succeeded." >&2
+          OIDC_TOKEN="${{ steps.bookverse-jfcli-setup.outputs.oidc-user }}"
+          if [[ -z "$OIDC_TOKEN" ]]; then
+            echo "❌ Missing OIDC token from JFrog CLI setup step." >&2
             exit 1
           fi
-          echo "✅ Using persisted JFrog access token for semver determination"
+          echo "✅ Using OIDC token from JFrog CLI setup step output"
           echo "📋 Using shared semver logic from bookverse-infra"
           INFRA_SCRIPTS_PATH="bookverse-infra/libraries/bookverse-devops/scripts"
           if [[ -f "$INFRA_SCRIPTS_PATH/determine-semver.sh" ]]; then
@@ -175,7 +159,7 @@ jobs:
             --application-key "$APPLICATION_KEY" \
             --version-map "./config/version-map.yaml" \
             --jfrog-url "${{ vars.JFROG_URL }}" \
-            --jfrog-token "$JF_OIDC_TOKEN" \
+            --jfrog-token "$OIDC_TOKEN" \
             --project-key "${{ vars.PROJECT_KEY }}" \
             --packages "inventory" \
             --verbose)
@@ -403,33 +387,14 @@ jobs:
           path: 'bookverse-infra'
 
       - name: "[Setup] JFrog CLI"
-        uses: yonatanp-jfrog/bookverse-infra/.github/actions/generate-oidc-token@main
+        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        id: bookverse-jfcli-setup
         with:
-          version: latest
-          oidc-provider-url: ${{ vars.JFROG_URL }}
           oidc-provider-name: bookverse-inventory-github
           oidc-audience: ${{ vars.JFROG_URL }}
-          service-name: inventory
-          application-key: bookverse-inventory
-          project-key: ${{ vars.PROJECT_KEY }}
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
-          JFROG_CLI_BUILD_NAME: ${{ needs.build-test-publish.outputs.build_name }}
-          JFROG_CLI_BUILD_NUMBER: ${{ env.BUILD_NUMBER }}
-          JFROG_CLI_BUILD_PROJECT: ${{ vars.PROJECT_KEY }}
-
-      - name: "[Auth] Enhanced OIDC Token Generation"
-        id: exchange-oidc
-        run: |
-          echo "🔐 Using bookverse-devops shared OIDC exchange script"
-          bookverse-infra/libraries/bookverse-devops/scripts/enhanced-oidc-auth.sh \
-            --service-name "inventory" \
-            --provider-name "bookverse-inventory-github" \
-            --jfrog-url "${{ vars.JFROG_URL }}" \
-            --docker-registry "${{ vars.DOCKER_REGISTRY }}" \
-            --verbose
-          echo "✅ OIDC token exchange completed using shared bookverse-devops script"
 
       - name: "[Setup] Install Python dependencies"
         run: |
@@ -457,11 +422,12 @@ jobs:
           echo "📦 Binding artifacts from build-info: ${{ needs.build-test-publish.outputs.build_name }}/${{ needs.build-test-publish.outputs.build_number }}"
           echo "🔗 This creates an immutable link between application version and all published artifacts"
           
-           if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
-             echo "❌ Missing JF_OIDC_TOKEN. Ensure OIDC exchange step succeeded." >&2
+           JF_OIDC_TOKEN="${{ needs.build-test-publish.outputs.jf_access_token }}"
+           if [[ -z "$JF_OIDC_TOKEN" ]]; then
+             echo "❌ Missing OIDC token from build-test-publish job output." >&2
              exit 1
            fi
-           echo "✅ Using JF_OIDC_TOKEN for AppTrust API authentication"
+           echo "✅ Using OIDC token from build-test-publish job output for AppTrust API authentication"
           
           BASE="${{ vars.JFROG_URL }}/apptrust/api/v1"
           APP_KEY="$APPLICATION_KEY"
@@ -547,11 +513,12 @@ jobs:
         run: |
           echo "🚀 Promoting to DEV stage and generating evidence"
           
-           if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
-             echo "❌ Missing JF_OIDC_TOKEN. Ensure OIDC exchange step succeeded." >&2
+           JF_OIDC_TOKEN="${{ needs.build-test-publish.outputs.jf_access_token }}"
+           if [[ -z "$JF_OIDC_TOKEN" ]]; then
+             echo "❌ Missing OIDC token from build-test-publish job output." >&2
              exit 1
            fi
-           echo "✅ Using JF_OIDC_TOKEN for DEV promotion"
+           echo "✅ Using OIDC token from build-test-publish job output for DEV promotion"
           
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
           setup_promotion_environment
@@ -570,11 +537,12 @@ jobs:
         run: |
           echo "🔍 Promoting to QA stage and generating evidence"
           
-           if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
-             echo "❌ Missing JF_OIDC_TOKEN. Ensure OIDC exchange step succeeded." >&2
+           JF_OIDC_TOKEN="${{ needs.build-test-publish.outputs.jf_access_token }}"
+           if [[ -z "$JF_OIDC_TOKEN" ]]; then
+             echo "❌ Missing OIDC token from build-test-publish job output." >&2
              exit 1
            fi
-           echo "✅ Using JF_OIDC_TOKEN for QA promotion"
+           echo "✅ Using OIDC token from build-test-publish job output for QA promotion"
           
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
           setup_promotion_environment
@@ -593,11 +561,12 @@ jobs:
         run: |
           echo "🏗️ Promoting to STAGING stage and generating evidence"
           
-           if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
-             echo "❌ Missing JF_OIDC_TOKEN. Ensure OIDC exchange step succeeded." >&2
+           JF_OIDC_TOKEN="${{ needs.build-test-publish.outputs.jf_access_token }}"
+           if [[ -z "$JF_OIDC_TOKEN" ]]; then
+             echo "❌ Missing OIDC token from build-test-publish job output." >&2
              exit 1
            fi
-           echo "✅ Using JF_OIDC_TOKEN for STAGING promotion"
+           echo "✅ Using OIDC token from build-test-publish job output for STAGING promotion"
           
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
           setup_promotion_environment
@@ -616,11 +585,12 @@ jobs:
         run: |
           echo "🚀 Promoting to PROD stage and generating evidence"
           
-           if [[ -z "${JF_OIDC_TOKEN:-}" ]]; then
-             echo "❌ Missing JF_OIDC_TOKEN. Ensure OIDC exchange step succeeded." >&2
+           JF_OIDC_TOKEN="${{ needs.build-test-publish.outputs.jf_access_token }}"
+           if [[ -z "$JF_OIDC_TOKEN" ]]; then
+             echo "❌ Missing OIDC token from build-test-publish job output." >&2
              exit 1
            fi
-           echo "✅ Using JF_OIDC_TOKEN for PROD promotion"
+           echo "✅ Using OIDC token from build-test-publish job output for PROD promotion"
           
           source bookverse-infra/libraries/bookverse-devops/scripts/evidence-lib.sh
           setup_promotion_environment
@@ -659,7 +629,7 @@ jobs:
           export JFROG_URL='${{ vars.JFROG_URL }}'
           export PROJECT_KEY='${{ vars.PROJECT_KEY }}'
           export APPLICATION_KEY="$APPLICATION_KEY"
-          # JF_OIDC_TOKEN is available from enhanced OIDC token generation
+          # JF_OIDC_TOKEN is available from build-test-publish job output
           
           # Load the self-healing tag management library
           source bookverse-infra/libraries/bookverse-devops/scripts/tag-management-lib.sh
