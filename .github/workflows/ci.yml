@@ -125,19 +125,34 @@ jobs:
         run: |
           echo "🔍 Extracting OIDC token from JFrog CLI step output..."
           
-          # Use the OIDC token from the JFrog CLI setup step output
-          OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-user }}"
+          # Debug: Check all available outputs from JFrog CLI step
+          echo "🔍 Debugging JFrog CLI step outputs..."
+          echo "Available outputs:"
+          echo "  oidc-user: '${{ steps.jfrog-cli-auth.outputs.oidc-user }}'"
+          echo "  oidc-token: '${{ steps.jfrog-cli-auth.outputs.oidc-token }}'"
+          echo "  access-token: '${{ steps.jfrog-cli-auth.outputs.access-token }}'"
+          echo "  token: '${{ steps.jfrog-cli-auth.outputs.token }}'"
           
-          if [[ -n "$OIDC_TOKEN" && "$OIDC_TOKEN" != "null" ]]; then
-            echo "✅ Successfully retrieved OIDC token from JFrog CLI step output"
-            echo "📋 Token length: ${#OIDC_TOKEN} characters"
-            echo "oidc_token=$OIDC_TOKEN" >> $GITHUB_OUTPUT
+          # Try different possible output names
+          OIDC_TOKEN=""
+          if [[ -n "${{ steps.jfrog-cli-auth.outputs.oidc-user }}" && "${{ steps.jfrog-cli-auth.outputs.oidc-user }}" != "null" ]]; then
+            OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-user }}"
+            echo "✅ Using oidc-user output: ${#OIDC_TOKEN} characters"
+          elif [[ -n "${{ steps.jfrog-cli-auth.outputs.oidc-token }}" && "${{ steps.jfrog-cli-auth.outputs.oidc-token }}" != "null" ]]; then
+            OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
+            echo "✅ Using oidc-token output: ${#OIDC_TOKEN} characters"
+          elif [[ -n "${{ steps.jfrog-cli-auth.outputs.access-token }}" && "${{ steps.jfrog-cli-auth.outputs.access-token }}" != "null" ]]; then
+            OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.access-token }}"
+            echo "✅ Using access-token output: ${#OIDC_TOKEN} characters"
+          elif [[ -n "${{ steps.jfrog-cli-auth.outputs.token }}" && "${{ steps.jfrog-cli-auth.outputs.token }}" != "null" ]]; then
+            OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.token }}"
+            echo "✅ Using token output: ${#OIDC_TOKEN} characters"
           else
-            echo "❌ OIDC token not available from JFrog CLI step output"
-            echo "🔍 Available outputs from jfrog-cli-auth step:"
-            echo "  oidc-user: '${{ steps.jfrog-cli-auth.outputs.oidc-user }}'"
+            echo "❌ No valid OIDC token found in any JFrog CLI step outputs"
             exit 1
           fi
+          
+          echo "oidc_token=$OIDC_TOKEN" >> $GITHUB_OUTPUT
           
       - name: "[Setup] Verify JFrog Authentication"
         run: |
