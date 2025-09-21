@@ -284,6 +284,10 @@ jobs:
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
           echo "Using precomputed image tag: $IMAGE_TAG"
 
+          # Set up Docker buildx for multi-platform builds
+          docker buildx create --name multiarch --driver docker-container --use
+          docker buildx inspect --bootstrap
+
           # Build and push to JFrog Artifactory using correct pattern
           jf docker buildx build --platform linux/amd64,linux/arm64 \
             --tag "$IMAGE_NAME" \
