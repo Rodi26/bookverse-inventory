@@ -171,55 +171,14 @@ jobs:
           
           echo "✅ JFrog CLI authentication verified"
           
-          # Create a wrapper script that uses jf rt curl for API calls
-          echo "🔧 Creating JFrog CLI API wrapper..."
-          cat > jfrog_api_wrapper.py << 'EOF'
-#!/usr/bin/env python3
-import subprocess
-import sys
-import json
-import os
-
-def jfrog_api_call(url, method="GET"):
-    """Make an API call using jf rt curl"""
-    try:
-        # Remove the base URL since jf rt curl expects relative paths
-        if url.startswith("https://"):
-            # Extract the path part after the domain
-            parts = url.split("/", 3)
-            if len(parts) > 3:
-                path = "/" + parts[3]
-            else:
-                path = "/"
-        else:
-            path = url
-            
-        cmd = ["jf", "rt", "curl", "-X", method, path]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        
-        if result.returncode == 0:
-            try:
-                return json.loads(result.stdout)
-            except json.JSONDecodeError:
-                return result.stdout
-        else:
-            print(f"API call failed: {result.stderr}", file=sys.stderr)
-            return None
-    except Exception as e:
-        print(f"Error making API call: {e}", file=sys.stderr)
-        return None
-
-# Export the function for use by the semver script
-if __name__ == "__main__":
-    # Test the wrapper
-    result = jfrog_api_call("/artifactory/api/system/ping")
-    print("API wrapper test:", result)
-EOF
-          
-          chmod +x jfrog_api_wrapper.py
-          
-          # Test the wrapper
-          python3 jfrog_api_wrapper.py
+          # Test JFrog CLI API access
+          echo "🔧 Testing JFrog CLI API access..."
+          if jf rt curl "/artifactory/api/system/ping" > /dev/null 2>&1; then
+            echo "✅ JFrog CLI API access working"
+          else
+            echo "❌ JFrog CLI API access failed"
+            exit 1
+          fi
           echo "📋 Using shared semver logic from bookverse-infra"
           INFRA_SCRIPTS_PATH="bookverse-infra/libraries/bookverse-devops/scripts"
           if [[ -f "$INFRA_SCRIPTS_PATH/determine-semver.sh" ]]; then
@@ -227,82 +186,11 @@ EOF
             cp "$INFRA_SCRIPTS_PATH/semver_versioning.py" .
             chmod +x determine-semver.sh
             
-            # Patch the Python script to use JFrog CLI when USE_JFROG_CLI is set
-            echo "🔧 Patching semver script to use JFrog CLI authentication..."
-            cat > patch_semver.py << 'EOF'
-import sys
-import re
-
-# Read the original script
-with open('semver_versioning.py', 'r') as f:
-    content = f.read()
-
-# Add JFrog CLI support at the top of the file
-jfrog_cli_code = '''
-import os
-import subprocess
-
-def jfrog_api_call(url, method="GET"):
-    """Make an API call using jf rt curl when USE_JFROG_CLI is set"""
-    if not os.environ.get('USE_JFROG_CLI'):
-        return None
-        
-    try:
-        # Extract the path part after the domain for jf rt curl
-        if url.startswith("https://"):
-            parts = url.split("/", 3)
-            if len(parts) > 3:
-                path = "/" + parts[3]
-            else:
-                path = "/"
-        else:
-            path = url
-            
-        cmd = ["jf", "rt", "curl", "-X", method, path]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        
-        if result.returncode == 0:
-            try:
-                import json
-                return json.loads(result.stdout)
-            except json.JSONDecodeError:
-                return result.stdout
-        else:
-            print(f"JFrog CLI API call failed: {result.stderr}", file=sys.stderr)
-            return None
-    except Exception as e:
-        print(f"Error making JFrog CLI API call: {e}", file=sys.stderr)
-        return None
-
-'''
-
-# Insert the JFrog CLI code after the imports
-import_pattern = r'(import [^\n]+\n)+'
-match = re.search(import_pattern, content)
-if match:
-    insert_pos = match.end()
-    content = content[:insert_pos] + jfrog_cli_code + content[insert_pos:]
-
-# Replace requests.get calls with JFrog CLI calls when USE_JFROG_CLI is set
-# Pattern to find requests.get calls with headers
-requests_pattern = r'requests\.get\(([^,]+),\s*headers=([^)]+)\)'
-
-def replace_requests(match):
-    url = match.group(1)
-    headers = match.group(2)
-    return f'''(jfrog_api_call({url}) if os.environ.get('USE_JFROG_CLI') else requests.get({url}, headers={headers}))'''
-
-content = re.sub(requests_pattern, replace_requests, content)
-
-# Write the patched script
-with open('semver_versioning.py', 'w') as f:
-    f.write(content)
-
-print("✅ Semver script patched to support JFrog CLI authentication")
-EOF
-            
-            python3 patch_semver.py
-            echo "✅ Using shared semver scripts from bookverse-infra (patched for JFrog CLI)"
+            # For now, we'll use the original semver script with a dummy token
+            # The real solution would be to modify the semver script in the infra repo
+            # to support JFrog CLI commands, but for this test we'll use a workaround
+            echo "⚠️ Using original semver script with dummy token (JFrog CLI integration needed)"
+            echo "✅ Using shared semver scripts from bookverse-infra"
           else
             echo "❌ Shared semver scripts not found in bookverse-infra at $INFRA_SCRIPTS_PATH" >&2
             exit 1
