@@ -114,11 +114,12 @@ jobs:
         uses: yonatanp-jfrog/bookverse-infra/.github/actions/generate-oidc-token@main
         with:
           version: latest
+          oidc-provider-url: ${{ vars.JFROG_URL }}
           oidc-provider-name: bookverse-inventory-github
           oidc-audience: ${{ vars.JFROG_URL }}
-          disable-job-summary: true
-          disable-auto-build-publish: true
-          disable-auto-evidence-collection: false
+          service-name: inventory
+          application-key: bookverse-inventory
+          project-key: ${{ vars.PROJECT_KEY }}
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
@@ -414,11 +415,12 @@ jobs:
         uses: yonatanp-jfrog/bookverse-infra/.github/actions/generate-oidc-token@main
         with:
           version: latest
+          oidc-provider-url: ${{ vars.JFROG_URL }}
           oidc-provider-name: bookverse-inventory-github
           oidc-audience: ${{ vars.JFROG_URL }}
-          disable-job-summary: true
-          disable-auto-build-publish: true
-          disable-auto-evidence-collection: false
+          service-name: inventory
+          application-key: bookverse-inventory
+          project-key: ${{ vars.PROJECT_KEY }}
         env:
           JF_URL: ${{ vars.JFROG_URL }}
           JF_PROJECT: ${{ vars.PROJECT_KEY }}
