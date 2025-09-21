@@ -133,22 +133,18 @@ jobs:
           echo "  access-token: '${{ steps.jfrog-cli-auth.outputs.access-token }}'"
           echo "  token: '${{ steps.jfrog-cli-auth.outputs.token }}'"
           
-          # Try different possible output names
-          OIDC_TOKEN=""
-          if [[ -n "${{ steps.jfrog-cli-auth.outputs.oidc-user }}" && "${{ steps.jfrog-cli-auth.outputs.oidc-user }}" != "null" ]]; then
-            OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-user }}"
-            echo "✅ Using oidc-user output: ${#OIDC_TOKEN} characters"
-          elif [[ -n "${{ steps.jfrog-cli-auth.outputs.oidc-token }}" && "${{ steps.jfrog-cli-auth.outputs.oidc-token }}" != "null" ]]; then
-            OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
-            echo "✅ Using oidc-token output: ${#OIDC_TOKEN} characters"
-          elif [[ -n "${{ steps.jfrog-cli-auth.outputs.access-token }}" && "${{ steps.jfrog-cli-auth.outputs.access-token }}" != "null" ]]; then
-            OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.access-token }}"
-            echo "✅ Using access-token output: ${#OIDC_TOKEN} characters"
-          elif [[ -n "${{ steps.jfrog-cli-auth.outputs.token }}" && "${{ steps.jfrog-cli-auth.outputs.token }}" != "null" ]]; then
-            OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.token }}"
-            echo "✅ Using token output: ${#OIDC_TOKEN} characters"
+          # Use the oidc-token output as specified
+          OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
+          if [[ -n "$OIDC_TOKEN" && "$OIDC_TOKEN" != "null" ]]; then
+            echo "✅ Successfully retrieved OIDC token from JFrog CLI step output (oidc-token)"
+            echo "📋 Token length: ${#OIDC_TOKEN} characters"
           else
-            echo "❌ No valid OIDC token found in any JFrog CLI step outputs"
+            echo "❌ OIDC token not available from JFrog CLI step output (oidc-token)"
+            echo "🔍 Available outputs from jfrog-cli-auth step:"
+            echo "  oidc-user: '${{ steps.jfrog-cli-auth.outputs.oidc-user }}'"
+            echo "  oidc-token: '${{ steps.jfrog-cli-auth.outputs.oidc-token }}'"
+            echo "  access-token: '${{ steps.jfrog-cli-auth.outputs.access-token }}'"
+            echo "  token: '${{ steps.jfrog-cli-auth.outputs.token }}'"
             exit 1
           fi
           
@@ -175,7 +171,7 @@ jobs:
           echo "🔍 Using OIDC token directly from JFrog CLI step output for semver determination..."
           
           # Test if we can access the token directly without intermediate assignment
-          OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-user }}"
+          OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
           if [[ -z "$OIDC_TOKEN" ]]; then
             echo "❌ OIDC token not available from JFrog CLI step" >&2
             exit 1
