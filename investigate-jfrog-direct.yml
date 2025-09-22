@@ -1,0 +1,357 @@
+name: 'Direct JFrog Investigation'
+
+on:
+  workflow_dispatch:
+
+env:
+  JFROG_URL: ${{ vars.JFROG_URL }}
+  JFROG_ADMIN_TOKEN: ${{ secrets.JFROG_ADMIN_TOKEN }}
+
+jobs:
+  investigate-direct:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: "[Setup] Checkout"
+        uses: actions/checkout@v4
+
+      - name: "[Direct] JFrog Platform Status Check"
+        run: |
+          echo "🔍 Direct JFrog Platform Investigation"
+          echo "====================================="
+          echo "Platform: $JFROG_URL"
+          echo "Using: Platform Admin Token"
+          echo ""
+          
+          # Basic connectivity test
+          echo "🧪 Testing basic connectivity..."
+          PING_RESPONSE=$(curl -s -H "Authorization: Bearer $JFROG_ADMIN_TOKEN" "$JFROG_URL/artifactory/api/system/ping")
+          echo "Ping response: $PING_RESPONSE"
+          
+          if [[ "$PING_RESPONSE" == "OK" ]]; then
+            echo "✅ JFrog Platform is accessible"
+          else
+            echo "❌ JFrog Platform connectivity failed"
+            exit 1
+          fi
+          echo ""
+
+      - name: "[Direct] OIDC Providers Investigation"
+        run: |
+          echo "🔍 OIDC Providers Investigation"
+          echo "=============================="
+          echo ""
+          
+          # List all OIDC providers
+          echo "📋 Listing ALL OIDC providers on platform..."
+          OIDC_RESPONSE=$(curl -s -H "Authorization: Bearer $JFROG_ADMIN_TOKEN" \
+            -H "Accept: application/json" \
+            "$JFROG_URL/access/api/v1/oidc")
+          
+          echo "Raw OIDC response:"
+          echo "$OIDC_RESPONSE" | jq . 2>/dev/null || echo "$OIDC_RESPONSE"
+          echo ""
+          
+          # Check for bookverse providers specifically
+          echo "🔍 Looking for BookVerse OIDC providers..."
+          BOOKVERSE_PROVIDERS=$(echo "$OIDC_RESPONSE" | jq -r '.[] | select(.name | startswith("bookverse-")) | .name' 2>/dev/null || echo "")
+          
+          if [[ -n "$BOOKVERSE_PROVIDERS" ]]; then
+            echo "✅ Found BookVerse OIDC providers:"
+            echo "$BOOKVERSE_PROVIDERS" | sed 's/^/  - /'
+            
+            # Count them
+            PROVIDER_COUNT=$(echo "$BOOKVERSE_PROVIDERS" | wc -l | tr -d ' ')
+            echo ""
+            echo "📊 Count: $PROVIDER_COUNT providers (expected: 7)"
+            
+            # Check specifically for inventory
+            if echo "$BOOKVERSE_PROVIDERS" | grep -q "bookverse-inventory-github"; then
+              echo "✅ bookverse-inventory-github EXISTS"
+            else
+              echo "❌ bookverse-inventory-github MISSING"
+            fi
+          else
+            echo "❌ NO BookVerse OIDC providers found"
+            echo ""
+            echo "🔍 All available providers:"
+            echo "$OIDC_RESPONSE" | jq -r '.[].name' 2>/dev/null || echo "Could not parse providers"
+          fi
+          echo ""
+
+      - name: "[Direct] Repository Investigation"
+        run: |
+          echo "🔍 Repository Investigation"
+          echo "=========================="
+          echo ""
+          
+          # List all repositories
+          echo "📋 Listing ALL repositories on platform..."
+          REPO_RESPONSE=$(curl -s -H "Authorization: Bearer $JFROG_ADMIN_TOKEN" \
+            -H "Accept: application/json" \
+            "$JFROG_URL/artifactory/api/repositories")
+          
+          # Look for bookverse repositories
+          echo "🔍 Looking for BookVerse repositories..."
+          BOOKVERSE_REPOS=$(echo "$REPO_RESPONSE" | jq -r '.[] | select(.key | startswith("bookverse-")) | .key' 2>/dev/null || echo "")
+          
+          if [[ -n "$BOOKVERSE_REPOS" ]]; then
+            echo "✅ Found BookVerse repositories:"
+            echo "$BOOKVERSE_REPOS" | sed 's/^/  - /'
+            
+            # Count them
+            REPO_COUNT=$(echo "$BOOKVERSE_REPOS" | wc -l | tr -d ' ')
+            echo ""
+            echo "📊 Count: $REPO_COUNT repositories"
+            
+            # Check specifically for inventory docker repo
+            TARGET_REPO="bookverse-inventory-internal-docker-nonprod-local"
+            if echo "$BOOKVERSE_REPOS" | grep -q "$TARGET_REPO"; then
+              echo "✅ $TARGET_REPO EXISTS"
+              
+              # Get detailed info about this repo
+              echo ""
+              echo "🔍 Detailed info for $TARGET_REPO:"
+              REPO_DETAILS=$(curl -s -H "Authorization: Bearer $JFROG_ADMIN_TOKEN" \
+                "$JFROG_URL/artifactory/api/repositories/$TARGET_REPO")
+              echo "$REPO_DETAILS" | jq . 2>/dev/null || echo "$REPO_DETAILS"
+            else
+              echo "❌ $TARGET_REPO MISSING"
+              echo ""
+              echo "🔍 Looking for any inventory-related repositories:"
+              echo "$BOOKVERSE_REPOS" | grep inventory || echo "No inventory repositories found"
+            fi
+          else
+            echo "❌ NO BookVerse repositories found"
+            echo ""
+            echo "🔍 Total repositories on platform:"
+            TOTAL_REPOS=$(echo "$REPO_RESPONSE" | jq -r '.[].key' 2>/dev/null | wc -l | tr -d ' ')
+            echo "Count: $TOTAL_REPOS"
+          fi
+          echo ""
+
+      - name: "[Direct] Test OIDC Token Exchange"
+        run: |
+          echo "🔍 OIDC Token Exchange Test"
+          echo "==========================="
+          echo ""
+          
+          # First, check if we have the GitHub OIDC environment
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo "❌ GitHub OIDC environment not available"
+            echo "Available env vars:"
+            env | grep -E "ACTIONS_|GITHUB_" || echo "No GitHub/Actions env vars"
+            exit 1
+          fi
+          
+          echo "✅ GitHub OIDC environment available"
+          echo "Request URL: ${ACTIONS_ID_TOKEN_REQUEST_URL}"
+          echo ""
+          
+          # Mint GitHub OIDC token
+          echo "🔑 Minting GitHub OIDC token..."
+          GITHUB_TOKEN=$(curl -fsSL \
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JFROG_URL}" | jq -r .value)
+          
+          if [[ -z "$GITHUB_TOKEN" || "$GITHUB_TOKEN" == "null" ]]; then
+            echo "❌ Failed to get GitHub OIDC token"
+            exit 1
+          fi
+          
+          echo "✅ GitHub OIDC token obtained"
+          echo "Length: ${#GITHUB_TOKEN} characters"
+          echo "Starts with: ${GITHUB_TOKEN:0:30}..."
+          echo ""
+          
+          # Try to exchange for JFrog access token
+          echo "🔁 Attempting OIDC token exchange..."
+          PROVIDER_NAME="bookverse-inventory-github"
+          
+          PAYLOAD=$(jq -n \
+            --arg jwt "$GITHUB_TOKEN" \
+            --arg provider_name "$PROVIDER_NAME" \
+            --arg project_key "bookverse" \
+            --arg job_id "${{ github.job }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg repo "https://github.com/${{ github.repository }}" \
+            --arg revision "${{ github.sha }}" \
+            --arg branch "${{ github.ref_name }}" \
+            '{
+              grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
+              subject_token_type:"urn:ietf:params:oauth:token-type:id_token",
+              subject_token:$jwt,
+              provider_name:$provider_name,
+              project_key:$project_key,
+              job_id:$job_id,
+              run_id:$run_id,
+              repo:$repo,
+              revision:$revision,
+              branch:$branch
+            }')
+          
+          echo "Exchange payload:"
+          echo "$PAYLOAD" | jq .
+          echo ""
+          
+          EXCHANGE_RESPONSE=$(curl -s -w "HTTP_CODE:%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "$JFROG_URL/access/api/v1/oidc/token")
+          
+          HTTP_CODE=$(echo "$EXCHANGE_RESPONSE" | grep -o "HTTP_CODE:[0-9]*" | cut -d: -f2)
+          BODY=$(echo "$EXCHANGE_RESPONSE" | sed 's/HTTP_CODE:[0-9]*$//')
+          
+          echo "📋 Exchange result:"
+          echo "HTTP Code: $HTTP_CODE"
+          echo "Response: $BODY"
+          
+          if [[ "$HTTP_CODE" == "200" ]]; then
+            JFROG_ACCESS_TOKEN=$(echo "$BODY" | jq -r '.access_token // empty')
+            if [[ -n "$JFROG_ACCESS_TOKEN" ]]; then
+              echo "✅ OIDC token exchange SUCCESS"
+              echo "JFrog access token length: ${#JFROG_ACCESS_TOKEN} characters"
+              echo "JFrog access token starts with: ${JFROG_ACCESS_TOKEN:0:30}..."
+              echo "JFROG_ACCESS_TOKEN=$JFROG_ACCESS_TOKEN" >> $GITHUB_ENV
+            else
+              echo "❌ Exchange returned 200 but no access token in response"
+            fi
+          else
+            echo "❌ OIDC token exchange FAILED"
+            case "$HTTP_CODE" in
+              400) echo "Bad request - check payload format or provider configuration" ;;
+              401) echo "Unauthorized - GitHub token invalid or provider not configured" ;;
+              404) echo "Provider not found - bookverse-inventory-github doesn't exist" ;;
+              *) echo "Unexpected error" ;;
+            esac
+          fi
+          echo ""
+
+      - name: "[Direct] Test Docker Registry API"
+        if: env.JFROG_ACCESS_TOKEN != ''
+        run: |
+          echo "🔍 Docker Registry API Test"
+          echo "============================"
+          echo ""
+          
+          REPO_KEY="bookverse-inventory-internal-docker-nonprod-local"
+          PACKAGE_NAME="inventory"
+          DOCKER_URL="$JFROG_URL/artifactory/api/docker/$REPO_KEY/v2/$PACKAGE_NAME/tags/list"
+          
+          echo "Testing Docker registry API..."
+          echo "Repository: $REPO_KEY"
+          echo "Package: $PACKAGE_NAME"
+          echo "URL: $DOCKER_URL"
+          echo "Token length: ${#JFROG_ACCESS_TOKEN} characters"
+          echo ""
+          
+          DOCKER_RESPONSE=$(curl -s -w "HTTP_CODE:%{http_code}" \
+            -H "Authorization: Bearer $JFROG_ACCESS_TOKEN" \
+            -H "Accept: application/json" \
+            "$DOCKER_URL")
+          
+          HTTP_CODE=$(echo "$DOCKER_RESPONSE" | grep -o "HTTP_CODE:[0-9]*" | cut -d: -f2)
+          BODY=$(echo "$DOCKER_RESPONSE" | sed 's/HTTP_CODE:[0-9]*$//')
+          
+          echo "📋 Docker API result:"
+          echo "HTTP Code: $HTTP_CODE"
+          echo "Response: $BODY"
+          
+          case "$HTTP_CODE" in
+            200)
+              echo "✅ SUCCESS: Docker registry API works!"
+              echo "Available tags:"
+              echo "$BODY" | jq -r '.tags[]?' 2>/dev/null || echo "No tags or invalid JSON"
+              ;;
+            401)
+              echo "❌ AUTHENTICATION FAILED: Access token invalid"
+              ;;
+            403)
+              echo "❌ PERMISSION DENIED: Token lacks repository access"
+              ;;
+            404)
+              echo "❌ NOT FOUND: Repository or package doesn't exist"
+              echo "This could mean:"
+              echo "  1. Repository $REPO_KEY doesn't exist"
+              echo "  2. Package $PACKAGE_NAME doesn't exist in repository"
+              echo "  3. Docker API endpoint structure is wrong"
+              ;;
+            *)
+              echo "❌ UNKNOWN ERROR: HTTP $HTTP_CODE"
+              ;;
+          esac
+          echo ""
+
+      - name: "[Direct] JFrog CLI Comparison"
+        run: |
+          echo "🔍 JFrog CLI Token Comparison"
+          echo "=============================="
+          echo ""
+          
+          # Set up JFrog CLI with admin token for comparison
+          echo "🔧 Setting up JFrog CLI with admin token..."
+          jf c add admin-config --url="$JFROG_URL" --access-token="$JFROG_ADMIN_TOKEN" --interactive=false
+          jf c use admin-config
+          jf c show
+          echo ""
+          
+          # Test basic CLI functionality
+          echo "🧪 Testing CLI functionality..."
+          jf rt ping
+          echo "✅ JFrog CLI works with admin token"
+          echo ""
+          
+          # Try to export the CLI token
+          echo "🔍 Testing 'jf c export'..."
+          EXPORT_OUTPUT=$(jf c export 2>&1 || echo "EXPORT_FAILED")
+          echo "Export output: $EXPORT_OUTPUT"
+          
+          # Eval the export
+          eval "$(jf c export 2>/dev/null || true)"
+          
+          echo ""
+          echo "After export:"
+          echo "JF_ACCESS_TOKEN: '${JF_ACCESS_TOKEN:-UNSET}'"
+          
+          if [[ -n "${JF_ACCESS_TOKEN:-}" ]]; then
+            echo "✅ CLI export provides access token"
+            echo "Length: ${#JF_ACCESS_TOKEN} characters"
+            
+            # Compare with our exchanged token
+            if [[ -n "${JFROG_ACCESS_TOKEN:-}" ]]; then
+              if [[ "$JF_ACCESS_TOKEN" == "$JFROG_ACCESS_TOKEN" ]]; then
+                echo "📊 CLI export token MATCHES OIDC exchanged token"
+              else
+                echo "📊 CLI export token DIFFERS from OIDC exchanged token"
+                echo "  CLI token:  ${JF_ACCESS_TOKEN:0:30}..."
+                echo "  OIDC token: ${JFROG_ACCESS_TOKEN:0:30}..."
+              fi
+            else
+              echo "📊 Only CLI export token available (OIDC exchange failed)"
+            fi
+          else
+            echo "❌ CLI export does not provide access token"
+          fi
+
+      - name: "[Summary] Investigation Results"
+        if: always()
+        run: |
+          echo ""
+          echo "🎯 INVESTIGATION SUMMARY"
+          echo "======================="
+          echo ""
+          echo "Platform: $JFROG_URL"
+          echo "Date: $(date -u)"
+          echo ""
+          echo "Key Findings:"
+          echo "1. JFrog Platform Connectivity: $(curl -s -H "Authorization: Bearer $JFROG_ADMIN_TOKEN" "$JFROG_URL/artifactory/api/system/ping" 2>/dev/null || echo 'FAILED')"
+          echo "2. OIDC Provider 'bookverse-inventory-github': $(curl -s -H "Authorization: Bearer $JFROG_ADMIN_TOKEN" "$JFROG_URL/access/api/v1/oidc" | jq -r '.[] | select(.name == "bookverse-inventory-github") | .name' 2>/dev/null || echo 'NOT FOUND')"
+          echo "3. Repository 'bookverse-inventory-internal-docker-nonprod-local': $(curl -s -H "Authorization: Bearer $JFROG_ADMIN_TOKEN" "$JFROG_URL/artifactory/api/repositories/bookverse-inventory-internal-docker-nonprod-local" | jq -r '.key' 2>/dev/null || echo 'NOT FOUND')"
+          echo "4. OIDC Token Exchange: ${JFROG_ACCESS_TOKEN:+SUCCESS}"
+          echo "5. JFrog CLI Export: ${JF_ACCESS_TOKEN:+SUCCESS}"
+          echo ""
+          echo "This investigation will pinpoint exactly what's missing after JPD switch + setup."
