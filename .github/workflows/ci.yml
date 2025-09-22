@@ -318,12 +318,16 @@ jobs:
           docker build --tag "$IMAGE_NAME" .
           
           # Push to JFrog Artifactory with build-info integration
-          echo "🔍 Debugging: IMAGE_NAME=$IMAGE_NAME"
-          echo "🔍 Debugging: BUILD_NAME=$BUILD_NAME"
-          echo "🔍 Debugging: BUILD_NUMBER=$BUILD_NUMBER"
+          jf docker push "$IMAGE_NAME" \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER" \
+            --project "${{ vars.PROJECT_KEY }}"
           
-          # Use simple approach first
-          jf docker push "$IMAGE_NAME" --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER" --project "${{ vars.PROJECT_KEY }}"
+          # Publish build-info (essential for build-info integration)
+          echo "📋 Publishing build-info..."
+          jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
 
           echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
           echo "✅ Built, pushed, and associated inventory Docker image with build-info"
