@@ -76,6 +76,12 @@ jobs:
             --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}"
           
+          # Add missing build-info publishing steps (key fix!)
+          echo "📋 Publishing build-info..."
+          jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          
           echo "✅ Approach 1 completed"
 
       - name: "[Test] Approach 2: jf-docker-build-push"  
@@ -89,6 +95,12 @@ jobs:
             --build-name "$BUILD_NAME" \
             --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}"
+          
+          # Add missing build-info publishing steps (key fix!)
+          echo "📋 Publishing build-info..."
+          jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
           
           echo "✅ Approach 2 completed"
 
