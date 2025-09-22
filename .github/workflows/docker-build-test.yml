@@ -1,0 +1,180 @@
+name: Docker Build Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_approach:
+        description: 'Which Docker build approach to test'
+        required: true
+        default: 'jf-docker-push'
+        type: choice
+        options:
+        - 'jf-docker-push'
+        - 'jf-docker-build-push'
+        - 'docker-jf-push'
+        - 'buildx-jf-push'
+
+jobs:
+  test-docker-build:
+    name: "Test Docker Build Approaches"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    
+    steps:
+      - name: "[Setup] Checkout"
+        uses: actions/checkout@v4
+
+      - name: "[Setup] JFrog CLI"
+        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        id: jfrog-cli-auth
+        with:
+          oidc-provider-name: bookverse-inventory-github
+          oidc-audience: ${{ vars.JFROG_URL }}
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
+
+      - name: "[Setup] Variables"
+        id: setup
+        run: |
+          BUILD_NAME="docker-build-test"
+          BUILD_NUMBER="${{ github.run_number }}"
+          TEST_TAG="test-$(date +%s)"
+          IMAGE_NAME="${{ vars.DOCKER_REGISTRY }}/bookverse-inventory-internal-docker-nonprod-local/test-image:$TEST_TAG"
+          
+          echo "BUILD_NAME=$BUILD_NAME" >> $GITHUB_ENV
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
+          echo "TEST_TAG=$TEST_TAG" >> $GITHUB_ENV
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          
+          echo "🔧 Test Configuration:"
+          echo "  📦 Image: $IMAGE_NAME"
+          echo "  🏗️ Build: $BUILD_NAME/$BUILD_NUMBER"
+          echo "  🧪 Approach: ${{ inputs.test_approach }}"
+
+      - name: "[Build] Docker Registry Authentication"
+        uses: yonatanp-jfrog/bookverse-infra/.github/actions/docker-registry-auth@main
+        with:
+          oidc-token: ${{ steps.jfrog-cli-auth.outputs.oidc-token }}
+          registry-url: ${{ vars.JFROG_URL }}
+          verbosity: 'debug'
+
+      - name: "[Test] Approach 1: jf-docker-push"
+        if: inputs.test_approach == 'jf-docker-push'
+        run: |
+          echo "🧪 Testing: Standard docker build + jf docker push with build-info"
+          
+          # Build with standard Docker
+          docker build -f Dockerfile.test -t "$IMAGE_NAME" .
+          
+          # Push with JFrog CLI and build-info
+          jf docker push "$IMAGE_NAME" \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER" \
+            --project "${{ vars.PROJECT_KEY }}"
+          
+          echo "✅ Approach 1 completed"
+
+      - name: "[Test] Approach 2: jf-docker-build-push"  
+        if: inputs.test_approach == 'jf-docker-build-push'
+        run: |
+          echo "🧪 Testing: jf docker build + jf docker push"
+          
+          # Build and push with JFrog CLI
+          jf docker build -f Dockerfile.test -t "$IMAGE_NAME" .
+          jf docker push "$IMAGE_NAME" \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER" \
+            --project "${{ vars.PROJECT_KEY }}"
+          
+          echo "✅ Approach 2 completed"
+
+      - name: "[Test] Approach 3: docker-jf-push"
+        if: inputs.test_approach == 'docker-jf-push'
+        run: |
+          echo "🧪 Testing: docker build + separate jf rt commands"
+          
+          # Build with standard Docker
+          docker build -f Dockerfile.test -t "$IMAGE_NAME" .
+          
+          # Push with standard docker 
+          docker push "$IMAGE_NAME"
+          
+          # Try to associate with build-info using jf rt commands
+          jf rt sp "bookverse-inventory-internal-docker-nonprod-local/test-image/$TEST_TAG/*" \
+            "build.name=$BUILD_NAME;build.number=$BUILD_NUMBER"
+          
+          echo "✅ Approach 3 completed"
+
+      - name: "[Test] Approach 4: buildx-jf-push"
+        if: inputs.test_approach == 'buildx-jf-push'
+        run: |
+          echo "🧪 Testing: docker buildx + jf docker push"
+          
+          # Build with Docker Buildx
+          docker buildx build -f Dockerfile.test -t "$IMAGE_NAME" --load .
+          
+          # Push with JFrog CLI and build-info
+          jf docker push "$IMAGE_NAME" \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER" \
+            --project "${{ vars.PROJECT_KEY }}"
+          
+          echo "✅ Approach 4 completed"
+
+      - name: "[Verify] Build Info"
+        run: |
+          echo "🔍 Verifying build info was created..."
+          
+          # Check if build info exists
+          if jf rt curl -X GET "/api/build/$BUILD_NAME/$BUILD_NUMBER?project=${{ vars.PROJECT_KEY }}" | jq -r '.uri' | grep -q "$BUILD_NAME"; then
+            echo "✅ Build info found and accessible"
+            
+            # Get build info details
+            echo "📋 Build info details:"
+            jf rt curl -X GET "/api/build/$BUILD_NAME/$BUILD_NUMBER?project=${{ vars.PROJECT_KEY }}" | jq '.buildInfo | {name, number, started, modules: (.modules | length)}'
+          else
+            echo "❌ Build info not found or not accessible"
+            exit 1
+          fi
+
+      - name: "[Verify] Image Properties"
+        run: |
+          echo "🔍 Verifying image properties..."
+          
+          # Check image properties
+          if jf rt curl -X GET "/api/storage/bookverse-inventory-internal-docker-nonprod-local/test-image/$TEST_TAG/manifest.json?properties" | jq -r '.properties' | grep -q "build.name"; then
+            echo "✅ Build properties found on image"
+            
+            # Show properties
+            echo "📋 Image properties:"
+            jf rt curl -X GET "/api/storage/bookverse-inventory-internal-docker-nonprod-local/test-image/$TEST_TAG/manifest.json?properties" | jq '.properties'
+          else
+            echo "❌ Build properties not found on image"
+            exit 1
+          fi
+
+      - name: "[Cleanup] Remove Test Image"
+        if: always()
+        run: |
+          echo "🧹 Cleaning up test image..."
+          jf rt del "bookverse-inventory-internal-docker-nonprod-local/test-image/$TEST_TAG/" --quiet || true
+          echo "✅ Cleanup completed"
+
+      - name: "[Summary] Test Results"
+        if: always()
+        run: |
+          echo "## 🧪 Docker Build Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Approach Tested:** ${{ inputs.test_approach }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`$IMAGE_NAME\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Build:** \`$BUILD_NAME/$BUILD_NUMBER\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "✅ **Status:** Success - Approach works correctly with build-info integration" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Status:** Failed - This approach has issues" >> $GITHUB_STEP_SUMMARY
+          fi

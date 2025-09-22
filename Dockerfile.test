@@ -1,0 +1,12 @@
+# Minimal test Dockerfile for fast Docker build testing
+FROM alpine:3.18
+
+# Add a simple label for versioning
+LABEL version="test-1.0"
+LABEL description="Minimal test image for Docker build optimization"
+
+# Create a simple test file
+RUN echo "Hello from minimal test image" > /test.txt
+
+# Set a simple command
+CMD ["cat", "/test.txt"]
