@@ -1,0 +1,177 @@
+name: 'Test Token Approaches'
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-tokens:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: "[Setup] Checkout"
+        uses: actions/checkout@v4
+
+      - name: "[Setup] JFrog CLI"
+        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        id: jfrog-cli-auth
+        with:
+          oidc-provider-name: bookverse-inventory-github
+          oidc-audience: ${{ vars.JFROG_URL }}
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
+
+      - name: "[Test] Extract Token from CLI Outputs"
+        id: test-output-token
+        run: |
+          echo "🧪 Testing JFrog CLI step outputs..."
+          echo "Available outputs:"
+          echo "  oidc-user: '${{ steps.jfrog-cli-auth.outputs.oidc-user }}'"
+          echo "  oidc-token: '${{ steps.jfrog-cli-auth.outputs.oidc-token }}'"
+          echo "  access-token: '${{ steps.jfrog-cli-auth.outputs.access-token }}'"
+          echo "  token: '${{ steps.jfrog-cli-auth.outputs.token }}'"
+          
+          # Get the oidc-token output
+          OUTPUT_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
+          if [[ -n "$OUTPUT_TOKEN" && "$OUTPUT_TOKEN" != "null" ]]; then
+            echo "✅ Output token available"
+            echo "📋 Token length: ${#OUTPUT_TOKEN} characters"
+            echo "📋 Token starts with: ${OUTPUT_TOKEN:0:15}..."
+            echo "output_token_available=true" >> $GITHUB_OUTPUT
+            echo "output_token_length=${#OUTPUT_TOKEN}" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Output token not available"
+            echo "output_token_available=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: "[Test] Extract Token from CLI Export"
+        id: test-export-token
+        run: |
+          echo "🧪 Testing JFrog CLI export..."
+          echo "Before export - JF_ACCESS_TOKEN: '${JF_ACCESS_TOKEN:-UNSET}'"
+          
+          # Test jf c export
+          echo "🔍 Running 'jf c export'..."
+          EXPORT_OUTPUT=$(jf c export 2>&1 || true)
+          echo "Export output: $EXPORT_OUTPUT"
+          
+          # Try to eval the export
+          eval "$(jf c export 2>/dev/null || true)"
+          
+          echo "After export - JF_ACCESS_TOKEN: '${JF_ACCESS_TOKEN:-UNSET}'"
+          
+          if [[ -n "${JF_ACCESS_TOKEN:-}" ]]; then
+            echo "✅ Export token available"
+            echo "📋 Token length: ${#JF_ACCESS_TOKEN} characters"
+            echo "📋 Token starts with: ${JF_ACCESS_TOKEN:0:15}..."
+            echo "export_token_available=true" >> $GITHUB_OUTPUT
+            echo "export_token_length=${#JF_ACCESS_TOKEN}" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Export token not available"
+            echo "export_token_available=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: "[Test] Compare Tokens"
+        run: |
+          echo "🧪 Comparing tokens..."
+          
+          OUTPUT_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
+          eval "$(jf c export 2>/dev/null || true)"
+          EXPORT_TOKEN="${JF_ACCESS_TOKEN:-}"
+          
+          if [[ -n "$OUTPUT_TOKEN" && -n "$EXPORT_TOKEN" ]]; then
+            echo "📋 Output token length: ${#OUTPUT_TOKEN}"
+            echo "📋 Export token length: ${#EXPORT_TOKEN}"
+            echo "📋 Output token prefix: ${OUTPUT_TOKEN:0:20}..."
+            echo "📋 Export token prefix: ${EXPORT_TOKEN:0:20}..."
+            
+            if [[ "$OUTPUT_TOKEN" == "$EXPORT_TOKEN" ]]; then
+              echo "✅ Tokens are IDENTICAL"
+            else
+              echo "❌ Tokens are DIFFERENT"
+            fi
+          else
+            echo "⚠️ Cannot compare - one or both tokens missing"
+            echo "   Output token present: $([[ -n "$OUTPUT_TOKEN" ]] && echo "YES" || echo "NO")"
+            echo "   Export token present: $([[ -n "$EXPORT_TOKEN" ]] && echo "YES" || echo "NO")"
+          fi
+
+      - name: "[Test] Docker Registry API with Output Token"
+        continue-on-error: true
+        run: |
+          echo "🧪 Testing Docker registry API with output token..."
+          
+          OUTPUT_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
+          if [[ -z "$OUTPUT_TOKEN" ]]; then
+            echo "❌ No output token to test"
+            exit 1
+          fi
+          
+          # Test Docker registry API call
+          DOCKER_URL="${{ vars.JFROG_URL }}/artifactory/api/docker/bookverse-inventory-internal-docker-nonprod-local/v2/inventory/tags/list"
+          echo "🔍 Testing URL: $DOCKER_URL"
+          
+          RESPONSE=$(curl -s -w "HTTP_CODE:%{http_code}" \
+            -H "Authorization: Bearer $OUTPUT_TOKEN" \
+            -H "Accept: application/json" \
+            "$DOCKER_URL" || echo "CURL_FAILED")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | grep -o "HTTP_CODE:[0-9]*" | cut -d: -f2)
+          BODY=$(echo "$RESPONSE" | sed 's/HTTP_CODE:[0-9]*$//')
+          
+          echo "📋 HTTP Code: $HTTP_CODE"
+          echo "📋 Response: $BODY"
+          
+          if [[ "$HTTP_CODE" == "200" ]]; then
+            echo "✅ Output token works with Docker API"
+          else
+            echo "❌ Output token failed with Docker API (HTTP $HTTP_CODE)"
+          fi
+
+      - name: "[Test] Docker Registry API with Export Token"
+        continue-on-error: true
+        run: |
+          echo "🧪 Testing Docker registry API with export token..."
+          
+          eval "$(jf c export 2>/dev/null || true)"
+          EXPORT_TOKEN="${JF_ACCESS_TOKEN:-}"
+          
+          if [[ -z "$EXPORT_TOKEN" ]]; then
+            echo "❌ No export token to test"
+            exit 1
+          fi
+          
+          # Test Docker registry API call
+          DOCKER_URL="${{ vars.JFROG_URL }}/artifactory/api/docker/bookverse-inventory-internal-docker-nonprod-local/v2/inventory/tags/list"
+          echo "🔍 Testing URL: $DOCKER_URL"
+          
+          RESPONSE=$(curl -s -w "HTTP_CODE:%{http_code}" \
+            -H "Authorization: Bearer $EXPORT_TOKEN" \
+            -H "Accept: application/json" \
+            "$DOCKER_URL" || echo "CURL_FAILED")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | grep -o "HTTP_CODE:[0-9]*" | cut -d: -f2)
+          BODY=$(echo "$RESPONSE" | sed 's/HTTP_CODE:[0-9]*$//')
+          
+          echo "📋 HTTP Code: $HTTP_CODE"
+          echo "📋 Response: $BODY"
+          
+          if [[ "$HTTP_CODE" == "200" ]]; then
+            echo "✅ Export token works with Docker API"
+          else
+            echo "❌ Export token failed with Docker API (HTTP $HTTP_CODE)"
+          fi
+
+      - name: "[Test] JFrog CLI Commands"
+        run: |
+          echo "🧪 Testing JFrog CLI commands..."
+          echo "🔍 jf c show:"
+          jf c show
+          echo ""
+          echo "🔍 jf rt ping:"
+          jf rt ping
+          echo ""
+          echo "✅ JFrog CLI commands work properly"

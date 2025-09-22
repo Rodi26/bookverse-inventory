@@ -1,0 +1,192 @@
+name: 'Debug Platform Setup'
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug-platform:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: "[Setup] Checkout"
+        uses: actions/checkout@v4
+
+      - name: "[Setup] JFrog CLI"
+        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        id: jfrog-cli-auth
+        with:
+          oidc-provider-name: bookverse-inventory-github
+          oidc-audience: ${{ vars.JFROG_URL }}
+        env:
+          JF_URL: ${{ vars.JFROG_URL }}
+          JF_PROJECT: ${{ vars.PROJECT_KEY }}
+
+      - name: "[Debug] Check OIDC Provider Status"
+        run: |
+          echo "🔍 Checking OIDC provider status..."
+          echo "Expected provider: bookverse-inventory-github"
+          echo "JFrog URL: ${{ vars.JFROG_URL }}"
+          echo "Project Key: ${{ vars.PROJECT_KEY }}"
+          echo ""
+          
+          # Test basic JFrog authentication first
+          echo "🧪 Testing basic JFrog connectivity..."
+          jf rt ping
+          echo "✅ JFrog CLI authentication works"
+          echo ""
+          
+          # Get OIDC token from CLI step
+          OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
+          echo "🔍 OIDC Token from CLI step:"
+          echo "  Available: $([[ -n "$OIDC_TOKEN" ]] && echo "YES" || echo "NO")"
+          if [[ -n "$OIDC_TOKEN" ]]; then
+            echo "  Length: ${#OIDC_TOKEN} characters"
+            echo "  Starts with: ${OIDC_TOKEN:0:20}..."
+          fi
+          echo ""
+          
+          # Check if we can list OIDC providers
+          echo "🔍 Checking available OIDC providers..."
+          OIDC_LIST=$(jf rt curl -XGET "/access/api/v1/oidc" || echo "FAILED")
+          echo "OIDC providers response: $OIDC_LIST"
+          echo ""
+          
+          # Look specifically for our provider
+          if echo "$OIDC_LIST" | jq -r '.[] | select(.name == "bookverse-inventory-github") | .name' 2>/dev/null | grep -q "bookverse-inventory-github"; then
+            echo "✅ OIDC provider 'bookverse-inventory-github' EXISTS"
+          else
+            echo "❌ OIDC provider 'bookverse-inventory-github' NOT FOUND"
+            echo "Available providers:"
+            echo "$OIDC_LIST" | jq -r '.[] | .name' 2>/dev/null || echo "Could not parse providers list"
+          fi
+
+      - name: "[Debug] Check Repository Status"
+        run: |
+          echo "🔍 Checking Docker repository status..."
+          REPO_KEY="bookverse-inventory-internal-docker-nonprod-local"
+          echo "Expected repository: $REPO_KEY"
+          echo ""
+          
+          # Check if repository exists
+          REPO_CHECK=$(jf rt curl -XGET "/artifactory/api/repositories/$REPO_KEY" || echo "REPO_FAILED")
+          echo "Repository check response: $REPO_CHECK"
+          
+          if echo "$REPO_CHECK" | jq -r '.key' 2>/dev/null | grep -q "$REPO_KEY"; then
+            echo "✅ Repository '$REPO_KEY' EXISTS"
+          else
+            echo "❌ Repository '$REPO_KEY' NOT FOUND"
+            echo ""
+            echo "🔍 Listing all repositories with 'inventory' in name:"
+            jf rt curl -XGET "/artifactory/api/repositories" | jq -r '.[] | select(.key | contains("inventory")) | .key' 2>/dev/null || echo "Could not list repositories"
+          fi
+
+      - name: "[Debug] Test Docker Registry API with OIDC Token"
+        run: |
+          echo "🔍 Testing Docker registry API with OIDC token..."
+          OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
+          
+          if [[ -z "$OIDC_TOKEN" ]]; then
+            echo "❌ No OIDC token available for testing"
+            exit 1
+          fi
+          
+          REPO_KEY="bookverse-inventory-internal-docker-nonprod-local"
+          DOCKER_URL="${{ vars.JFROG_URL }}/artifactory/api/docker/$REPO_KEY/v2/inventory/tags/list"
+          
+          echo "Testing URL: $DOCKER_URL"
+          echo "Token length: ${#OIDC_TOKEN} characters"
+          echo ""
+          
+          # Test the exact call that semver script makes
+          echo "🧪 Making Docker registry API call..."
+          RESPONSE=$(curl -s -w "HTTP_CODE:%{http_code}" \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -H "Accept: application/json" \
+            "$DOCKER_URL" 2>&1 || echo "CURL_FAILED")
+          
+          echo "Full response: $RESPONSE"
+          
+          HTTP_CODE=$(echo "$RESPONSE" | grep -o "HTTP_CODE:[0-9]*" | cut -d: -f2)
+          BODY=$(echo "$RESPONSE" | sed 's/HTTP_CODE:[0-9]*$//')
+          
+          echo ""
+          echo "📋 Results:"
+          echo "  HTTP Code: $HTTP_CODE"
+          echo "  Response Body: $BODY"
+          
+          case "$HTTP_CODE" in
+            200)
+              echo "✅ SUCCESS: Docker registry API call worked!"
+              ;;
+            401)
+              echo "❌ AUTHENTICATION FAILED: Token is invalid or wrong type"
+              ;;
+            403)
+              echo "❌ PERMISSION DENIED: Token lacks repository access"
+              ;;
+            404)
+              echo "❌ NOT FOUND: Repository or endpoint doesn't exist"
+              ;;
+            *)
+              echo "❌ UNKNOWN ERROR: HTTP $HTTP_CODE"
+              ;;
+          esac
+
+      - name: "[Debug] Compare with JFrog CLI Export Token"
+        continue-on-error: true
+        run: |
+          echo "🔍 Testing JFrog CLI export token approach..."
+          
+          echo "Before export:"
+          echo "  JF_ACCESS_TOKEN: '${JF_ACCESS_TOKEN:-UNSET}'"
+          
+          # Try jf c export
+          echo ""
+          echo "🔍 Running 'jf c export'..."
+          EXPORT_OUTPUT=$(jf c export 2>&1 || echo "EXPORT_FAILED")
+          echo "Export output: $EXPORT_OUTPUT"
+          
+          # Eval the export
+          eval "$(jf c export 2>/dev/null || true)"
+          
+          echo ""
+          echo "After export:"
+          echo "  JF_ACCESS_TOKEN: '${JF_ACCESS_TOKEN:-UNSET}'"
+          
+          if [[ -n "${JF_ACCESS_TOKEN:-}" ]]; then
+            echo "✅ Got access token from export"
+            echo "  Length: ${#JF_ACCESS_TOKEN} characters"
+            echo "  Starts with: ${JF_ACCESS_TOKEN:0:20}..."
+            
+            # Test the same Docker API call with this token
+            echo ""
+            echo "🧪 Testing Docker registry with export token..."
+            DOCKER_URL="${{ vars.JFROG_URL }}/artifactory/api/docker/bookverse-inventory-internal-docker-nonprod-local/v2/inventory/tags/list"
+            
+            RESPONSE2=$(curl -s -w "HTTP_CODE:%{http_code}" \
+              -H "Authorization: Bearer $JF_ACCESS_TOKEN" \
+              -H "Accept: application/json" \
+              "$DOCKER_URL" 2>&1 || echo "CURL_FAILED")
+            
+            HTTP_CODE2=$(echo "$RESPONSE2" | grep -o "HTTP_CODE:[0-9]*" | cut -d: -f2)
+            BODY2=$(echo "$RESPONSE2" | sed 's/HTTP_CODE:[0-9]*$//')
+            
+            echo "Export token result:"
+            echo "  HTTP Code: $HTTP_CODE2"
+            echo "  Response Body: $BODY2"
+            
+            # Compare the tokens
+            OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
+            if [[ "$OIDC_TOKEN" == "$JF_ACCESS_TOKEN" ]]; then
+              echo "📊 TOKENS ARE IDENTICAL"
+            else
+              echo "📊 TOKENS ARE DIFFERENT"
+              echo "  Step output token: ${OIDC_TOKEN:0:30}..."
+              echo "  Export token:     ${JF_ACCESS_TOKEN:0:30}..."
+            fi
+          else
+            echo "❌ No access token from export"
+          fi
