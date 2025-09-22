@@ -13,6 +13,7 @@ on:
         - 'jf-docker-build-push'
         - 'docker-jf-push'
         - 'buildx-jf-push'
+        - 'file-upload-test'
 
 jobs:
   test-docker-build:
@@ -124,6 +125,31 @@ jobs:
           
           echo "✅ Approach 4 completed"
 
+      - name: "[Test] Approach 5: file-upload-test"
+        if: inputs.test_approach == 'file-upload-test'
+        run: |
+          echo "🧪 Testing: Simple file upload with build-info to isolate Docker issues"
+          
+          # Create a simple test file
+          echo "Test artifact for build-info verification" > test-artifact.txt
+          echo "Build: $BUILD_NAME/$BUILD_NUMBER" >> test-artifact.txt
+          echo "Timestamp: $(date)" >> test-artifact.txt
+          
+          # Upload file with build-info using JFrog CLI
+          jf rt upload test-artifact.txt \
+            "bookverse-inventory-internal-docker-nonprod-local/test-files/$TEST_TAG/" \
+            --build-name "$BUILD_NAME" \
+            --build-number "$BUILD_NUMBER" \
+            --project "${{ vars.PROJECT_KEY }}"
+          
+          # Publish the build-info (this step might be missing from Docker approaches)
+          echo "📋 Publishing build-info..."
+          jf rt bag --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          jf rt bce --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          jf rt bp --project "${{ vars.PROJECT_KEY }}" "$BUILD_NAME" "$BUILD_NUMBER"
+          
+          echo "✅ Approach 5 completed - file uploaded and build-info published"
+
       - name: "[Verify] Build Info"
         run: |
           echo "🔍 Verifying build info was created..."
@@ -156,11 +182,12 @@ jobs:
             exit 1
           fi
 
-      - name: "[Cleanup] Remove Test Image"
+      - name: "[Cleanup] Remove Test Artifacts"
         if: always()
         run: |
-          echo "🧹 Cleaning up test image..."
+          echo "🧹 Cleaning up test artifacts..."
           jf rt del "bookverse-inventory-internal-docker-nonprod-local/test-image/$TEST_TAG/" --quiet || true
+          jf rt del "bookverse-inventory-internal-docker-nonprod-local/test-files/$TEST_TAG/" --quiet || true
           echo "✅ Cleanup completed"
 
       - name: "[Summary] Test Results"
