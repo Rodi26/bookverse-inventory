@@ -1,8 +1,4 @@
-"""
-FastAPI utilities and patterns for BookVerse services.
 
-Provides app factory, middleware, response models, and common endpoints.
-"""
 
 from .app_factory import create_app
 from .responses import (
@@ -38,10 +34,8 @@ from .exceptions import (
 )
 
 __all__ = [
-    # App factory
     "create_app",
     
-    # Response models
     "BaseResponse",
     "SuccessResponse",
     "ErrorResponse",
@@ -49,25 +43,20 @@ __all__ = [
     "HealthResponse",
     "InfoResponse",
     
-    # Response helpers
     "create_success_response",
     "create_error_response",
     "create_paginated_response",
     "create_health_response",
     
-    # Middleware
     "LoggingMiddleware",
     "RequestIDMiddleware", 
     "ErrorHandlingMiddleware",
     
-    # Health checks
     "create_health_router",
     
-    # Pagination
     "PaginationParams",
     "paginate",
     
-    # Exception handling
     "BookVerseHTTPException",
     "raise_validation_error",
     "raise_not_found_error", 

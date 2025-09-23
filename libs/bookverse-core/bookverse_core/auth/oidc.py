@@ -1,9 +1,4 @@
-"""
-OIDC (OpenID Connect) configuration and JWKS management.
 
-Handles fetching and caching of OIDC configuration and JSON Web Key Sets (JWKS)
-for JWT token validation.
-"""
 
 import logging
 import os
@@ -15,11 +10,9 @@ from fastapi import HTTPException, status
 
 logger = logging.getLogger(__name__)
 
-# Configuration from environment variables
 OIDC_AUTHORITY = os.getenv("OIDC_AUTHORITY", "https://dev-auth.bookverse.com")
-JWKS_CACHE_DURATION = int(os.getenv("JWKS_CACHE_DURATION", "3600"))  # 1 hour in seconds
+JWKS_CACHE_DURATION = int(os.getenv("JWKS_CACHE_DURATION", "3600"))
 
-# Global cache variables
 _oidc_config: Optional[Dict[str, Any]] = None
 _jwks: Optional[Dict[str, Any]] = None
 _jwks_last_updated: Optional[float] = None
@@ -27,15 +20,16 @@ _jwks_last_updated: Optional[float] = None
 
 async def get_oidc_configuration() -> Dict[str, Any]:
     """
-    Fetch OIDC configuration from the authority.
+    Get OIDC configuration with graceful degradation for demo environments.
     
-    Caches the configuration to avoid repeated requests.
+    In development/demo mode, returns a mock configuration when the real
+    OIDC service is unavailable, allowing the demo to continue functioning.
     
     Returns:
-        Dict containing OIDC configuration
+        Dict[str, Any]: OIDC configuration or mock configuration in development mode
         
     Raises:
-        HTTPException: If OIDC configuration cannot be fetched
+        HTTPException: Only in production mode when OIDC service is unavailable
     """
     global _oidc_config
     
@@ -51,34 +45,39 @@ async def get_oidc_configuration() -> Dict[str, Any]:
         except Exception as e:
             from .jwt_auth import is_development_mode
             if is_development_mode():
-                logger.warning(f"⚠️ OIDC configuration unavailable in demo mode: {e}")
+                logger.warning(f"⚠️ OIDC service unavailable in demo mode, using mock configuration: {e}")
+                # Return mock OIDC configuration for demo purposes
+                _oidc_config = {
+                    "issuer": OIDC_AUTHORITY,
+                    "authorization_endpoint": f"{OIDC_AUTHORITY}/auth",
+                    "token_endpoint": f"{OIDC_AUTHORITY}/token",
+                    "userinfo_endpoint": f"{OIDC_AUTHORITY}/userinfo",
+                    "jwks_uri": f"{OIDC_AUTHORITY}/.well-known/jwks.json",
+                    "scopes_supported": ["openid", "profile", "email", "bookverse:api"],
+                    "response_types_supported": ["code", "token", "id_token"],
+                    "grant_types_supported": ["authorization_code", "implicit", "refresh_token"],
+                    "subject_types_supported": ["public"],
+                    "id_token_signing_alg_values_supported": ["RS256"],
+                    "demo_mode": True
+                }
             else:
                 logger.error(f"❌ Failed to fetch OIDC configuration: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Authentication service unavailable (expected in demo mode)" if is_development_mode() else "Authentication service unavailable"
-            )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Authentication service unavailable"
+                )
     
     return _oidc_config
 
 
 async def get_jwks() -> Dict[str, Any]:
-    """
-    Fetch and cache JWKS (JSON Web Key Set) for token validation.
     
-    Implements time-based cache refresh to balance performance and security.
     
-    Returns:
-        Dict containing JWKS data
         
-    Raises:
-        HTTPException: If JWKS cannot be fetched and no cached version exists
-    """
     global _jwks, _jwks_last_updated
     
     current_time = datetime.now().timestamp()
     
-    # Check if we need to refresh the cache
     if (
         _jwks is None
         or _jwks_last_updated is None
@@ -104,26 +103,15 @@ async def get_jwks() -> Dict[str, Any]:
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="Authentication service unavailable"
                 )
-            # Use cached version if available
             logger.warning("⚠️ Using cached JWKS due to fetch failure")
     
     return _jwks
 
 
 def get_public_key(token_header: Dict[str, Any], jwks: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Extract the public key for token verification from JWKS.
     
-    Args:
-        token_header: JWT token header containing key ID
-        jwks: JSON Web Key Set containing public keys
         
-    Returns:
-        Dict containing the matching public key
         
-    Raises:
-        ValueError: If key ID is missing or no matching key is found
-    """
     kid = token_header.get("kid")
     if not kid:
         raise ValueError("Token header missing 'kid' field")
@@ -136,11 +124,7 @@ def get_public_key(token_header: Dict[str, Any], jwks: Dict[str, Any]) -> Dict[s
 
 
 def clear_cache() -> None:
-    """
-    Clear the OIDC configuration and JWKS cache.
     
-    Useful for testing or forcing a refresh of cached data.
-    """
     global _oidc_config, _jwks, _jwks_last_updated
     _oidc_config = None
     _jwks = None

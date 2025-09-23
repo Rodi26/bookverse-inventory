@@ -1,7 +1,3 @@
-# BookVerse Core Library Version Map
-# 
-# DEMO PURPOSE: Version configuration for the bookverse-core library
-# following the same patterns as other BookVerse services.
 
 service:
   name: "bookverse-core"

@@ -34,14 +34,13 @@ jobs:
           echo "  access-token: '${{ steps.jfrog-cli-auth.outputs.access-token }}'"
           echo "  token: '${{ steps.jfrog-cli-auth.outputs.token }}'"
           
-          # Get the oidc-token output
           OUTPUT_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
           if [[ -n "$OUTPUT_TOKEN" && "$OUTPUT_TOKEN" != "null" ]]; then
             echo "✅ Output token available"
-            echo "📋 Token length: ${#OUTPUT_TOKEN} characters"
+            echo "📋 Token length: ${
             echo "📋 Token starts with: ${OUTPUT_TOKEN:0:15}..."
             echo "output_token_available=true" >> $GITHUB_OUTPUT
-            echo "output_token_length=${#OUTPUT_TOKEN}" >> $GITHUB_OUTPUT
+            echo "output_token_length=${
           else
             echo "❌ Output token not available"
             echo "output_token_available=false" >> $GITHUB_OUTPUT
@@ -53,22 +52,20 @@ jobs:
           echo "🧪 Testing JFrog CLI export..."
           echo "Before export - JF_ACCESS_TOKEN: '${JF_ACCESS_TOKEN:-UNSET}'"
           
-          # Test jf c export
           echo "🔍 Running 'jf c export'..."
           EXPORT_OUTPUT=$(jf c export 2>&1 || true)
           echo "Export output: $EXPORT_OUTPUT"
           
-          # Try to eval the export
           eval "$(jf c export 2>/dev/null || true)"
           
           echo "After export - JF_ACCESS_TOKEN: '${JF_ACCESS_TOKEN:-UNSET}'"
           
           if [[ -n "${JF_ACCESS_TOKEN:-}" ]]; then
             echo "✅ Export token available"
-            echo "📋 Token length: ${#JF_ACCESS_TOKEN} characters"
+            echo "📋 Token length: ${
             echo "📋 Token starts with: ${JF_ACCESS_TOKEN:0:15}..."
             echo "export_token_available=true" >> $GITHUB_OUTPUT
-            echo "export_token_length=${#JF_ACCESS_TOKEN}" >> $GITHUB_OUTPUT
+            echo "export_token_length=${
           else
             echo "❌ Export token not available"
             echo "export_token_available=false" >> $GITHUB_OUTPUT
@@ -83,8 +80,8 @@ jobs:
           EXPORT_TOKEN="${JF_ACCESS_TOKEN:-}"
           
           if [[ -n "$OUTPUT_TOKEN" && -n "$EXPORT_TOKEN" ]]; then
-            echo "📋 Output token length: ${#OUTPUT_TOKEN}"
-            echo "📋 Export token length: ${#EXPORT_TOKEN}"
+            echo "📋 Output token length: ${
+            echo "📋 Export token length: ${
             echo "📋 Output token prefix: ${OUTPUT_TOKEN:0:20}..."
             echo "📋 Export token prefix: ${EXPORT_TOKEN:0:20}..."
             
@@ -110,7 +107,6 @@ jobs:
             exit 1
           fi
           
-          # Test Docker registry API call
           DOCKER_URL="${{ vars.JFROG_URL }}/artifactory/api/docker/bookverse-inventory-internal-docker-nonprod-local/v2/inventory/tags/list"
           echo "🔍 Testing URL: $DOCKER_URL"
           
@@ -144,7 +140,6 @@ jobs:
             exit 1
           fi
           
-          # Test Docker registry API call
           DOCKER_URL="${{ vars.JFROG_URL }}/artifactory/api/docker/bookverse-inventory-internal-docker-nonprod-local/v2/inventory/tags/list"
           echo "🔍 Testing URL: $DOCKER_URL"
           

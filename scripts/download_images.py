@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-Download book cover images and update demo_books.json with local paths.
-This script is run during Docker build to prefetch images.
-"""
 
 import json
 import requests
@@ -12,16 +7,12 @@ from urllib.parse import urlparse
 import sys
 
 def download_images():
-    """Download book cover images and update JSON with local paths."""
     
-    # Paths
     json_file = "app/data/demo_books.json"
     images_dir = "app/static/images"
     
-    # Ensure images directory exists
     os.makedirs(images_dir, exist_ok=True)
     
-    # Load book data
     with open(json_file, 'r') as f:
         books = json.load(f)
     
@@ -32,20 +23,16 @@ def download_images():
     for i, book in enumerate(books):
         print(f"Processing book {i+1}/{len(books)}: {book['title']}")
         
-        # Get the original URL
         original_url = book.get('cover_image_url', '')
         
         if not original_url or original_url.startswith('/static/'):
-            # Already processed or no URL
             updated_books.append(book)
             continue
         
         try:
-            # Generate a unique filename based on book ID and URL
             book_id = book.get('id', str(i))
             url_hash = md5(original_url.encode()).hexdigest()[:8]
             
-            # Get file extension from URL
             parsed_url = urlparse(original_url)
             path = parsed_url.path
             ext = os.path.splitext(path)[1] if os.path.splitext(path)[1] else '.jpg'
@@ -53,15 +40,12 @@ def download_images():
             filename = f"book_{i+1}_{url_hash}{ext}"
             local_path = os.path.join(images_dir, filename)
             
-            # Download the image
             response = requests.get(original_url, timeout=30)
             response.raise_for_status()
             
-            # Save the image
             with open(local_path, 'wb') as img_file:
                 img_file.write(response.content)
             
-            # Update the book data with local path
             book_copy = book.copy()
             book_copy['cover_image_url'] = f"/static/images/{filename}"
             updated_books.append(book_copy)
@@ -70,10 +54,8 @@ def download_images():
             
         except Exception as e:
             print(f"  ✗ Failed to download {original_url}: {e}")
-            # Keep original URL on failure
             updated_books.append(book)
     
-    # Save updated JSON
     with open(json_file, 'w') as f:
         json.dump(updated_books, f, indent=2)
     

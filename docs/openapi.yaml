@@ -1,0 +1,2307 @@
+openapi: 3.0.3
+info:
+  title: BookVerse Inventory Service API
+  description: |
+    ## Overview
+    
+    The BookVerse Inventory Service provides comprehensive book catalog management with advanced search capabilities, inventory tracking, and real-time availability updates. This RESTful API follows industry best practices for security, performance, and scalability.
+    
+    ## Key Features
+    
+    - **Complete CRUD Operations**: Create, read, update, and delete books
+    - **Advanced Search**: Full-text search with filtering and sorting
+    - **Inventory Management**: Real-time stock tracking and reservation
+    - **Bulk Operations**: Efficient batch processing for large datasets
+    - **Performance Optimized**: Pagination, caching, and optimized queries
+    - **Security First**: Authentication, authorization, and input validation
+    
+    ## Authentication
+    
+    All endpoints require JWT authentication via the `Authorization` header:
+    ```
+    Authorization: Bearer <jwt-token>
+    ```
+    
+    ## Rate Limiting
+    
+    - **Standard users**: 1000 requests per hour
+    - **Premium users**: 5000 requests per hour
+    - **Admin users**: Unlimited
+    
+    ## Error Handling
+    
+    The API uses standard HTTP status codes and provides detailed error information in the response body. All errors follow the RFC 7807 Problem Details format.
+    
+    ## Data Formats
+    
+    - **Request/Response**: JSON (application/json)
+    - **Dates**: ISO 8601 format (YYYY-MM-DDTHH:mm:ssZ)
+    - **Prices**: Decimal values with 2 decimal places
+    - **Pagination**: Cursor-based for optimal performance
+    
+  version: 1.2.0
+  contact:
+    name: BookVerse API Support
+    url: https://docs.bookverse.com/support
+    email: api-support@bookverse.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: https://bookverse.com/terms
+
+servers:
+  - url: https://api.bookverse.com/inventory/v1
+    description: Production server
+  - url: https://staging-api.bookverse.com/inventory/v1
+    description: Staging server
+  - url: http://localhost:8001
+    description: Local development server
+
+security:
+  - BearerAuth: []
+
+paths:
+  /books:
+    get:
+      summary: List books with filtering and pagination
+      description: |
+        Retrieve a paginated list of books with optional filtering, sorting, and search capabilities.
+        
+        **Features:**
+        - Full-text search across title, author, and description
+        - Advanced filtering by category, price range, availability
+        - Multiple sorting options with direction control
+        - Cursor-based pagination for optimal performance
+        - Response caching for improved performance
+        
+        **Performance:**
+        - Cached responses for 5 minutes
+        - Maximum 100 results per page
+        - Average response time: <100ms
+        
+        **Use Cases:**
+        - Display book catalog on web frontend
+        - Search functionality implementation
+        - Inventory management dashboards
+        - Third-party integrations
+      operationId: listBooks
+      tags:
+        - Books
+      parameters:
+        - name: search
+          in: query
+          description: |
+            Full-text search query across book title, author, and description.
+            Supports:
+            - Simple text: "python programming"
+            - Exact phrases: '"clean code"'
+            - Boolean operators: "python AND (web OR api)"
+            - Wildcards: "program*"
+          schema:
+            type: string
+            maxLength: 200
+            example: "python programming"
+        
+        - name: category
+          in: query
+          description: Filter books by category
+          schema:
+            type: string
+            enum: [programming, fiction, non-fiction, science, technology, business, education, reference]
+            example: programming
+        
+        - name: author
+          in: query
+          description: Filter books by author name (case-insensitive partial match)
+          schema:
+            type: string
+            maxLength: 100
+            example: "Robert Martin"
+        
+        - name: min_price
+          in: query
+          description: Minimum price filter (inclusive)
+          schema:
+            type: number
+            format: decimal
+            minimum: 0
+            example: 10.00
+        
+        - name: max_price
+          in: query
+          description: Maximum price filter (inclusive)
+          schema:
+            type: number
+            format: decimal
+            minimum: 0
+            example: 50.00
+        
+        - name: availability
+          in: query
+          description: Filter by availability status
+          schema:
+            type: string
+            enum: [available, out_of_stock, discontinued]
+            example: available
+        
+        - name: sort_by
+          in: query
+          description: Field to sort results by
+          schema:
+            type: string
+            enum: [title, author, price, created_at, updated_at, popularity]
+            default: created_at
+            example: price
+        
+        - name: sort_order
+          in: query
+          description: Sort direction
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+            example: asc
+        
+        - name: limit
+          in: query
+          description: Maximum number of results per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+            example: 20
+        
+        - name: cursor
+          in: query
+          description: |
+            Cursor for pagination. Use the `next_cursor` value from the previous response
+            to get the next page of results.
+          schema:
+            type: string
+            example: "eyJpZCI6MTIzLCJjcmVhdGVkX2F0IjoiMjAyNC0wMS0wMVQxMjowMDowMFoifQ=="
+        
+        - name: include_stats
+          in: query
+          description: Include aggregation statistics in response
+          schema:
+            type: boolean
+            default: false
+            example: true
+
+      responses:
+        '200':
+          description: Books retrieved successfully
+          headers:
+            X-Total-Count:
+              description: Total number of books matching the criteria
+              schema:
+                type: integer
+                example: 1205
+            X-Cache-Status:
+              description: Cache status for this response
+              schema:
+                type: string
+                enum: [hit, miss, expired]
+                example: hit
+            X-Rate-Limit-Remaining:
+              description: Number of requests remaining in the current window
+              schema:
+                type: integer
+                example: 995
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Book'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationInfo'
+                  filters:
+                    $ref: '#/components/schemas/AppliedFilters'
+                  stats:
+                    $ref: '#/components/schemas/SearchStats'
+                    description: Included only when include_stats=true
+              examples:
+                basic_response:
+                  summary: Basic book listing
+                  value:
+                    data:
+                      - id: 1
+                        title: "Clean Code: A Handbook of Agile Software Craftsmanship"
+                        author: "Robert C. Martin"
+                        isbn: "978-0132350884"
+                        price: 35.99
+                        currency: "USD"
+                        quantity: 25
+                        availability: "available"
+                        category: "programming"
+                        description: "A comprehensive guide to writing clean, maintainable code."
+                        cover_image_url: "https://images.bookverse.com/covers/clean-code.jpg"
+                        rating: 4.7
+                        review_count: 342
+                        created_at: "2024-01-15T10:30:00Z"
+                        updated_at: "2024-01-20T14:22:00Z"
+                    pagination:
+                      current_cursor: null
+                      next_cursor: "eyJpZCI6MjAsImNyZWF0ZWRfYXQiOiIyMDI0LTAxLTE1VDEwOjMwOjAwWiJ9"
+                      has_more: true
+                      page_size: 20
+                    filters:
+                      search: null
+                      category: null
+                      author: null
+                      price_range: null
+                      availability: null
+                
+                search_response:
+                  summary: Search results with filters
+                  value:
+                    data:
+                      - id: 15
+                        title: "Python Programming: An Introduction to Computer Science"
+                        author: "John Zelle"
+                        isbn: "978-1590282755"
+                        price: 42.50
+                        currency: "USD"
+                        quantity: 18
+                        availability: "available"
+                        category: "programming"
+                        description: "A comprehensive introduction to Python programming."
+                        cover_image_url: "https://images.bookverse.com/covers/python-intro.jpg"
+                        rating: 4.5
+                        review_count: 127
+                        created_at: "2024-01-10T09:15:00Z"
+                        updated_at: "2024-01-18T16:45:00Z"
+                    pagination:
+                      current_cursor: null
+                      next_cursor: "eyJpZCI6MTYsImNyZWF0ZWRfYXQiOiIyMDI0LTAxLTEwVDA5OjE1OjAwWiJ9"
+                      has_more: true
+                      page_size: 20
+                    filters:
+                      search: "python programming"
+                      category: "programming"
+                      author: null
+                      price_range: { min: null, max: null }
+                      availability: "available"
+                    stats:
+                      total_results: 47
+                      avg_price: 38.75
+                      categories: { "programming": 47 }
+                      availability: { "available": 45, "out_of_stock": 2 }
+
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      summary: Create a new book
+      description: |
+        Create a new book in the inventory system with comprehensive validation and automatic metadata generation.
+        
+        **Features:**
+        - Automatic ISBN validation and format normalization
+        - Duplicate detection based on ISBN
+        - Automatic metadata extraction from external sources
+        - Image upload and processing for cover images
+        - Inventory tracking initialization
+        
+        **Business Rules:**
+        - ISBN must be unique across the system
+        - Price must be positive and have maximum 2 decimal places
+        - Title and author are required fields
+        - Category must be from predefined list
+        - Initial quantity defaults to 0 if not specified
+        
+        **Permissions:**
+        - Requires `inventory:write` permission
+        - Admin users can override validation rules
+        - Regular users limited to non-admin categories
+      operationId: createBook
+      tags:
+        - Books
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBookRequest'
+            examples:
+              programming_book:
+                summary: Programming book example
+                value:
+                  title: "Effective Python: 90 Specific Ways to Write Better Python"
+                  author: "Brett Slatkin"
+                  isbn: "978-0134853987"
+                  price: 44.99
+                  quantity: 50
+                  category: "programming"
+                  description: "Master the next level of Python programming and learn how to write better Python code."
+                  publisher: "Addison-Wesley Professional"
+                  publication_date: "2019-11-26"
+                  pages: 416
+                  language: "en"
+                  tags: ["python", "programming", "best-practices", "advanced"]
+              
+              fiction_book:
+                summary: Fiction book example
+                value:
+                  title: "The Midnight Library"
+                  author: "Matt Haig"
+                  isbn: "978-0525559474"
+                  price: 15.99
+                  quantity: 100
+                  category: "fiction"
+                  description: "A novel about all the choices that go into a life well lived."
+                  publisher: "Viking"
+                  publication_date: "2020-08-13"
+                  pages: 288
+                  language: "en"
+                  tags: ["fiction", "philosophy", "contemporary"]
+
+      responses:
+        '201':
+          description: Book created successfully
+          headers:
+            Location:
+              description: URL of the newly created book
+              schema:
+                type: string
+                format: uri
+                example: "/books/123"
+            X-Request-ID:
+              description: Unique request identifier for tracking
+              schema:
+                type: string
+                example: "req_7d8f9e0a1b2c3d4e"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Book'
+                  metadata:
+                    type: object
+                    properties:
+                      request_id:
+                        type: string
+                        example: "req_7d8f9e0a1b2c3d4e"
+                      processing_time_ms:
+                        type: integer
+                        example: 145
+                      validation_warnings:
+                        type: array
+                        items:
+                          type: string
+                        example: ["Cover image could not be automatically sourced"]
+              examples:
+                created_book:
+                  summary: Successfully created book
+                  value:
+                    data:
+                      id: 123
+                      title: "Effective Python: 90 Specific Ways to Write Better Python"
+                      author: "Brett Slatkin"
+                      isbn: "978-0134853987"
+                      price: 44.99
+                      currency: "USD"
+                      quantity: 50
+                      availability: "available"
+                      category: "programming"
+                      description: "Master the next level of Python programming and learn how to write better Python code."
+                      publisher: "Addison-Wesley Professional"
+                      publication_date: "2019-11-26"
+                      pages: 416
+                      language: "en"
+                      tags: ["python", "programming", "best-practices", "advanced"]
+                      cover_image_url: "https://images.bookverse.com/covers/effective-python.jpg"
+                      rating: null
+                      review_count: 0
+                      created_at: "2024-01-25T10:30:00Z"
+                      updated_at: "2024-01-25T10:30:00Z"
+                    metadata:
+                      request_id: "req_7d8f9e0a1b2c3d4e"
+                      processing_time_ms: 145
+                      validation_warnings: []
+
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Conflict - Book with this ISBN already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://docs.bookverse.com/errors/isbn-conflict"
+                title: "ISBN Already Exists"
+                status: 409
+                detail: "A book with ISBN 978-0134853987 already exists in the system"
+                instance: "/books"
+                existing_book_id: 45
+                existing_book_title: "Effective Python (2nd Edition)"
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /books/{book_id}:
+    parameters:
+      - name: book_id
+        in: path
+        required: true
+        description: Unique identifier for the book
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          example: 123
+
+    get:
+      summary: Get book details by ID
+      description: |
+        Retrieve detailed information about a specific book including all metadata, availability, and related information.
+        
+        **Features:**
+        - Complete book information including technical details
+        - Real-time availability and pricing
+        - Related books and recommendations
+        - Review and rating summaries
+        - Audit trail information
+        
+        **Performance:**
+        - Cached responses for 2 minutes
+        - Average response time: <50ms
+        - Includes ETag for conditional requests
+        
+        **Use Cases:**
+        - Book detail pages on frontend
+        - Inventory management systems
+        - Third-party integrations
+        - Mobile applications
+      operationId: getBookById
+      tags:
+        - Books
+      parameters:
+        - name: include_related
+          in: query
+          description: Include related books in response
+          schema:
+            type: boolean
+            default: false
+            example: true
+        
+        - name: include_reviews
+          in: query
+          description: Include review summary in response
+          schema:
+            type: boolean
+            default: false
+            example: true
+
+      responses:
+        '200':
+          description: Book details retrieved successfully
+          headers:
+            ETag:
+              description: Entity tag for caching and conditional requests
+              schema:
+                type: string
+                example: '"33a64df551425fcc55e4d42a148795d9f25f89d4"'
+            Last-Modified:
+              description: Last modification timestamp
+              schema:
+                type: string
+                format: date-time
+                example: "2024-01-20T14:22:00Z"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BookDetailed'
+                  related_books:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BookSummary'
+                    description: Included only when include_related=true
+                  review_summary:
+                    $ref: '#/components/schemas/ReviewSummary'
+                    description: Included only when include_reviews=true
+              examples:
+                detailed_book:
+                  summary: Complete book details
+                  value:
+                    data:
+                      id: 123
+                      title: "Clean Code: A Handbook of Agile Software Craftsmanship"
+                      author: "Robert C. Martin"
+                      isbn: "978-0132350884"
+                      price: 35.99
+                      currency: "USD"
+                      quantity: 25
+                      reserved_quantity: 3
+                      available_quantity: 22
+                      availability: "available"
+                      category: "programming"
+                      description: "A comprehensive guide to writing clean, maintainable code with practical examples and best practices."
+                      publisher: "Prentice Hall"
+                      publication_date: "2008-08-01"
+                      pages: 464
+                      language: "en"
+                      edition: "1st"
+                      dimensions: "9.2 x 7.3 x 1.1 inches"
+                      weight: "1.88 pounds"
+                      tags: ["programming", "software-engineering", "best-practices", "clean-code"]
+                      cover_image_url: "https://images.bookverse.com/covers/clean-code.jpg"
+                      preview_url: "https://preview.bookverse.com/books/123"
+                      rating: 4.7
+                      review_count: 342
+                      popularity_score: 0.89
+                      created_at: "2024-01-15T10:30:00Z"
+                      updated_at: "2024-01-20T14:22:00Z"
+                      created_by: "admin@bookverse.com"
+                      last_modified_by: "inventory@bookverse.com"
+
+        '304':
+          description: Not Modified - Resource hasn't changed (when using If-None-Match or If-Modified-Since headers)
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Book not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://docs.bookverse.com/errors/book-not-found"
+                title: "Book Not Found"
+                status: 404
+                detail: "No book found with ID 123"
+                instance: "/books/123"
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      summary: Update book information
+      description: |
+        Update existing book information with comprehensive validation and change tracking.
+        
+        **Features:**
+        - Partial updates supported (only provided fields are updated)
+        - Automatic change detection and audit logging
+        - Business rule validation and constraint checking
+        - Optimistic concurrency control via ETag
+        - Automatic reindexing for search functionality
+        
+        **Business Rules:**
+        - ISBN cannot be changed after creation
+        - Price changes require approval for published books
+        - Quantity changes create inventory audit trail
+        - Category changes may require admin approval
+        
+        **Permissions:**
+        - Requires `inventory:write` permission
+        - Admin users can update any field
+        - Regular users limited to non-critical fields
+      operationId: updateBook
+      tags:
+        - Books
+      parameters:
+        - name: If-Match
+          in: header
+          description: ETag value for optimistic concurrency control
+          required: false
+          schema:
+            type: string
+            example: '"33a64df551425fcc55e4d42a148795d9f25f89d4"'
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBookRequest'
+            examples:
+              price_update:
+                summary: Update book price
+                value:
+                  price: 39.99
+                  update_reason: "Price adjustment due to publisher cost increase"
+              
+              inventory_update:
+                summary: Update inventory quantity
+                value:
+                  quantity: 75
+                  update_reason: "Received new shipment"
+              
+              full_update:
+                summary: Update multiple fields
+                value:
+                  price: 39.99
+                  quantity: 30
+                  description: "Updated description with new edition information and additional content details."
+                  tags: ["programming", "software-engineering", "best-practices", "clean-code", "updated"]
+                  update_reason: "New edition published with additional content"
+
+      responses:
+        '200':
+          description: Book updated successfully
+          headers:
+            ETag:
+              description: New entity tag after update
+              schema:
+                type: string
+                example: '"44b75ef662536fdd66f5d53b259806e0f36f90e5"'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Book'
+                  changes:
+                    $ref: '#/components/schemas/ChangeLog'
+                  metadata:
+                    type: object
+                    properties:
+                      request_id:
+                        type: string
+                        example: "req_8e9f0a1b2c3d4e5f"
+                      processing_time_ms:
+                        type: integer
+                        example: 89
+                      fields_updated:
+                        type: array
+                        items:
+                          type: string
+                        example: ["price", "quantity", "updated_at"]
+              examples:
+                updated_book:
+                  summary: Successfully updated book
+                  value:
+                    data:
+                      id: 123
+                      title: "Clean Code: A Handbook of Agile Software Craftsmanship"
+                      author: "Robert C. Martin"
+                      isbn: "978-0132350884"
+                      price: 39.99
+                      currency: "USD"
+                      quantity: 30
+                      availability: "available"
+                      category: "programming"
+                      description: "Updated description with new edition information and additional content details."
+                      tags: ["programming", "software-engineering", "best-practices", "clean-code", "updated"]
+                      updated_at: "2024-01-25T15:45:00Z"
+                    changes:
+                      - field: "price"
+                        old_value: 35.99
+                        new_value: 39.99
+                        reason: "Price adjustment due to publisher cost increase"
+                      - field: "quantity"
+                        old_value: 25
+                        new_value: 30
+                        reason: "Received new shipment"
+                    metadata:
+                      request_id: "req_8e9f0a1b2c3d4e5f"
+                      processing_time_ms: 89
+                      fields_updated: ["price", "quantity", "description", "tags", "updated_at"]
+
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Book not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          description: Conflict - Optimistic concurrency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://docs.bookverse.com/errors/concurrency-conflict"
+                title: "Concurrency Conflict"
+                status: 409
+                detail: "The book has been modified by another request. Please refresh and try again."
+                instance: "/books/123"
+                current_etag: '"55c86ef773647gee77g6e64c370917f1g47g01f6"'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      summary: Delete a book
+      description: |
+        Delete a book from the inventory system with proper validation and cascade handling.
+        
+        **Features:**
+        - Soft delete with retention period for audit purposes
+        - Automatic handling of dependent records (reservations, orders)
+        - Configurable cascade behavior for related entities
+        - Audit trail creation for compliance requirements
+        
+        **Business Rules:**
+        - Books with active orders cannot be deleted
+        - Books with reservations are queued for deletion
+        - Admin approval required for books with sales history
+        - Deleted books are retained for 90 days for recovery
+        
+        **Permissions:**
+        - Requires `inventory:delete` permission
+        - Admin users can force delete with override
+        - Regular users can only delete recently created books
+      operationId: deleteBook
+      tags:
+        - Books
+      parameters:
+        - name: force
+          in: query
+          description: Force delete even if there are dependencies (admin only)
+          schema:
+            type: boolean
+            default: false
+            example: false
+        
+        - name: cascade
+          in: query
+          description: How to handle dependent records
+          schema:
+            type: string
+            enum: [fail, queue, cancel]
+            default: fail
+            example: queue
+
+      responses:
+        '204':
+          description: Book deleted successfully
+          headers:
+            X-Deletion-ID:
+              description: Unique identifier for the deletion operation
+              schema:
+                type: string
+                example: "del_9f0a1b2c3d4e5f67"
+            X-Recovery-Until:
+              description: Date until which the book can be recovered
+              schema:
+                type: string
+                format: date-time
+                example: "2024-04-25T10:30:00Z"
+
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Book not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          description: Conflict - Cannot delete due to dependencies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://docs.bookverse.com/errors/deletion-conflict"
+                title: "Cannot Delete Book"
+                status: 409
+                detail: "Book cannot be deleted because it has 3 active reservations and 1 pending order"
+                instance: "/books/123"
+                dependencies:
+                  reservations: 3
+                  pending_orders: 1
+                  sales_history: true
+                suggested_action: "Use cascade=queue to queue for deletion when dependencies are resolved"
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /books/search:
+    get:
+      summary: Advanced book search
+      description: |
+        Perform advanced full-text search across the book catalog with sophisticated filtering, sorting, and faceting capabilities.
+        
+        **Features:**
+        - Full-text search with relevance scoring
+        - Faceted search with category breakdowns
+        - Auto-complete and spell correction suggestions
+        - Search analytics and query optimization
+        - Real-time availability filtering
+        
+        **Search Syntax:**
+        - Simple terms: `python programming`
+        - Exact phrases: `"clean code"`
+        - Boolean operators: `python AND (web OR api)`
+        - Field-specific: `author:"Robert Martin"`
+        - Wildcards: `program*`
+        - Proximity: `"python programming"~5`
+        
+        **Performance:**
+        - Search index updated in real-time
+        - Average response time: <200ms
+        - Support for up to 10,000 results with pagination
+      operationId: searchBooks
+      tags:
+        - Search
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search query with advanced syntax support
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 500
+            example: 'python programming AND (web OR api)'
+        
+        - name: facets
+          in: query
+          description: Comma-separated list of facets to include
+          schema:
+            type: string
+            example: "category,author,price_range,availability"
+        
+        - name: highlight
+          in: query
+          description: Enable search term highlighting in results
+          schema:
+            type: boolean
+            default: false
+            example: true
+        
+        - name: suggest
+          in: query
+          description: Include spelling suggestions and auto-complete
+          schema:
+            type: boolean
+            default: false
+            example: true
+        
+        - name: boost_popular
+          in: query
+          description: Boost popular books in search results
+          schema:
+            type: boolean
+            default: true
+            example: true
+
+      responses:
+        '200':
+          description: Search completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SearchResult'
+                  facets:
+                    $ref: '#/components/schemas/SearchFacets'
+                  suggestions:
+                    $ref: '#/components/schemas/SearchSuggestions'
+                  metadata:
+                    type: object
+                    properties:
+                      total_results:
+                        type: integer
+                        example: 47
+                      search_time_ms:
+                        type: integer
+                        example: 156
+                      query_analyzed:
+                        type: string
+                        example: "(python AND programming) AND (web OR api)"
+                      max_score:
+                        type: number
+                        format: float
+                        example: 2.847
+              examples:
+                search_results:
+                  summary: Search results with facets
+                  value:
+                    data:
+                      - id: 15
+                        title: "Python Web Programming: An Introduction"
+                        author: "John Smith"
+                        isbn: "978-1234567890"
+                        price: 42.50
+                        availability: "available"
+                        score: 2.847
+                        highlights:
+                          title: ["<em>Python</em> Web <em>Programming</em>: An Introduction"]
+                          description: ["Learn <em>Python</em> <em>web</em> development with modern frameworks and <em>APIs</em>."]
+                    facets:
+                      category:
+                        - name: "programming"
+                          count: 34
+                        - name: "web-development"
+                          count: 13
+                      author:
+                        - name: "John Smith"
+                          count: 3
+                        - name: "Jane Doe"
+                          count: 2
+                      price_range:
+                        - name: "$0-$25"
+                          count: 12
+                        - name: "$25-$50"
+                          count: 28
+                        - name: "$50+"
+                          count: 7
+                    suggestions:
+                      spelling: []
+                      autocomplete:
+                        - "python web development"
+                        - "python api programming"
+                        - "python web frameworks"
+                    metadata:
+                      total_results: 47
+                      search_time_ms: 156
+                      query_analyzed: "(python AND programming) AND (web OR api)"
+                      max_score: 2.847
+
+        '400':
+          description: Invalid search query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://docs.bookverse.com/errors/invalid-search-query"
+                title: "Invalid Search Query"
+                status: 400
+                detail: "Search query contains invalid syntax: unclosed quote in '\"python programming'"
+                instance: "/books/search"
+                query_errors:
+                  - position: 18
+                    error: "Unclosed quote"
+                    suggestion: 'Add closing quote: "python programming"'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /books/{book_id}/reserve:
+    post:
+      summary: Reserve inventory for a book
+      description: |
+        Reserve a specific quantity of a book for a limited time period, typically used during checkout processes.
+        
+        **Features:**
+        - Temporary inventory reservation with TTL
+        - Automatic release of expired reservations
+        - Reservation conflict detection and resolution
+        - Support for partial reservations
+        - Integration with order processing workflow
+        
+        **Business Rules:**
+        - Reservations expire after 15 minutes by default
+        - Maximum reservation quantity per user: 10
+        - Reservations cannot exceed available inventory
+        - User can have only one active reservation per book
+        
+        **Use Cases:**
+        - Shopping cart inventory protection
+        - Multi-step checkout processes
+        - Bulk order processing
+        - Pre-order inventory allocation
+      operationId: reserveInventory
+      tags:
+        - Inventory
+      parameters:
+        - name: book_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - quantity
+              properties:
+                quantity:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+                  description: Number of copies to reserve
+                  example: 3
+                ttl_minutes:
+                  type: integer
+                  minimum: 1
+                  maximum: 60
+                  default: 15
+                  description: Reservation time-to-live in minutes
+                  example: 15
+                customer_id:
+                  type: string
+                  maxLength: 100
+                  description: Customer identifier for tracking
+                  example: "customer_12345"
+                reason:
+                  type: string
+                  maxLength: 200
+                  description: Reason for reservation
+                  example: "Shopping cart reservation"
+            examples:
+              cart_reservation:
+                summary: Shopping cart reservation
+                value:
+                  quantity: 2
+                  ttl_minutes: 15
+                  customer_id: "customer_12345"
+                  reason: "Shopping cart reservation"
+              
+              bulk_reservation:
+                summary: Bulk order reservation
+                value:
+                  quantity: 25
+                  ttl_minutes: 30
+                  customer_id: "business_client_456"
+                  reason: "Bulk order processing"
+
+      responses:
+        '201':
+          description: Inventory reserved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/InventoryReservation'
+                  metadata:
+                    type: object
+                    properties:
+                      request_id:
+                        type: string
+                        example: "req_a1b2c3d4e5f67890"
+                      expires_at:
+                        type: string
+                        format: date-time
+                        example: "2024-01-25T16:15:00Z"
+                      remaining_inventory:
+                        type: integer
+                        example: 22
+              examples:
+                reservation_created:
+                  summary: Successful reservation
+                  value:
+                    data:
+                      reservation_id: "res_9f8e7d6c5b4a3210"
+                      book_id: 123
+                      quantity: 3
+                      status: "active"
+                      customer_id: "customer_12345"
+                      created_at: "2024-01-25T16:00:00Z"
+                      expires_at: "2024-01-25T16:15:00Z"
+                      reason: "Shopping cart reservation"
+                    metadata:
+                      request_id: "req_a1b2c3d4e5f67890"
+                      expires_at: "2024-01-25T16:15:00Z"
+                      remaining_inventory: 22
+
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Book not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          description: Insufficient inventory available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://docs.bookverse.com/errors/insufficient-inventory"
+                title: "Insufficient Inventory"
+                status: 409
+                detail: "Cannot reserve 5 copies. Only 3 copies available."
+                instance: "/books/123/reserve"
+                available_quantity: 3
+                requested_quantity: 5
+                existing_reservations: 7
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /books/bulk:
+    post:
+      summary: Bulk create books
+      description: |
+        Create multiple books in a single operation with comprehensive validation and error reporting.
+        
+        **Features:**
+        - Process up to 100 books per request
+        - Partial success handling with detailed error reporting
+        - Automatic ISBN validation and duplicate detection
+        - Transactional processing with rollback options
+        - Progress tracking for large batches
+        
+        **Performance:**
+        - Optimized for large datasets
+        - Batch processing with database optimization
+        - Average processing time: 50ms per book
+        - Comprehensive validation without compromising speed
+        
+        **Use Cases:**
+        - Initial catalog setup
+        - Publisher inventory imports
+        - Data migration operations
+        - Third-party system integration
+      operationId: bulkCreateBooks
+      tags:
+        - Books
+        - Bulk Operations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - books
+              properties:
+                books:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    $ref: '#/components/schemas/CreateBookRequest'
+                options:
+                  type: object
+                  properties:
+                    continue_on_error:
+                      type: boolean
+                      default: true
+                      description: Continue processing if individual books fail
+                    skip_duplicates:
+                      type: boolean
+                      default: false
+                      description: Skip books with duplicate ISBNs instead of failing
+                    batch_size:
+                      type: integer
+                      minimum: 1
+                      maximum: 50
+                      default: 10
+                      description: Number of books to process per batch
+            examples:
+              bulk_import:
+                summary: Bulk book import
+                value:
+                  books:
+                    - title: "Python Crash Course"
+                      author: "Eric Matthes"
+                      isbn: "978-1593279288"
+                      price: 29.99
+                      quantity: 50
+                      category: "programming"
+                    - title: "Automate the Boring Stuff"
+                      author: "Al Sweigart"
+                      isbn: "978-1593279929"
+                      price: 24.99
+                      quantity: 30
+                      category: "programming"
+                  options:
+                    continue_on_error: true
+                    skip_duplicates: false
+                    batch_size: 10
+
+      responses:
+        '207':
+          description: Multi-status response with individual book results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: object
+                    properties:
+                      total_requested:
+                        type: integer
+                        example: 2
+                      total_processed:
+                        type: integer
+                        example: 2
+                      total_successful:
+                        type: integer
+                        example: 1
+                      total_failed:
+                        type: integer
+                        example: 1
+                      processing_time_ms:
+                        type: integer
+                        example: 1250
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        index:
+                          type: integer
+                          description: Index of book in original request
+                        status:
+                          type: string
+                          enum: [success, error]
+                        book:
+                          $ref: '#/components/schemas/Book'
+                          description: Created book (present only on success)
+                        error:
+                          $ref: '#/components/schemas/ProblemDetails'
+                          description: Error details (present only on error)
+              examples:
+                bulk_results:
+                  summary: Mixed success and failure results
+                  value:
+                    summary:
+                      total_requested: 2
+                      total_processed: 2
+                      total_successful: 1
+                      total_failed: 1
+                      processing_time_ms: 1250
+                    results:
+                      - index: 0
+                        status: "success"
+                        book:
+                          id: 124
+                          title: "Python Crash Course"
+                          author: "Eric Matthes"
+                          isbn: "978-1593279288"
+                          price: 29.99
+                          created_at: "2024-01-25T16:30:00Z"
+                      - index: 1
+                        status: "error"
+                        error:
+                          type: "https://docs.bookverse.com/errors/isbn-conflict"
+                          title: "ISBN Already Exists"
+                          status: 409
+                          detail: "A book with ISBN 978-1593279929 already exists"
+
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://docs.bookverse.com/errors/payload-too-large"
+                title: "Request Too Large"
+                status: 413
+                detail: "Bulk request cannot exceed 100 books. Received 150 books."
+                instance: "/books/bulk"
+                max_allowed: 100
+                received: 150
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /health:
+    get:
+      summary: Service health check
+      description: |
+        Comprehensive health check endpoint providing detailed service status and dependency health.
+        
+        **Checks:**
+        - Database connectivity and performance
+        - External service dependencies
+        - Cache system status
+        - Search index health
+        - Memory and CPU utilization
+        
+        **Response Codes:**
+        - 200: All systems healthy
+        - 503: One or more critical systems unhealthy
+        
+        **Use Cases:**
+        - Load balancer health checks
+        - Service monitoring and alerting
+        - Deployment verification
+        - Troubleshooting and diagnostics
+      operationId: healthCheck
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+              examples:
+                healthy:
+                  summary: All systems healthy
+                  value:
+                    status: "healthy"
+                    timestamp: "2024-01-25T16:45:00Z"
+                    version: "1.2.0"
+                    uptime_seconds: 3600
+                    checks:
+                      database:
+                        status: "healthy"
+                        response_time_ms: 15
+                        details: "Connection pool: 8/20 active"
+                      cache:
+                        status: "healthy"
+                        response_time_ms: 2
+                        details: "Redis connection stable"
+                      search_index:
+                        status: "healthy"
+                        response_time_ms: 45
+                        details: "Elasticsearch cluster green"
+                    metrics:
+                      cpu_usage_percent: 15.2
+                      memory_usage_percent: 42.8
+                      disk_usage_percent: 28.5
+                      active_connections: 15
+
+        '503':
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+              examples:
+                unhealthy:
+                  summary: Database connection issues
+                  value:
+                    status: "unhealthy"
+                    timestamp: "2024-01-25T16:45:00Z"
+                    version: "1.2.0"
+                    uptime_seconds: 3600
+                    checks:
+                      database:
+                        status: "unhealthy"
+                        response_time_ms: 5000
+                        details: "Connection timeout after 5 seconds"
+                        error: "Could not establish database connection"
+                      cache:
+                        status: "healthy"
+                        response_time_ms: 2
+                        details: "Redis connection stable"
+                      search_index:
+                        status: "degraded"
+                        response_time_ms: 1200
+                        details: "High response times detected"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT token-based authentication. Include the token in the Authorization header:
+        ```
+        Authorization: Bearer <jwt-token>
+        ```
+
+  schemas:
+    Book:
+      type: object
+      required:
+        - id
+        - title
+        - author
+        - isbn
+        - price
+        - currency
+        - quantity
+        - availability
+        - category
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique identifier for the book
+          example: 123
+          readOnly: true
+        title:
+          type: string
+          maxLength: 200
+          description: Book title
+          example: "Clean Code: A Handbook of Agile Software Craftsmanship"
+        author:
+          type: string
+          maxLength: 100
+          description: Author name
+          example: "Robert C. Martin"
+        isbn:
+          type: string
+          pattern: '^(?:ISBN(?:-1[03])?:? )?(?=[0-9X]{10}$|(?=(?:[0-9]+[- ]){3})[- 0-9X]{13}$|97[89][0-9]{10}$|(?=(?:[0-9]+[- ]){4})[- 0-9]{17}$)(?:97[89][- ]?)?[0-9]{1,5}[- ]?[0-9]+[- ]?[0-9]+[- ]?[0-9X]$'
+          description: ISBN number (10 or 13 digits)
+          example: "978-0132350884"
+        price:
+          type: number
+          format: decimal
+          minimum: 0
+          multipleOf: 0.01
+          description: Book price
+          example: 35.99
+        currency:
+          type: string
+          enum: [USD, EUR, GBP, CAD]
+          default: USD
+          description: Price currency
+          example: "USD"
+        quantity:
+          type: integer
+          minimum: 0
+          description: Available quantity in inventory
+          example: 25
+        availability:
+          type: string
+          enum: [available, out_of_stock, discontinued]
+          description: Current availability status
+          example: "available"
+        category:
+          type: string
+          enum: [programming, fiction, non-fiction, science, technology, business, education, reference]
+          description: Book category
+          example: "programming"
+        description:
+          type: string
+          maxLength: 2000
+          description: Book description
+          example: "A comprehensive guide to writing clean, maintainable code."
+        publisher:
+          type: string
+          maxLength: 100
+          description: Publisher name
+          example: "Prentice Hall"
+        publication_date:
+          type: string
+          format: date
+          description: Publication date
+          example: "2008-08-01"
+        pages:
+          type: integer
+          minimum: 1
+          description: Number of pages
+          example: 464
+        language:
+          type: string
+          pattern: '^[a-z]{2}$'
+          description: Language code (ISO 639-1)
+          example: "en"
+        tags:
+          type: array
+          items:
+            type: string
+            maxLength: 50
+          maxItems: 20
+          description: Book tags for categorization
+          example: ["programming", "software-engineering", "best-practices"]
+        cover_image_url:
+          type: string
+          format: uri
+          description: URL to book cover image
+          example: "https://images.bookverse.com/covers/clean-code.jpg"
+        rating:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 5
+          description: Average user rating
+          example: 4.7
+        review_count:
+          type: integer
+          minimum: 0
+          description: Number of user reviews
+          example: 342
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+          example: "2024-01-15T10:30:00Z"
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+          example: "2024-01-20T14:22:00Z"
+          readOnly: true
+
+    BookDetailed:
+      allOf:
+        - $ref: '#/components/schemas/Book'
+        - type: object
+          properties:
+            reserved_quantity:
+              type: integer
+              minimum: 0
+              description: Quantity currently reserved
+              example: 3
+            available_quantity:
+              type: integer
+              minimum: 0
+              description: Quantity available for new orders
+              example: 22
+            edition:
+              type: string
+              maxLength: 20
+              description: Book edition
+              example: "1st"
+            dimensions:
+              type: string
+              maxLength: 50
+              description: Physical dimensions
+              example: "9.2 x 7.3 x 1.1 inches"
+            weight:
+              type: string
+              maxLength: 20
+              description: Physical weight
+              example: "1.88 pounds"
+            preview_url:
+              type: string
+              format: uri
+              description: URL to book preview
+              example: "https://preview.bookverse.com/books/123"
+            popularity_score:
+              type: number
+              format: float
+              minimum: 0
+              maximum: 1
+              description: Popularity score (0-1)
+              example: 0.89
+            created_by:
+              type: string
+              description: User who created the record
+              example: "admin@bookverse.com"
+            last_modified_by:
+              type: string
+              description: User who last modified the record
+              example: "inventory@bookverse.com"
+
+    BookSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 456
+        title:
+          type: string
+          example: "Refactoring: Improving the Design of Existing Code"
+        author:
+          type: string
+          example: "Martin Fowler"
+        price:
+          type: number
+          format: decimal
+          example: 47.99
+        rating:
+          type: number
+          format: float
+          example: 4.6
+        cover_image_url:
+          type: string
+          format: uri
+          example: "https://images.bookverse.com/covers/refactoring.jpg"
+
+    CreateBookRequest:
+      type: object
+      required:
+        - title
+        - author
+        - isbn
+        - price
+        - category
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Book title
+          example: "Effective Python: 90 Specific Ways to Write Better Python"
+        author:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Author name
+          example: "Brett Slatkin"
+        isbn:
+          type: string
+          pattern: '^(?:ISBN(?:-1[03])?:? )?(?=[0-9X]{10}$|(?=(?:[0-9]+[- ]){3})[- 0-9X]{13}$|97[89][0-9]{10}$|(?=(?:[0-9]+[- ]){4})[- 0-9]{17}$)(?:97[89][- ]?)?[0-9]{1,5}[- ]?[0-9]+[- ]?[0-9]+[- ]?[0-9X]$'
+          description: ISBN number (10 or 13 digits)
+          example: "978-0134853987"
+        price:
+          type: number
+          format: decimal
+          minimum: 0.01
+          multipleOf: 0.01
+          description: Book price
+          example: 44.99
+        currency:
+          type: string
+          enum: [USD, EUR, GBP, CAD]
+          default: USD
+          description: Price currency
+          example: "USD"
+        quantity:
+          type: integer
+          minimum: 0
+          default: 0
+          description: Initial quantity in inventory
+          example: 50
+        category:
+          type: string
+          enum: [programming, fiction, non-fiction, science, technology, business, education, reference]
+          description: Book category
+          example: "programming"
+        description:
+          type: string
+          maxLength: 2000
+          description: Book description
+          example: "Master the next level of Python programming and learn how to write better Python code."
+        publisher:
+          type: string
+          maxLength: 100
+          description: Publisher name
+          example: "Addison-Wesley Professional"
+        publication_date:
+          type: string
+          format: date
+          description: Publication date
+          example: "2019-11-26"
+        pages:
+          type: integer
+          minimum: 1
+          description: Number of pages
+          example: 416
+        language:
+          type: string
+          pattern: '^[a-z]{2}$'
+          default: "en"
+          description: Language code (ISO 639-1)
+          example: "en"
+        tags:
+          type: array
+          items:
+            type: string
+            maxLength: 50
+          maxItems: 20
+          description: Book tags for categorization
+          example: ["python", "programming", "best-practices", "advanced"]
+
+    UpdateBookRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Book title
+        author:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Author name
+        price:
+          type: number
+          format: decimal
+          minimum: 0.01
+          multipleOf: 0.01
+          description: Book price
+        quantity:
+          type: integer
+          minimum: 0
+          description: Available quantity in inventory
+        category:
+          type: string
+          enum: [programming, fiction, non-fiction, science, technology, business, education, reference]
+          description: Book category
+        description:
+          type: string
+          maxLength: 2000
+          description: Book description
+        publisher:
+          type: string
+          maxLength: 100
+          description: Publisher name
+        publication_date:
+          type: string
+          format: date
+          description: Publication date
+        pages:
+          type: integer
+          minimum: 1
+          description: Number of pages
+        language:
+          type: string
+          pattern: '^[a-z]{2}$'
+          description: Language code (ISO 639-1)
+        tags:
+          type: array
+          items:
+            type: string
+            maxLength: 50
+          maxItems: 20
+          description: Book tags for categorization
+        update_reason:
+          type: string
+          maxLength: 200
+          description: Reason for the update (for audit trail)
+          example: "Price adjustment due to publisher cost increase"
+
+    PaginationInfo:
+      type: object
+      properties:
+        current_cursor:
+          type: string
+          nullable: true
+          description: Current page cursor
+          example: null
+        next_cursor:
+          type: string
+          nullable: true
+          description: Cursor for next page
+          example: "eyJpZCI6MjAsImNyZWF0ZWRfYXQiOiIyMDI0LTAxLTE1VDEwOjMwOjAwWiJ9"
+        has_more:
+          type: boolean
+          description: Whether more results are available
+          example: true
+        page_size:
+          type: integer
+          description: Number of items in current page
+          example: 20
+
+    AppliedFilters:
+      type: object
+      properties:
+        search:
+          type: string
+          nullable: true
+          description: Applied search query
+          example: "python programming"
+        category:
+          type: string
+          nullable: true
+          description: Applied category filter
+          example: "programming"
+        author:
+          type: string
+          nullable: true
+          description: Applied author filter
+          example: null
+        price_range:
+          type: object
+          nullable: true
+          properties:
+            min:
+              type: number
+              format: decimal
+              nullable: true
+            max:
+              type: number
+              format: decimal
+              nullable: true
+          example: { min: null, max: null }
+        availability:
+          type: string
+          nullable: true
+          description: Applied availability filter
+          example: "available"
+
+    SearchStats:
+      type: object
+      properties:
+        total_results:
+          type: integer
+          description: Total number of matching results
+          example: 47
+        avg_price:
+          type: number
+          format: decimal
+          description: Average price of matching books
+          example: 38.75
+        categories:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Count of results by category
+          example: { "programming": 47 }
+        availability:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Count of results by availability
+          example: { "available": 45, "out_of_stock": 2 }
+
+    SearchResult:
+      allOf:
+        - $ref: '#/components/schemas/Book'
+        - type: object
+          properties:
+            score:
+              type: number
+              format: float
+              description: Search relevance score
+              example: 2.847
+            highlights:
+              type: object
+              additionalProperties:
+                type: array
+                items:
+                  type: string
+              description: Search term highlights
+              example:
+                title: ["<em>Python</em> Web Programming"]
+                description: ["Learn <em>Python</em> development"]
+
+    SearchFacets:
+      type: object
+      properties:
+        category:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                example: "programming"
+              count:
+                type: integer
+                example: 34
+        author:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                example: "John Smith"
+              count:
+                type: integer
+                example: 3
+        price_range:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                example: "$25-$50"
+              count:
+                type: integer
+                example: 28
+
+    SearchSuggestions:
+      type: object
+      properties:
+        spelling:
+          type: array
+          items:
+            type: string
+          description: Spelling correction suggestions
+          example: []
+        autocomplete:
+          type: array
+          items:
+            type: string
+          description: Autocomplete suggestions
+          example: ["python web development", "python api programming"]
+
+    InventoryReservation:
+      type: object
+      properties:
+        reservation_id:
+          type: string
+          description: Unique reservation identifier
+          example: "res_9f8e7d6c5b4a3210"
+        book_id:
+          type: integer
+          format: int64
+          description: Book identifier
+          example: 123
+        quantity:
+          type: integer
+          minimum: 1
+          description: Reserved quantity
+          example: 3
+        status:
+          type: string
+          enum: [active, expired, released, consumed]
+          description: Reservation status
+          example: "active"
+        customer_id:
+          type: string
+          description: Customer identifier
+          example: "customer_12345"
+        created_at:
+          type: string
+          format: date-time
+          description: Reservation creation time
+          example: "2024-01-25T16:00:00Z"
+        expires_at:
+          type: string
+          format: date-time
+          description: Reservation expiration time
+          example: "2024-01-25T16:15:00Z"
+        reason:
+          type: string
+          description: Reservation reason
+          example: "Shopping cart reservation"
+
+    ChangeLog:
+      type: array
+      items:
+        type: object
+        properties:
+          field:
+            type: string
+            description: Field that was changed
+            example: "price"
+          old_value:
+            description: Previous value
+            example: 35.99
+          new_value:
+            description: New value
+            example: 39.99
+          reason:
+            type: string
+            description: Reason for change
+            example: "Price adjustment due to publisher cost increase"
+
+    ReviewSummary:
+      type: object
+      properties:
+        average_rating:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 5
+          description: Average rating score
+          example: 4.7
+        total_reviews:
+          type: integer
+          minimum: 0
+          description: Total number of reviews
+          example: 342
+        rating_distribution:
+          type: object
+          properties:
+            "5":
+              type: integer
+              example: 198
+            "4":
+              type: integer
+              example: 89
+            "3":
+              type: integer
+              example: 34
+            "2":
+              type: integer
+              example: 15
+            "1":
+              type: integer
+              example: 6
+        recent_reviews:
+          type: array
+          maxItems: 3
+          items:
+            type: object
+            properties:
+              rating:
+                type: integer
+                minimum: 1
+                maximum: 5
+                example: 5
+              comment:
+                type: string
+                example: "Excellent book on clean coding practices!"
+              reviewer:
+                type: string
+                example: "John D."
+              created_at:
+                type: string
+                format: date-time
+                example: "2024-01-20T10:15:00Z"
+
+    HealthStatus:
+      type: object
+      required:
+        - status
+        - timestamp
+        - version
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: Overall service health status
+          example: "healthy"
+        timestamp:
+          type: string
+          format: date-time
+          description: Health check timestamp
+          example: "2024-01-25T16:45:00Z"
+        version:
+          type: string
+          description: Service version
+          example: "1.2.0"
+        uptime_seconds:
+          type: integer
+          description: Service uptime in seconds
+          example: 3600
+        checks:
+          type: object
+          description: Individual health checks
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+                enum: [healthy, degraded, unhealthy]
+                example: "healthy"
+              response_time_ms:
+                type: integer
+                description: Check response time in milliseconds
+                example: 15
+              details:
+                type: string
+                description: Additional details about the check
+                example: "Connection pool: 8/20 active"
+              error:
+                type: string
+                description: Error message if check failed
+                example: "Connection timeout"
+        metrics:
+          type: object
+          description: Service metrics
+          properties:
+            cpu_usage_percent:
+              type: number
+              format: float
+              example: 15.2
+            memory_usage_percent:
+              type: number
+              format: float
+              example: 42.8
+            disk_usage_percent:
+              type: number
+              format: float
+              example: 28.5
+            active_connections:
+              type: integer
+              example: 15
+
+    ProblemDetails:
+      type: object
+      description: RFC 7807 Problem Details for HTTP APIs
+      required:
+        - type
+        - title
+        - status
+      properties:
+        type:
+          type: string
+          format: uri
+          description: URI reference that identifies the problem type
+          example: "https://docs.bookverse.com/errors/book-not-found"
+        title:
+          type: string
+          description: Short, human-readable summary of the problem
+          example: "Book Not Found"
+        status:
+          type: integer
+          description: HTTP status code
+          example: 404
+        detail:
+          type: string
+          description: Human-readable explanation of the problem
+          example: "No book found with ID 123"
+        instance:
+          type: string
+          format: uri
+          description: URI reference that identifies the specific occurrence
+          example: "/books/123"
+
+  responses:
+    BadRequest:
+      description: Bad Request - Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            validation_error:
+              summary: Validation error
+              value:
+                type: "https://docs.bookverse.com/errors/validation-error"
+                title: "Validation Error"
+                status: 400
+                detail: "Request validation failed"
+                instance: "/books"
+                validation_errors:
+                  - field: "price"
+                    message: "Price must be a positive number"
+                  - field: "isbn"
+                    message: "Invalid ISBN format"
+
+    Unauthorized:
+      description: Unauthorized - Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: "https://docs.bookverse.com/errors/unauthorized"
+            title: "Authentication Required"
+            status: 401
+            detail: "Valid authentication token required"
+            instance: "/books"
+
+    Forbidden:
+      description: Forbidden - Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: "https://docs.bookverse.com/errors/forbidden"
+            title: "Insufficient Permissions"
+            status: 403
+            detail: "User does not have permission to perform this action"
+            instance: "/books"
+            required_permission: "inventory:write"
+
+    UnprocessableEntity:
+      description: Unprocessable Entity - Business logic validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: "https://docs.bookverse.com/errors/business-rule-violation"
+            title: "Business Rule Violation"
+            status: 422
+            detail: "Cannot set negative inventory quantity"
+            instance: "/books/123"
+            business_rule: "inventory_quantity_non_negative"
+
+    RateLimited:
+      description: Too Many Requests - Rate limit exceeded
+      headers:
+        X-RateLimit-Limit:
+          description: Request limit per hour
+          schema:
+            type: integer
+            example: 1000
+        X-RateLimit-Remaining:
+          description: Requests remaining in current window
+          schema:
+            type: integer
+            example: 0
+        X-RateLimit-Reset:
+          description: Time when rate limit resets
+          schema:
+            type: string
+            format: date-time
+            example: "2024-01-25T17:00:00Z"
+        Retry-After:
+          description: Seconds to wait before retrying
+          schema:
+            type: integer
+            example: 3600
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: "https://docs.bookverse.com/errors/rate-limit-exceeded"
+            title: "Rate Limit Exceeded"
+            status: 429
+            detail: "Request rate limit of 1000 per hour exceeded"
+            instance: "/books"
+
+    InternalServerError:
+      description: Internal Server Error - Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: "https://docs.bookverse.com/errors/internal-server-error"
+            title: "Internal Server Error"
+            status: 500
+            detail: "An unexpected error occurred while processing the request"
+            instance: "/books"
+
+tags:
+  - name: Books
+    description: Book catalog management operations
+  - name: Search
+    description: Advanced search and discovery operations
+  - name: Inventory
+    description: Inventory management and reservation operations
+  - name: Bulk Operations
+    description: Bulk processing operations for efficiency
+  - name: Health
+    description: Service health and monitoring endpoints
+
+externalDocs:
+  description: BookVerse API Documentation Portal
+  url: https://docs.bookverse.com/api/inventory

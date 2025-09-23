@@ -1,18 +1,6 @@
-"""
-Pagination utilities for BookVerse Demo Services.
 
-DEMO PURPOSE: This module demonstrates how to standardize pagination across services.
-Instead of each service implementing its own pagination logic (like the inventory service's
-create_pagination_meta function), all services can use this shared implementation.
 
-Key Demo Benefits:
-- Consistent pagination format across all services
-- Reusable pagination parameters and response models
-- Single place to update pagination behavior
-- Eliminates duplicate pagination code
 
-Focus: Standard offset-based pagination that demonstrates the pattern clearly.
-"""
 
 import math
 from typing import Any, List, Optional, TypeVar, Generic
@@ -27,11 +15,7 @@ T = TypeVar('T')
 
 
 class PaginationParams(BaseModel):
-    """
-    Pagination parameters for API endpoints.
     
-    Can be used as a FastAPI dependency to standardize pagination parameters.
-    """
     
     page: int = Field(
         default=1,
@@ -48,12 +32,10 @@ class PaginationParams(BaseModel):
     
     @property
     def offset(self) -> int:
-        """Calculate offset for database queries."""
         return (self.page - 1) * self.per_page
     
     @property
     def limit(self) -> int:
-        """Get limit for database queries."""
         return self.per_page
 
 
@@ -61,16 +43,8 @@ def create_pagination_params(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page")
 ) -> PaginationParams:
-    """
-    FastAPI dependency for pagination parameters.
     
-    Args:
-        page: Page number (1-based)
-        per_page: Items per page
         
-    Returns:
-        PaginationParams instance
-    """
     return PaginationParams(page=page, per_page=per_page)
 
 
@@ -79,17 +53,8 @@ def create_pagination_meta(
     page: int,
     per_page: int
 ) -> PaginationMeta:
-    """
-    Create pagination metadata.
     
-    Args:
-        total: Total number of items
-        page: Current page number
-        per_page: Items per page
         
-    Returns:
-        PaginationMeta instance
-    """
     pages = max(1, math.ceil(total / per_page))
     
     return PaginationMeta(
@@ -106,20 +71,10 @@ def paginate_query(
     query: SQLQuery,
     pagination: PaginationParams
 ) -> tuple[List[Any], int]:
-    """
-    Apply pagination to a SQLAlchemy query.
     
-    Args:
-        query: SQLAlchemy query to paginate
-        pagination: Pagination parameters
         
-    Returns:
-        Tuple of (items, total_count)
-    """
-    # Get total count before applying pagination
     total = query.count()
     
-    # Apply pagination
     items = query.offset(pagination.offset).limit(pagination.limit).all()
     
     return items, total
@@ -131,18 +86,8 @@ def paginate(
     pagination: PaginationParams,
     request_id: Optional[str] = None
 ) -> PaginatedResponse[T]:
-    """
-    Create a paginated response from items and pagination info.
     
-    Args:
-        items: List of items for current page
-        total: Total number of items
-        pagination: Pagination parameters
-        request_id: Optional request ID
         
-    Returns:
-        PaginatedResponse instance
-    """
     pagination_meta = create_pagination_meta(
         total=total,
         page=pagination.page,
@@ -157,11 +102,7 @@ def paginate(
 
 
 class PaginatedList(Generic[T]):
-    """
-    A paginated list container.
     
-    Provides a convenient way to work with paginated data.
-    """
     
     def __init__(
         self,
@@ -170,15 +111,7 @@ class PaginatedList(Generic[T]):
         page: int,
         per_page: int
     ):
-        """
-        Initialize paginated list.
         
-        Args:
-            items: List of items for current page
-            total: Total number of items
-            page: Current page number
-            per_page: Items per page
-        """
         self.items = items
         self.total = total
         self.page = page
@@ -187,44 +120,31 @@ class PaginatedList(Generic[T]):
     
     @property
     def has_next(self) -> bool:
-        """Check if there is a next page."""
         return self.page < self.pages
     
     @property
     def has_prev(self) -> bool:
-        """Check if there is a previous page."""
         return self.page > 1
     
     @property
     def next_page(self) -> Optional[int]:
-        """Get next page number."""
         return self.page + 1 if self.has_next else None
     
     @property
     def prev_page(self) -> Optional[int]:
-        """Get previous page number."""
         return self.page - 1 if self.has_prev else None
     
     @property
     def start_index(self) -> int:
-        """Get start index of current page (1-based)."""
         return (self.page - 1) * self.per_page + 1
     
     @property
     def end_index(self) -> int:
-        """Get end index of current page (1-based)."""
         return min(self.page * self.per_page, self.total)
     
     def to_response(self, request_id: Optional[str] = None) -> PaginatedResponse[T]:
-        """
-        Convert to PaginatedResponse.
         
-        Args:
-            request_id: Optional request ID
             
-        Returns:
-            PaginatedResponse instance
-        """
         return PaginatedResponse(
             items=self.items,
             pagination=PaginationMeta(
@@ -239,17 +159,12 @@ class PaginatedList(Generic[T]):
         )
     
     def __len__(self) -> int:
-        """Get number of items in current page."""
         return len(self.items)
     
     def __iter__(self):
-        """Iterate over items in current page."""
         return iter(self.items)
     
     def __getitem__(self, index: int) -> T:
-        """Get item by index."""
         return self.items[index]
 
 
-# Note: Removed cursor-based pagination for demo simplicity
-# Focus on standard offset-based pagination that all services currently use

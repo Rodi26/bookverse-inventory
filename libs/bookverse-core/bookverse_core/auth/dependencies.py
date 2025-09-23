@@ -1,8 +1,4 @@
-"""
-FastAPI dependencies for authentication and authorization.
 
-Provides reusable FastAPI dependencies for different authentication scenarios.
-"""
 
 import logging
 from typing import Optional
@@ -14,7 +10,6 @@ from .jwt_auth import AuthUser, validate_jwt_token, create_mock_user, is_auth_en
 
 logger = logging.getLogger(__name__)
 
-# HTTP Bearer security scheme
 security = HTTPBearer(auto_error=False)
 
 
@@ -22,57 +17,42 @@ async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> Optional[AuthUser]:
     """
-    FastAPI dependency to get the current authenticated user.
+    Get the current authenticated user if available.
     
-    Supports multiple modes:
-    - Production: Validates JWT tokens
-    - Development with auth disabled: Returns mock user
-    - Development mode: Allows unauthenticated access
+    This function is designed for OPTIONAL authentication patterns.
+    Returns None when no credentials are provided, allowing endpoints
+    to handle both authenticated and unauthenticated requests.
     
-    Args:
-        credentials: HTTP Bearer credentials from request
-        
+    For REQUIRED authentication, use require_authentication() instead.
+    
     Returns:
-        AuthUser instance if authenticated, None if unauthenticated in dev mode
-        
-    Raises:
-        HTTPException: If authentication is required but fails
+        Optional[AuthUser]: The authenticated user or None if not authenticated
     """
-    # If authentication is disabled, return a mock user for development
     if not is_auth_enabled():
         logger.debug("🔓 Authentication disabled - returning mock user")
         return create_mock_user()
     
-    # If no credentials provided
     if not credentials:
-        if is_development_mode():
-            logger.debug("🔧 Development mode - allowing unauthenticated access")
-            return None
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
-            headers={"WWW-Authenticate": "Bearer"}
-        )
+        # For optional authentication, always return None when no credentials provided
+        # This allows endpoints to handle both authenticated and unauthenticated users
+        logger.debug("🔓 No credentials provided - returning None for optional auth")
+        return None
     
-    # Validate the token
-    return await validate_jwt_token(credentials.credentials)
+    try:
+        return await validate_jwt_token(credentials.credentials)
+    except HTTPException:
+        # For optional authentication, invalid tokens should also return None
+        # rather than raising exceptions. This allows graceful degradation.
+        logger.debug("⚠️ Invalid token provided - returning None for optional auth")
+        return None
 
 
 async def require_authentication(
     user: Optional[AuthUser] = Depends(get_current_user)
 ) -> AuthUser:
-    """
-    FastAPI dependency that requires authentication.
     
-    Args:
-        user: Current user from get_current_user dependency
         
-    Returns:
-        AuthUser instance
         
-    Raises:
-        HTTPException: If user is not authenticated
-    """
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -83,15 +63,8 @@ async def require_authentication(
 
 
 def require_scope(scope: str):
-    """
-    Factory function to create a dependency that requires a specific scope.
     
-    Args:
-        scope: The required scope
         
-    Returns:
-        FastAPI dependency function
-    """
     async def scope_checker(user: AuthUser = Depends(require_authentication)) -> AuthUser:
         if not user.has_scope(scope):
             raise HTTPException(
@@ -105,15 +78,8 @@ def require_scope(scope: str):
 
 
 def require_role(role: str):
-    """
-    Factory function to create a dependency that requires a specific role.
     
-    Args:
-        role: The required role
         
-    Returns:
-        FastAPI dependency function
-    """
     async def role_checker(user: AuthUser = Depends(require_authentication)) -> AuthUser:
         if not user.has_role(role):
             raise HTTPException(
@@ -127,15 +93,8 @@ def require_role(role: str):
 
 
 def require_any_scope(*scopes: str):
-    """
-    Factory function to create a dependency that requires any of the specified scopes.
     
-    Args:
-        scopes: The required scopes (user must have at least one)
         
-    Returns:
-        FastAPI dependency function
-    """
     async def scope_checker(user: AuthUser = Depends(require_authentication)) -> AuthUser:
         if not user.has_any_scope(list(scopes)):
             raise HTTPException(
@@ -149,15 +108,8 @@ def require_any_scope(*scopes: str):
 
 
 def require_any_role(*roles: str):
-    """
-    Factory function to create a dependency that requires any of the specified roles.
     
-    Args:
-        roles: The required roles (user must have at least one)
         
-    Returns:
-        FastAPI dependency function
-    """
     async def role_checker(user: AuthUser = Depends(require_authentication)) -> AuthUser:
         if not user.has_any_role(list(roles)):
             raise HTTPException(
@@ -170,7 +122,6 @@ def require_any_role(*roles: str):
     return role_checker
 
 
-# Common dependencies for different access levels
 RequireAuth = Depends(require_authentication)
 RequireUser = Depends(get_current_user)
 RequireApiScope = Depends(require_scope("bookverse:api"))

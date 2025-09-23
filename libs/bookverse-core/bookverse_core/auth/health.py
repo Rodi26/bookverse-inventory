@@ -1,8 +1,4 @@
-"""
-Health check utilities for authentication services.
 
-Provides functions to check authentication service status and connectivity.
-"""
 
 import logging
 from typing import Dict, Any
@@ -14,16 +10,11 @@ logger = logging.getLogger(__name__)
 
 
 def get_auth_status() -> Dict[str, Any]:
-    """
-    Get authentication service status for health checks.
     
-    Returns:
-        Dict containing authentication configuration and cache status
-    """
     return {
         "auth_enabled": is_auth_enabled(),
         "development_mode": is_development_mode(),
-        "oidc_authority": "https://dev-auth.bookverse.com",  # Don't expose actual URL in status
+        "oidc_authority": "https://dev-auth.bookverse.com",
         "audience": "bookverse:api",
         "algorithm": "RS256",
         "jwks_cached": _jwks is not None,
@@ -33,14 +24,8 @@ def get_auth_status() -> Dict[str, Any]:
 
 
 async def check_auth_connection() -> Dict[str, Any]:
-    """
-    Test authentication service connectivity.
     
-    Attempts to fetch OIDC configuration and JWKS to verify connectivity.
     
-    Returns:
-        Dict containing connectivity test results
-    """
     if not is_auth_enabled():
         return {
             "status": "disabled",
@@ -48,10 +33,8 @@ async def check_auth_connection() -> Dict[str, Any]:
         }
     
     try:
-        # Test OIDC configuration fetch
         config = await get_oidc_configuration()
         
-        # Test JWKS fetch
         jwks = await get_jwks()
         
         return {
