@@ -499,11 +499,21 @@ jobs:
 
           docker build --tag "$IMAGE_NAME" .
           
-          # Use deprecated command for older Artifactory versions
-          jf rt docker-push "$IMAGE_NAME" "$REPO_KEY" \
+          # Try modern command first, fallback to deprecated command for older Artifactory versions
+          echo "🚀 Attempting to push Docker image with build-info..."
+          if jf docker push "$IMAGE_NAME" \
             --build-name "$BUILD_NAME" \
             --build-number "$BUILD_NUMBER" \
-            --project "${{ vars.PROJECT_KEY }}"
+            --project "${{ vars.PROJECT_KEY }}" 2>/dev/null; then
+            echo "✅ Successfully pushed using modern jf docker push command"
+          else
+            echo "⚠️ Modern command failed (likely Artifactory < 7.33.3), using deprecated command..."
+            jf rt docker-push "$IMAGE_NAME" "$REPO_KEY" \
+              --build-name "$BUILD_NAME" \
+              --build-number "$BUILD_NUMBER" \
+              --project "${{ vars.PROJECT_KEY }}"
+            echo "✅ Successfully pushed using deprecated jf rt docker-push command"
+          fi
 
           echo "DOCKER_BUILD_PUSH_STATUS=SUCCESS" >> $GITHUB_ENV
           echo "✅ Built, pushed, and associated inventory Docker image with build-info"
