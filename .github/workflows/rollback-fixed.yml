@@ -41,7 +41,7 @@ jobs:
           set -euo pipefail
           BASE="${{ vars.JFROG_URL }}"; BASE="${BASE%/}"
           if [[ -z "$BASE" ]]; then echo "Missing vars.JFROG_URL" >&2; exit 1; fi
-          PROVIDER_NAME="${{ vars.GITHUB_OIDC_PROVIDER_NAME }}"
+          PROVIDER_NAME="bookverse-inventory-github"
           JF_URL="$BASE"
           if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
             echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
@@ -78,7 +78,7 @@ jobs:
         uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
         with:
           version: latest
-          oidc-provider-name: ${{ vars.GITHUB_OIDC_PROVIDER_NAME }}
+          oidc-provider-name: bookverse-inventory-github
           disable-job-summary: true
           oidc-audience: ${{ vars.JFROG_URL }}
           disable-auto-build-publish: false
