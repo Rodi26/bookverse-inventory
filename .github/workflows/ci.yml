@@ -265,7 +265,7 @@ jobs:
           OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
           if [[ -n "$OIDC_TOKEN" && "$OIDC_TOKEN" != "null" ]]; then
             echo "✅ Successfully retrieved OIDC token from JFrog CLI step output (oidc-token)"
-            echo "📋 Token length: ${
+            echo "📋 Token length: ${#OIDC_TOKEN}"
           else
             echo "❌ OIDC token not available from JFrog CLI step output (oidc-token)"
             echo "🔍 Available outputs from jfrog-cli-auth step:"
@@ -304,7 +304,7 @@ jobs:
           fi
           
           echo "✅ OIDC token available from JFrog CLI step"
-          echo "📋 Token length: ${
+          echo "📋 Token length: ${#OIDC_TOKEN}"
           echo "📋 Token starts with: ${OIDC_TOKEN:0:10}..."
           echo "📋 Using shared semver logic from bookverse-infra"
           INFRA_SCRIPTS_PATH="bookverse-infra/libraries/bookverse-devops/scripts"
@@ -601,7 +601,7 @@ jobs:
           PROMOTION_OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
           if [[ -n "$PROMOTION_OIDC_TOKEN" && "$PROMOTION_OIDC_TOKEN" != "null" ]]; then
             echo "✅ Successfully retrieved OIDC token from JFrog CLI step output (oidc-token)"
-            echo "📋 Token length: ${
+            echo "📋 Token length: ${#PROMOTION_OIDC_TOKEN}"
             echo "promotion_oidc_token=$PROMOTION_OIDC_TOKEN" >> $GITHUB_OUTPUT
           else
             echo "❌ OIDC token not available from JFrog CLI step output (oidc-token) in promotion job" >&2
@@ -650,7 +650,7 @@ jobs:
           APP_KEY="$APPLICATION_KEY"
           
           TAG_OPTIONS=(release hotfix feature bugfix enhancement security performance refactor)
-          TAG_INDEX=$((${GITHUB_RUN_NUMBER:-0} % ${
+          TAG_INDEX=$((${GITHUB_RUN_NUMBER:-0} % ${#TAG_OPTIONS[@]}))
           APP_TAG="${TAG_OPTIONS[$TAG_INDEX]}"
           
           ACTUAL_BUILD_NAME="${{ needs.build-test-publish.outputs.build_name }}"
