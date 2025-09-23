@@ -499,7 +499,8 @@ jobs:
 
           docker build --tag "$IMAGE_NAME" .
           
-          jf docker push "$IMAGE_NAME" \
+          # Use deprecated command for older Artifactory versions
+          jf rt docker-push "$IMAGE_NAME" "$REPO_KEY" \
             --build-name "$BUILD_NAME" \
             --build-number "$BUILD_NUMBER" \
             --project "${{ vars.PROJECT_KEY }}"
