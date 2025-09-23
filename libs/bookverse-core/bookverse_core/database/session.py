@@ -1,7 +1,5 @@
 
 
-
-
 import logging
 from typing import Generator, Optional
 from contextlib import contextmanager
@@ -14,13 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 class DatabaseConfig(BaseModel):
-    
-    
+
     database_url: str
     echo: bool = False
     pool_size: int = 5
     max_overflow: int = 10
-    
+
     model_config = ConfigDict(env_prefix="DB_")
 
 
@@ -29,11 +26,9 @@ _session_factory: Optional[sessionmaker] = None
 
 
 def create_database_engine(config: DatabaseConfig) -> Engine:
-    
-    
-        
+
     global _engine
-    
+
     if _engine is None:
         _engine = create_engine(
             config.database_url,
@@ -44,15 +39,14 @@ def create_database_engine(config: DatabaseConfig) -> Engine:
             pool_recycle=3600,
         )
         logger.info(f"✅ Database engine created: {config.database_url}")
-    
+
     return _engine
 
 
 def create_session_factory(engine: Engine) -> sessionmaker:
-    
-        
+
     global _session_factory
-    
+
     if _session_factory is None:
         _session_factory = sessionmaker(
             bind=engine,
@@ -60,20 +54,18 @@ def create_session_factory(engine: Engine) -> sessionmaker:
             autoflush=False,
         )
         logger.info("✅ Database session factory created")
-    
+
     return _session_factory
 
 
-def get_database_session(config: DatabaseConfig) -> Generator[Session, None, None]:
-    
-    
-    
-        
+def get_database_session(
+        config: DatabaseConfig) -> Generator[Session, None, None]:
+
     engine = create_database_engine(config)
     session_factory = create_session_factory(engine)
-    
+
     session = session_factory()
-    
+
     try:
         yield session
         session.commit()
@@ -86,15 +78,13 @@ def get_database_session(config: DatabaseConfig) -> Generator[Session, None, Non
 
 
 @contextmanager
-def database_session_context(config: DatabaseConfig) -> Generator[Session, None, None]:
-    
-    
-    
-        
+def database_session_context(
+        config: DatabaseConfig) -> Generator[Session, None, None]:
+
     engine = create_database_engine(config)
     session_factory = create_session_factory(engine)
     session = session_factory()
-    
+
     try:
         yield session
         session.commit()
@@ -107,8 +97,7 @@ def database_session_context(config: DatabaseConfig) -> Generator[Session, None,
 
 
 def create_tables(config: DatabaseConfig, base_class):
-    
-    
+
     try:
         engine = create_database_engine(config)
         base_class.metadata.create_all(bind=engine)
@@ -119,9 +108,7 @@ def create_tables(config: DatabaseConfig, base_class):
 
 
 def test_database_connection(config: DatabaseConfig) -> bool:
-    
-    
-        
+
     try:
         engine = create_database_engine(config)
         with engine.connect() as connection:
@@ -134,12 +121,12 @@ def test_database_connection(config: DatabaseConfig) -> bool:
 
 
 def reset_database_globals():
-    
+
     global _engine, _session_factory
-    
+
     if _engine:
         _engine.dispose()
         _engine = None
-    
+
     _session_factory = None
     logger.info("🔄 Database globals reset")

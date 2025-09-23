@@ -9,7 +9,7 @@ from .config import BaseConfig, ConfigLoader
 
 __all__ = [
     "AuthUser",
-    "BaseConfig", 
+    "BaseConfig",
     "ConfigLoader",
     "__version__",
 ]

@@ -20,9 +20,9 @@ class TestConfig(BaseConfig):
     environment: str = "test"
     debug: bool = True
     log_level: str = "DEBUG"
-    
+
     database_url: str = "sqlite:///:memory:"
-    
+
     auth_enabled: bool = True
     development_mode: bool = True
     oidc_authority: str = "https://test-auth.example.com"
@@ -111,16 +111,16 @@ def test_db_engine():
 def test_db_session(test_db_engine):
     SessionLocal = sessionmaker(bind=test_db_engine)
     session = SessionLocal()
-    
+
     yield session
-    
+
     session.close()
 
 
 @pytest.fixture
 def mock_requests():
     with patch('requests.get') as mock_get, \
-         patch('requests.post') as mock_post:
+            patch('requests.post') as mock_post:
         yield {
             'get': mock_get,
             'post': mock_post
@@ -131,13 +131,13 @@ def mock_requests():
 def demo_app_client():
     import sys
     import os
-    
+
     app_path = os.path.join(os.path.dirname(__file__), '..', 'app')
     sys.path.insert(0, app_path)
-    
+
     try:
         from main import app
-        
+
         with TestClient(app) as client:
             yield client
     finally:
@@ -152,7 +152,7 @@ def reset_caches():
         get_oidc_configuration.cache_clear()
     if hasattr(get_jwks, 'cache_clear'):
         get_jwks.cache_clear()
-    
+
     try:
         from bookverse_core.config.loaders import ConfigLoader
         for attr_name in dir(ConfigLoader):
@@ -175,7 +175,7 @@ def sample_books():
         },
         {
             "id": 2,
-            "title": "Test Book 2", 
+            "title": "Test Book 2",
             "author": "Test Author 2",
             "isbn": "978-0-123456-79-6",
             "category": "non-fiction"
@@ -183,7 +183,7 @@ def sample_books():
         {
             "id": 3,
             "title": "Test Book 3",
-            "author": "Test Author 3", 
+            "author": "Test Author 3",
             "isbn": "978-0-123456-80-2",
             "category": "science"
         }
@@ -198,14 +198,14 @@ def setup_test_environment():
         "AUTH_ENABLED": "true",
         "DEVELOPMENT_MODE": "true"
     }
-    
+
     original_env = {}
     for key, value in test_env.items():
         original_env[key] = os.environ.get(key)
         os.environ[key] = value
-    
+
     yield
-    
+
     for key, original_value in original_env.items():
         if original_value is None:
             os.environ.pop(key, None)

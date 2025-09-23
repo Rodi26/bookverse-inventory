@@ -176,7 +176,7 @@ jobs:
           echo "🧭 Starting rollback workflow"
           APPTRUST_BASE_URL="/apptrust/api/v1"
 
-          SERVICE_NAME=$(echo "${GITHUB_REPOSITORY
+          SERVICE_NAME=$(echo "${GITHUB_REPOSITORY}" | cut -d'/' -f2)
           APP_KEY="bookverse-$SERVICE_NAME"
           echo "📦 Application: $APP_KEY"
           echo "APPLICATION_KEY=$APP_KEY" >> $GITHUB_ENV
@@ -284,17 +284,17 @@ jobs:
             [ -z "$s" ] && continue
             s_disp="$s"
             case "$s_disp" in
-              "$PROJECT_KEY_ENV"-*) s_disp="${s_disp
+              "$PROJECT_KEY_ENV"-*) s_disp="${s_disp#$PROJECT_KEY_ENV-}"
             esac
             STAGES+=("$s_disp")
           done < <(jq -r --arg n "$LIFECYCLE_NAME" '([ .[] | select(.name==$n) | .stages ] | .[0] // []) | map(if type=="object" then .name else . end) | .[]' "$NORM_FILE" 2>/dev/null)
           rm -f "$NORM_FILE"
-          if [[ ${
+          if [[ ${#STAGES[@]} -eq 0 ]]; then
             STAGES=(DEV QA STAGING PROD)
           fi
           echo "🧭 Lifecycle stages: ${STAGES[*]}"
           display_stage() {
-            local x="$1"; local p="$PROJECT_KEY_ENV"; if [[ "$x" == "PROD" || "$x" == "$p-PROD" ]]; then echo "PROD"; elif [[ "$x" == "$p-"* ]]; then echo "${x
+            local x="$1"; local p="$PROJECT_KEY_ENV"; if [[ "$x" == "PROD" || "$x" == "$p-PROD" ]]; then echo "PROD"; elif [[ "$x" == "$p-"* ]]; then echo "${x#$p-}"; else echo "$x"; fi
           }
           CURR_BEFORE_DISP=$(display_stage "${CURRENT_STAGE_BEFORE}")
           CURR_AFTER_DISP=$(display_stage "${CURR_STAGE_TARGET}")
@@ -314,7 +314,7 @@ jobs:
 
           STATUS="SUCCESS"
           MSG="Rollback executed for ${APPLICATION_KEY}@${TARGET_VERSION}"
-          if [ ${
+          if [ ${#VALIDATION_ERRORS[@]} -gt 0 ]; then
             STATUS="FAILED"
             MSG="Validation failed: ${VALIDATION_ERRORS[*]}"
           fi
@@ -336,7 +336,7 @@ jobs:
             echo "- Stage before: \`${CURR_BEFORE_DISP:-unknown}\`"
             echo "- Stage after:  \`${CURR_AFTER_DISP:-unknown}\`"
             echo "- Expected previous stage: \`${EXPECTED_PREV:-unknown}\`"
-            if [ "${
+            if [ "${STATUS}" = "FAILED" ]; then
               echo "- Result: ❌ ${MSG}"
             else
               echo "- Result: ✅ Rollback validated"

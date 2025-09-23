@@ -13,13 +13,17 @@ class BaseResponse(BaseModel):
 
 class BookBase(BaseModel):
     title: str = Field(..., max_length=500, description="Book title")
-    subtitle: Optional[str] = Field(None, max_length=500, description="Book subtitle")
-    authors: List[str] = Field(..., min_length=1, description="List of author names")
-    genres: List[str] = Field(..., min_length=1, description="List of book genres")
+    subtitle: Optional[str] = Field(
+        None, max_length=500, description="Book subtitle")
+    authors: List[str] = Field(..., min_length=1,
+                               description="List of author names")
+    genres: List[str] = Field(..., min_length=1,
+                              description="List of book genres")
     description: str = Field(..., description="Book description")
     price: Decimal = Field(..., gt=0, description="Book price in USD")
     cover_image_url: str = Field(..., description="URL to book cover image")
-    rating: Optional[float] = Field(None, ge=0, le=5, description="Book rating (0-5)")
+    rating: Optional[float] = Field(
+        None, ge=0, le=5, description="Book rating (0-5)")
 
 
 class BookCreate(BookBase):
@@ -52,7 +56,8 @@ class BookListItem(BaseResponse):
     genres: List[str]
     price: Decimal
     cover_image_url: str
-    rating: Optional[float] = Field(None, ge=0, le=5, description="Book rating (0-5)")
+    rating: Optional[float] = Field(
+        None, ge=0, le=5, description="Book rating (0-5)")
     availability: "AvailabilityInfo"
 
 
@@ -63,7 +68,8 @@ class AvailabilityInfo(BaseModel):
 
 
 class InventoryBase(BaseModel):
-    quantity_available: int = Field(..., ge=0, description="Available quantity")
+    quantity_available: int = Field(..., ge=0,
+                                    description="Available quantity")
     quantity_total: int = Field(..., ge=0, description="Total quantity")
     reorder_point: int = Field(..., ge=0, description="Reorder threshold")
 
@@ -81,8 +87,10 @@ class InventoryDetailResponse(BaseResponse):
 
 
 class InventoryAdjustment(BaseModel):
-    quantity_change: int = Field(..., description="Positive or negative quantity change")
-    notes: Optional[str] = Field(None, max_length=500, description="Optional notes")
+    quantity_change: int = Field(...,
+                                 description="Positive or negative quantity change")
+    notes: Optional[str] = Field(
+        None, max_length=500, description="Optional notes")
 
 
 class TransactionResponse(BaseResponse):

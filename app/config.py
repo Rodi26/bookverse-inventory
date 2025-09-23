@@ -46,11 +46,11 @@ Usage Patterns:
     ```python
     # Import configuration in application modules
     from .config import DATABASE_URL, LOG_LEVEL, SERVICE_NAME
-    
+
     # Environment variable override example
     # export DATABASE_URL="postgresql://user:pass@localhost/bookverse"
     # export LOG_LEVEL="DEBUG"
-    
+
     # Configuration validation
     def validate_config():
         assert DATABASE_URL, "Database URL must be configured"
@@ -101,13 +101,13 @@ Supported Database Types:
 Configuration Examples:
     # Development (default)
     DATABASE_URL = "sqlite:///./bookverse_inventory.db"
-    
+
     # Production PostgreSQL
     DATABASE_URL = "postgresql://bookverse_user:secure_password@db.example.com:5432/bookverse_inventory"
-    
+
     # Testing (in-memory)
     DATABASE_URL = "sqlite:///:memory:"
-    
+
     # Docker Compose
     DATABASE_URL = "postgresql://bookverse:password@postgres:5432/bookverse_inventory"
 
@@ -171,10 +171,10 @@ Log Format Integration:
 Usage Examples:
     # Set debug logging for development
     export LOG_LEVEL=DEBUG
-    
+
     # Production error-only logging
     export LOG_LEVEL=ERROR
-    
+
     # Default balanced logging
     LOG_LEVEL = "INFO"  # No override needed
 """
@@ -400,9 +400,9 @@ Router Integration:
     ```python
     from fastapi import APIRouter
     from .config import API_PREFIX
-    
+
     router = APIRouter(prefix=API_PREFIX)
-    
+
     @router.get("/books")  # Results in /api/v1/books
     def list_books():
         pass
@@ -470,13 +470,13 @@ Version Format (Semantic Versioning):
 Environment Examples:
     # Development
     SERVICE_VERSION = "1.0.0-dev"  # Default
-    
+
     # CI/CD Pipeline
     export SERVICE_VERSION="1.2.3"
-    
+
     # Staging
     export SERVICE_VERSION="1.2.3-rc.1"
-    
+
     # Production
     export SERVICE_VERSION="1.2.3"
 
@@ -570,10 +570,10 @@ Tuning Considerations:
 Configuration Examples:
     # Conservative (early warnings)
     LOW_STOCK_THRESHOLD = 10
-    
+
     # Aggressive (minimal inventory)
     LOW_STOCK_THRESHOLD = 2
-    
+
     # Balanced (current default)
     LOW_STOCK_THRESHOLD = 5
 
@@ -614,13 +614,13 @@ API Integration:
     ```python
     # Client request without page size
     GET /api/v1/books  # Returns 20 items (default)
-    
+
     # Client request with custom page size
     GET /api/v1/books?per_page=50  # Returns 50 items
-    
+
     # Minimum page size
     GET /api/v1/books?per_page=1   # Returns 1 item
-    
+
     # Maximum page size (limited by MAX_PAGE_SIZE)
     GET /api/v1/books?per_page=200  # Limited to MAX_PAGE_SIZE
     ```

@@ -9,7 +9,7 @@ from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import requests
 
-from bookverse_core.auth import AuthUser, validate_jwt_token
+from bookverse_core.auth import AuthUser
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +27,13 @@ JWKS_CACHE_DURATION = 3600
 security = HTTPBearer(auto_error=False)
 
 
-
-
 async def get_oidc_configuration() -> dict:
     global _oidc_config
-    
+
     if _oidc_config is None:
         try:
-            response = requests.get(f"{OIDC_AUTHORITY}/.well-known/openid_configuration", timeout=10)
+            response = requests.get(
+                f"{OIDC_AUTHORITY}/.well-known/openid_configuration", timeout=10)
             response.raise_for_status()
             _oidc_config = response.json()
             logger.info("✅ OIDC configuration loaded successfully")
@@ -44,32 +43,32 @@ async def get_oidc_configuration() -> dict:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Authentication service unavailable"
             )
-    
+
     return _oidc_config
 
 
 async def get_jwks() -> dict:
     global _jwks, _jwks_last_updated
-    
+
     current_time = datetime.now().timestamp()
-    
-    if (_jwks is None or 
-        _jwks_last_updated is None or 
-        current_time - _jwks_last_updated > JWKS_CACHE_DURATION):
-        
+
+    if (_jwks is None or
+        _jwks_last_updated is None or
+            current_time - _jwks_last_updated > JWKS_CACHE_DURATION):
+
         try:
             oidc_config = await get_oidc_configuration()
             jwks_uri = oidc_config.get("jwks_uri")
-            
+
             if not jwks_uri:
                 raise ValueError("No jwks_uri found in OIDC configuration")
-            
+
             response = requests.get(jwks_uri, timeout=10)
             response.raise_for_status()
             _jwks = response.json()
             _jwks_last_updated = current_time
             logger.info("✅ JWKS refreshed successfully")
-            
+
         except Exception as e:
             logger.error(f"❌ Failed to fetch JWKS: {e}")
             if _jwks is None:
@@ -78,7 +77,7 @@ async def get_jwks() -> dict:
                     detail="Authentication service unavailable"
                 )
             logger.warning("⚠️ Using cached JWKS due to fetch failure")
-    
+
     return _jwks
 
 
@@ -86,22 +85,20 @@ def get_public_key(token_header: dict, jwks: dict) -> str:
     kid = token_header.get("kid")
     if not kid:
         raise ValueError("Token header missing 'kid' field")
-    
+
     for key in jwks.get("keys", []):
         if key.get("kid") == kid:
             return key
-    
+
     raise ValueError(f"No matching key found for kid: {kid}")
-
-
 
 
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> Optional[AuthUser]:
-    
-    
-    logger.debug("🎯 Demo mode: Using mock user (K8s inter-service auth not in scope)")
+
+    logger.debug(
+        "🎯 Demo mode: Using mock user (K8s inter-service auth not in scope)")
     return AuthUser({
         "sub": "demo-user",
         "email": "demo@bookverse.com",
@@ -124,7 +121,8 @@ async def require_authentication(
 
 
 def require_scope(scope: str):
-    async def scope_checker(user: AuthUser = Depends(require_authentication)) -> AuthUser:
+    async def scope_checker(user: AuthUser = Depends(
+            require_authentication)) -> AuthUser:
         if not user.has_scope(scope):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -135,7 +133,8 @@ def require_scope(scope: str):
 
 
 def require_role(role: str):
-    async def role_checker(user: AuthUser = Depends(require_authentication)) -> AuthUser:
+    async def role_checker(user: AuthUser = Depends(
+            require_authentication)) -> AuthUser:
         if not user.has_role(role):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

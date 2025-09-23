@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_auth_status() -> Dict[str, Any]:
-    
+
     return {
         "auth_enabled": is_auth_enabled(),
         "development_mode": is_development_mode(),
@@ -24,19 +24,18 @@ def get_auth_status() -> Dict[str, Any]:
 
 
 async def check_auth_connection() -> Dict[str, Any]:
-    
-    
+
     if not is_auth_enabled():
         return {
             "status": "disabled",
             "message": "Authentication is disabled"
         }
-    
+
     try:
         config = await get_oidc_configuration()
-        
+
         jwks = await get_jwks()
-        
+
         return {
             "status": "healthy",
             "oidc_config_loaded": bool(config),
@@ -46,7 +45,8 @@ async def check_auth_connection() -> Dict[str, Any]:
         }
     except Exception as e:
         if is_development_mode():
-            logger.warning(f"⚠️ Authentication service unavailable in demo mode: {e}")
+            logger.warning(
+                f"⚠️ Authentication service unavailable in demo mode: {e}")
         else:
             logger.error(f"❌ Authentication connectivity check failed: {e}")
         return {

@@ -37,10 +37,10 @@ jobs:
           OUTPUT_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
           if [[ -n "$OUTPUT_TOKEN" && "$OUTPUT_TOKEN" != "null" ]]; then
             echo "✅ Output token available"
-            echo "📋 Token length: ${
+            echo "📋 Token length: ${#OUTPUT_TOKEN}"
             echo "📋 Token starts with: ${OUTPUT_TOKEN:0:15}..."
             echo "output_token_available=true" >> $GITHUB_OUTPUT
-            echo "output_token_length=${
+            echo "output_token_length=${#OUTPUT_TOKEN}" >> $GITHUB_OUTPUT
           else
             echo "❌ Output token not available"
             echo "output_token_available=false" >> $GITHUB_OUTPUT
@@ -62,10 +62,10 @@ jobs:
           
           if [[ -n "${JF_ACCESS_TOKEN:-}" ]]; then
             echo "✅ Export token available"
-            echo "📋 Token length: ${
+            echo "📋 Token length: ${#JF_ACCESS_TOKEN}"
             echo "📋 Token starts with: ${JF_ACCESS_TOKEN:0:15}..."
             echo "export_token_available=true" >> $GITHUB_OUTPUT
-            echo "export_token_length=${
+            echo "export_token_length=${#JF_ACCESS_TOKEN}" >> $GITHUB_OUTPUT
           else
             echo "❌ Export token not available"
             echo "export_token_available=false" >> $GITHUB_OUTPUT
@@ -80,8 +80,8 @@ jobs:
           EXPORT_TOKEN="${JF_ACCESS_TOKEN:-}"
           
           if [[ -n "$OUTPUT_TOKEN" && -n "$EXPORT_TOKEN" ]]; then
-            echo "📋 Output token length: ${
-            echo "📋 Export token length: ${
+            echo "📋 Output token length: ${#OUTPUT_TOKEN}"
+            echo "📋 Export token length: ${#EXPORT_TOKEN}"
             echo "📋 Output token prefix: ${OUTPUT_TOKEN:0:20}..."
             echo "📋 Export token prefix: ${EXPORT_TOKEN:0:20}..."
             

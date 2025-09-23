@@ -10,22 +10,22 @@ T = TypeVar('T')
 
 
 class BaseResponse(BaseModel):
-    
+
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     request_id: Optional[str] = Field(default=None)
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class SuccessResponse(BaseResponse, Generic[T]):
-    
+
     success: bool = Field(default=True)
     data: T
     message: Optional[str] = Field(default=None)
 
 
 class ErrorResponse(BaseResponse):
-    
+
     success: bool = Field(default=False)
     error: str
     error_code: Optional[str] = Field(default=None)
@@ -33,13 +33,13 @@ class ErrorResponse(BaseResponse):
 
 
 class ValidationErrorResponse(ErrorResponse):
-    
+
     error_code: str = Field(default="validation_error")
     field_errors: Optional[List[Dict[str, Any]]] = Field(default=None)
 
 
 class PaginationMeta(BaseModel):
-    
+
     total: int = Field(description="Total number of items")
     page: int = Field(description="Current page number")
     per_page: int = Field(description="Items per page")
@@ -49,23 +49,26 @@ class PaginationMeta(BaseModel):
 
 
 class PaginatedResponse(BaseResponse, Generic[T]):
-    
+
     items: List[T]
     pagination: PaginationMeta
     success: bool = Field(default=True)
 
 
 class HealthResponse(BaseResponse):
-    
-    status: str = Field(description="Health status (healthy, unhealthy, degraded)")
+
+    status: str = Field(
+        description="Health status (healthy, unhealthy, degraded)")
     service: str = Field(description="Service name")
     version: str = Field(description="Service version")
-    checks: Optional[Dict[str, Any]] = Field(default=None, description="Individual health checks")
-    uptime: Optional[float] = Field(default=None, description="Service uptime in seconds")
+    checks: Optional[Dict[str, Any]] = Field(
+        default=None, description="Individual health checks")
+    uptime: Optional[float] = Field(
+        default=None, description="Service uptime in seconds")
 
 
 class InfoResponse(BaseResponse):
-    
+
     service: str = Field(description="Service name")
     version: str = Field(description="Service version")
     description: Optional[str] = Field(default=None)
@@ -76,14 +79,14 @@ class InfoResponse(BaseResponse):
 
 
 class StatusResponse(BaseResponse):
-    
+
     status: str
     message: Optional[str] = Field(default=None)
     data: Optional[Dict[str, Any]] = Field(default=None)
 
 
 class BatchResponse(BaseResponse, Generic[T]):
-    
+
     total_processed: int
     successful: int
     failed: int
@@ -92,11 +95,13 @@ class BatchResponse(BaseResponse, Generic[T]):
 
 
 class AsyncOperationResponse(BaseResponse):
-    
+
     operation_id: str = Field(default_factory=lambda: str(uuid4()))
-    status: str = Field(description="Operation status (pending, running, completed, failed)")
+    status: str = Field(
+        description="Operation status (pending, running, completed, failed)")
     message: Optional[str] = Field(default=None)
-    progress: Optional[float] = Field(default=None, description="Progress percentage (0-100)")
+    progress: Optional[float] = Field(
+        default=None, description="Progress percentage (0-100)")
     estimated_completion: Optional[datetime] = Field(default=None)
 
 
@@ -105,8 +110,7 @@ def create_success_response(
     message: Optional[str] = None,
     request_id: Optional[str] = None
 ) -> SuccessResponse:
-    
-        
+
     return SuccessResponse(
         data=data,
         message=message,
@@ -120,8 +124,7 @@ def create_error_response(
     details: Optional[Dict[str, Any]] = None,
     request_id: Optional[str] = None
 ) -> ErrorResponse:
-    
-        
+
     return ErrorResponse(
         error=error,
         error_code=error_code,
@@ -137,12 +140,11 @@ def create_paginated_response(
     per_page: int,
     request_id: Optional[str] = None
 ) -> PaginatedResponse:
-    
-        
+
     import math
-    
+
     pages = max(1, math.ceil(total / per_page))
-    
+
     pagination = PaginationMeta(
         total=total,
         page=page,
@@ -151,7 +153,7 @@ def create_paginated_response(
         has_next=page < pages,
         has_prev=page > 1
     )
-    
+
     return PaginatedResponse(
         items=items,
         pagination=pagination,
@@ -166,8 +168,7 @@ def create_health_response(
     checks: Optional[Dict[str, Any]] = None,
     uptime: Optional[float] = None
 ) -> HealthResponse:
-    
-        
+
     return HealthResponse(
         status=status,
         service=service,

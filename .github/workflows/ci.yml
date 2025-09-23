@@ -183,7 +183,7 @@ jobs:
       id-token: write    # OIDC token generation for JFrog authentication
     outputs:
       build_name: ${{ steps.set-build-info.outputs.build_name }}
-      build_started_timestamp: ${{ env.BUILD_STARTED_TIMESTAMP }}
+      build_started_timestamp: ${{ steps.publish-build-info.outputs.build_started_timestamp }}
       build_number: ${{ steps.set-build-info.outputs.build_number }}
       app_version: ${{ steps.determine-semver.outputs.app_version }}
       coverage_percent: ${{ steps.test-coverage.outputs.coverage_percent }}
@@ -536,6 +536,7 @@ jobs:
           echo "✅ Inventory image package evidence attached via shared library: pytest-results, sast-scan"
 
       - name: "[Build Info] Publish"
+        id: publish-build-info
         run: |
           echo "📋 Publishing comprehensive build-info with all associated artifacts"
           
@@ -555,7 +556,7 @@ jobs:
                 BUILD_STARTED_TIMESTAMP=$(date -u -r "$EPOCH_SEC" "+%Y-%m-%dT%H:%M:%S" 2>/dev/null || date -u -d "@$EPOCH_SEC" "+%Y-%m-%dT%H:%M:%S")
                 BUILD_STARTED_TIMESTAMP="${BUILD_STARTED_TIMESTAMP}.$(printf "%03d" $MILLISECS)+0000"
                 
-                echo "BUILD_STARTED_TIMESTAMP=$BUILD_STARTED_TIMESTAMP" >> $GITHUB_ENV
+                echo "build_started_timestamp=$BUILD_STARTED_TIMESTAMP" >> $GITHUB_OUTPUT
                 echo "✅ Extracted timestamp from build publish result: $BUILD_STARTED_TIMESTAMP"
               else
                 echo "⚠️ Could not extract valid timestamp from UI URL: $BUILD_UI_URL"
@@ -905,9 +906,9 @@ jobs:
           echo "📊 Generating comprehensive CI/CD pipeline summary for stakeholder visibility"
           echo "🎯 This summary provides complete build status, artifacts, and next steps"
           
-          echo "
+          echo "## 📊 CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "
+          echo "### 🏷️ Build Information" >> $GITHUB_STEP_SUMMARY
           echo "- **Service:** inventory" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Name:** $BUILD_NAME" >> $GITHUB_STEP_SUMMARY
           echo "- **Build Number:** $BUILD_NUMBER" >> $GITHUB_STEP_SUMMARY
@@ -916,7 +917,7 @@ jobs:
           echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "
+          echo "### 🔄 Job Status" >> $GITHUB_STEP_SUMMARY
           echo "- **Job 1 (analyze-commit):** ✅ Completed" >> $GITHUB_STEP_SUMMARY
           echo "- **Job 2 (build-test-publish):** ✅ Completed" >> $GITHUB_STEP_SUMMARY
           if [[ "${{ needs.analyze-commit.outputs.create_app_version }}" == "true" ]]; then
@@ -926,7 +927,7 @@ jobs:
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "
+          echo "### 📦 Artifacts & Quality" >> $GITHUB_STEP_SUMMARY
           echo "- **Test Coverage:** ${COVERAGE_PERCENT:-'N/A'}%" >> $GITHUB_STEP_SUMMARY
           echo "- **Docker Images:**" >> $GITHUB_STEP_SUMMARY
           echo "  - 📦 inventory: \`${IMAGE_NAME:-'N/A'}\`" >> $GITHUB_STEP_SUMMARY
@@ -934,7 +935,7 @@ jobs:
           echo "- **Build-Info:** ✅ Published with all artifacts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "
+          echo "### 🛠️ Infrastructure Components" >> $GITHUB_STEP_SUMMARY
           echo "- **bookverse-core:** ✅ Dependency management & testing" >> $GITHUB_STEP_SUMMARY
           echo "- **bookverse-devops:** ✅ Evidence collection & patterns" >> $GITHUB_STEP_SUMMARY
           echo "- **Consolidated Environment:** ✅ Centralized JFrog setup" >> $GITHUB_STEP_SUMMARY
@@ -942,11 +943,11 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           if [[ "${{ needs.analyze-commit.outputs.create_app_version }}" == "true" ]]; then
-            echo "
+            echo "### 🚀 Next Steps" >> $GITHUB_STEP_SUMMARY
             echo "Application version **${APP_VERSION:-'N/A'}** has been created and promoted to DEV." >> $GITHUB_STEP_SUMMARY
             echo "Use the **Promote** workflow to deploy to QA, STAGING, or PROD." >> $GITHUB_STEP_SUMMARY
           else
-            echo "
+            echo "### 🚀 Next Steps" >> $GITHUB_STEP_SUMMARY
             echo "This commit created build-info artifacts only (no application version)." >> $GITHUB_STEP_SUMMARY
             echo "Use manual workflow dispatch with \`force_app_version=true\` to create an application version." >> $GITHUB_STEP_SUMMARY
           fi

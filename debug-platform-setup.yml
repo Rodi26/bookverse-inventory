@@ -41,7 +41,7 @@ jobs:
           echo "🔍 OIDC Token from CLI step:"
           echo "  Available: $([[ -n "$OIDC_TOKEN" ]] && echo "YES" || echo "NO")"
           if [[ -n "$OIDC_TOKEN" ]]; then
-            echo "  Length: ${
+            echo "  Length: ${#OIDC_TOKEN}"
             echo "  Starts with: ${OIDC_TOKEN:0:20}..."
           fi
           echo ""
@@ -92,7 +92,7 @@ jobs:
           DOCKER_URL="${{ vars.JFROG_URL }}/artifactory/api/docker/$REPO_KEY/v2/inventory/tags/list"
           
           echo "Testing URL: $DOCKER_URL"
-          echo "Token length: ${
+          echo "Token length: ${#JF_ACCESS_TOKEN}"
           echo ""
           
           echo "🧪 Making Docker registry API call..."
@@ -150,7 +150,7 @@ jobs:
           
           if [[ -n "${JF_ACCESS_TOKEN:-}" ]]; then
             echo "✅ Got access token from export"
-            echo "  Length: ${
+            echo "  Length: ${#JF_ACCESS_TOKEN}"
             echo "  Starts with: ${JF_ACCESS_TOKEN:0:20}..."
             
             echo ""

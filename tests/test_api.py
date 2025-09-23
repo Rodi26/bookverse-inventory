@@ -17,7 +17,10 @@ test_engine = create_engine(
     connect_args={"check_same_thread": False},
     poolclass=StaticPool
 )
-TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+TestSessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=test_engine)
 
 
 def override_get_db():
@@ -39,8 +42,10 @@ def override_get_current_user():
     }
     return AuthUser(mock_claims)
 
+
 app.dependency_overrides[get_db] = override_get_db
 app.dependency_overrides[get_current_user] = override_get_current_user
+
 
 @pytest.fixture
 def client():
@@ -58,7 +63,7 @@ def setup_database():
 def test_health_endpoint(setup_database, client):
     response = client.get("/health")
     assert response.status_code == 200
-    
+
     data = response.json()
     assert data["status"] in ["healthy", "degraded"]
     assert data["service"] == "BookVerse Inventory Service"
@@ -68,7 +73,7 @@ def test_health_endpoint(setup_database, client):
 def test_info_endpoint(setup_database, client):
     response = client.get("/info")
     assert response.status_code == 200
-    
+
     data = response.json()
     assert data["service"] == "BookVerse Inventory Service"
     assert "version" in data
@@ -77,7 +82,7 @@ def test_info_endpoint(setup_database, client):
 def test_list_books_empty(setup_database, client):
     response = client.get("/api/v1/books")
     assert response.status_code == 200
-    
+
     data = response.json()
     assert "books" in data
     assert "pagination" in data
@@ -95,10 +100,10 @@ def test_create_book(setup_database, client):
         "price": "19.99",
         "cover_image_url": "https://example.com/cover.jpg"
     }
-    
+
     response = client.post("/api/v1/books", json=book_data)
     assert response.status_code == 201
-    
+
     data = response.json()
     assert data["title"] == book_data["title"]
     assert data["authors"] == book_data["authors"]
@@ -115,7 +120,7 @@ def test_get_book_not_found(setup_database, client):
 def test_list_inventory_empty(setup_database, client):
     response = client.get("/api/v1/inventory")
     assert response.status_code == 200
-    
+
     data = response.json()
     assert "inventory" in data
     assert "pagination" in data
@@ -125,7 +130,7 @@ def test_list_inventory_empty(setup_database, client):
 def test_list_transactions_empty(setup_database, client):
     response = client.get("/api/v1/transactions")
     assert response.status_code == 200
-    
+
     data = response.json()
     assert "transactions" in data
     assert "pagination" in data
@@ -138,13 +143,13 @@ def test_inventory_adjust_nonexistent_book(setup_database, client):
         "quantity_change": 10,
         "notes": "Test adjustment"
     }
-    
+
     response = client.post(
         f"/api/v1/inventory/adjust?book_id={fake_id}",
         json=adjustment_data
     )
     assert response.status_code == 200
-    
+
     data = response.json()
     assert data["quantity_change"] == 10
     assert data["transaction_type"] == "stock_in"
