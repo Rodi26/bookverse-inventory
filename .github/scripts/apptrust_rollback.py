@@ -454,24 +454,120 @@ def _env(name: str, default: Optional[str] = None) -> Optional[str]:
         return default
     return v.strip()
 
-def get_auth_token() -> Optional[str]:
-    if OIDC_AVAILABLE:
-        token = get_jfrog_token()
-        if token:
-            return token
+def github_oidc_exchange() -> Optional[str]:
+    """
+    Exchange GitHub OIDC token for JFrog access token using the same pattern as CI workflow.
+    This matches the working authentication pattern from the CI workflow.
+    """
+    # Check if we're running in GitHub Actions with OIDC available
+    if not (_env("ACTIONS_ID_TOKEN_REQUEST_URL") and _env("ACTIONS_ID_TOKEN_REQUEST_TOKEN")):
+        return None
     
+    jfrog_url = _env("JFROG_URL")
+    if not jfrog_url:
+        return None
+    
+    # Remove trailing slash for consistency with CI
+    jfrog_url = jfrog_url.rstrip('/')
+    
+    try:
+        print("🔑 Minting GitHub OIDC ID token (matching CI workflow pattern)")
+        
+        # Step 1: Get GitHub OIDC ID token (same as CI workflow)
+        request_url = f"{_env('ACTIONS_ID_TOKEN_REQUEST_URL')}&audience={jfrog_url}"
+        request_token = _env("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+        
+        req = urllib.request.Request(request_url)
+        req.add_header("Authorization", f"Bearer {request_token}")
+        
+        with urllib.request.urlopen(req) as response:
+            github_response = json.loads(response.read().decode('utf-8'))
+            id_token = github_response.get('value')
+        
+        if not id_token:
+            print("❌ Failed to get GitHub ID token")
+            return None
+        
+        print("🔁 Exchanging OIDC for JFrog access token (matching CI workflow)")
+        
+        # Step 2: Exchange GitHub OIDC for JFrog access token (same as CI workflow)
+        provider_name = "bookverse-inventory-github"
+        project_key = _env("PROJECT_KEY", "bookverse")
+        
+        payload = {
+            "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+            "subject_token_type": "urn:ietf:params:oauth:token-type:id_token",
+            "subject_token": id_token,
+            "provider_name": provider_name,
+            "project_key": project_key,
+            "job_id": _env("GITHUB_JOB", "rollback"),
+            "run_id": _env("GITHUB_RUN_ID", ""),
+            "repo": f"https://github.com/{_env('GITHUB_REPOSITORY', '')}",
+            "revision": _env("GITHUB_SHA", ""),
+            "branch": _env("GITHUB_REF_NAME", "")
+        }
+        
+        token_url = f"{jfrog_url}/access/api/v1/oidc/token"
+        
+        req = urllib.request.Request(token_url)
+        req.add_header("Content-Type", "application/json")
+        req.data = json.dumps(payload).encode('utf-8')
+        
+        with urllib.request.urlopen(req) as response:
+            token_response = json.loads(response.read().decode('utf-8'))
+            access_token = token_response.get('access_token')
+        
+        if access_token:
+            print("✅ Successfully obtained JFrog access token via GitHub OIDC exchange")
+            return access_token
+        else:
+            print("❌ Failed to get JFrog access token from OIDC exchange")
+            return None
+            
+    except Exception as e:
+        print(f"❌ GitHub OIDC exchange failed: {e}")
+        return None
+
+def get_auth_token() -> Optional[str]:
+    # Priority 1: Try GitHub OIDC exchange (same as CI workflow)
+    token = github_oidc_exchange()
+    if token:
+        return token
+    
+    # Priority 2: Try legacy library approach (for backward compatibility)
+    if OIDC_AVAILABLE:
+        try:
+            token = get_jfrog_token()
+            if token:
+                print("✅ Using token from OIDC library")
+                return token
+        except Exception as e:
+            print(f"⚠️ OIDC library failed: {e}")
+    
+    # Priority 3: Environment variable fallback
     token = _env("JF_OIDC_TOKEN")
     if token:
+        print("✅ Using token from JF_OIDC_TOKEN environment variable")
         return token
     
     return None
 
 def get_base_url() -> Optional[str]:
-    if OIDC_AVAILABLE:
-        url = get_apptrust_base_url()
-        if url:
-            return url
+    # Priority 1: Try dynamic URL construction (same as CI workflow)
+    jfrog_url = _env("JFROG_URL")
+    if jfrog_url:
+        return f"{jfrog_url.rstrip('/')}/apptrust/api/v1"
     
+    # Priority 2: Try legacy library approach (for backward compatibility)
+    if OIDC_AVAILABLE:
+        try:
+            url = get_apptrust_base_url()
+            if url:
+                return url
+        except Exception as e:
+            print(f"⚠️ OIDC library URL failed: {e}")
+    
+    # Priority 3: Environment variable fallback
     return _env("APPTRUST_BASE_URL")
 
 def main() -> int:
@@ -485,16 +581,26 @@ def main() -> int:
 
     base_url = args.base_url or get_base_url()
     if not base_url:
-        print("Missing --base-url or APPTRUST_BASE_URL environment variable", file=sys.stderr)
-        print("For OIDC authentication, ensure JFROG_URL is set", file=sys.stderr)
+        print("❌ Missing --base-url or AppTrust base URL", file=sys.stderr)
+        print("💡 Solutions:", file=sys.stderr)
+        print("  1. Set JFROG_URL environment variable (recommended for CI)", file=sys.stderr)
+        print("  2. Set APPTRUST_BASE_URL environment variable", file=sys.stderr)
+        print("  3. Use --base-url argument", file=sys.stderr)
+        print("🔍 Example: export JFROG_URL='https://your-instance.jfrog.io'", file=sys.stderr)
         return 2
 
     token = args.token or get_auth_token()
     if not token:
-        print("Missing authentication token", file=sys.stderr)
-        print("Tried: JF_OIDC_TOKEN, OIDC auto-detection", file=sys.stderr)
+        print("❌ Missing authentication token", file=sys.stderr)
+        print("💡 Solutions (in priority order):", file=sys.stderr)
+        print("  1. Run in GitHub Actions with OIDC enabled (recommended)", file=sys.stderr)
+        print("  2. Set JF_OIDC_TOKEN environment variable", file=sys.stderr)
+        print("  3. Use --token argument with valid JFrog access token", file=sys.stderr)
+        print("🔍 GitHub Actions example:", file=sys.stderr)
+        print("    permissions:", file=sys.stderr)
+        print("      id-token: write  # Required for OIDC", file=sys.stderr)
         if not OIDC_AVAILABLE:
-            print("Note: OIDC authentication library not available", file=sys.stderr)
+            print("⚠️ Note: OIDC authentication library not available", file=sys.stderr)
         return 2
 
     client = AppTrustClient(base_url, token)
