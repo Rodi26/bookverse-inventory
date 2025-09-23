@@ -457,7 +457,31 @@ jobs:
           echo "🔐 Authenticating Docker with JFrog registry..."
           DOCKER_REGISTRY="${{ vars.JFROG_URL }}"
           OIDC_TOKEN="${{ steps.jfrog-cli-auth.outputs.oidc-token }}"
-          echo "$OIDC_TOKEN" | docker login "$DOCKER_REGISTRY" -u oauth2_access_token --password-stdin
+          
+          # Extract username from JWT token
+          TOKEN_PAYLOAD=$(echo "$OIDC_TOKEN" | cut -d. -f2)
+          # Add padding if needed for base64 decode
+          case $((${#TOKEN_PAYLOAD} % 4)) in
+            2) TOKEN_PAYLOAD="${TOKEN_PAYLOAD}==" ;;
+            3) TOKEN_PAYLOAD="${TOKEN_PAYLOAD}=" ;;
+          esac
+          CLAIMS=$(echo "$TOKEN_PAYLOAD" | tr '_-' '/+' | base64 -d 2>/dev/null || true)
+          
+          # Try to extract username from JWT claims
+          if command -v jq >/dev/null 2>&1 && [[ -n "$CLAIMS" ]]; then
+            DOCKER_USER=$(echo "$CLAIMS" | jq -r '.username // .sub // .subject // empty' 2>/dev/null || echo "")
+            if [[ "$DOCKER_USER" == *"/users/"* ]]; then
+              DOCKER_USER=${DOCKER_USER##*/users/}
+            fi
+          fi
+          
+          # Use fallback if extraction failed
+          if [[ -z "$DOCKER_USER" || "$DOCKER_USER" == "null" ]]; then
+            DOCKER_USER="oauth2_access_token"
+          fi
+          
+          echo "🔍 Using Docker username: $DOCKER_USER"
+          echo "$OIDC_TOKEN" | docker login "$DOCKER_REGISTRY" -u "$DOCKER_USER" --password-stdin
           echo "✅ Docker authentication successful"
 
       - name: "[Build] API image"
