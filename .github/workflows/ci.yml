@@ -413,19 +413,19 @@ jobs:
           # 🏗️ Inventory stack: Install FastAPI and database dependencies
           # Core dependencies for inventory service API and data operations
           jf pip install --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" \
-            fastapi==0.111.0 \      # High-performance async API framework
-            uvicorn==0.30.0 \       # ASGI server for FastAPI production deployment
-            httpx==0.27.0 \         # Async HTTP client for service integration
-            pydantic==2.11.9 \      # Data validation for inventory models
-            python-dotenv==1.1.1 \  # Environment configuration management
-            requests==2.31.0 \      # HTTP client for external integrations
-            SQLAlchemy \            # Database ORM for inventory data management
-            pytest==8.3.2 \        # Testing framework for inventory business logic
-            pytest-cov==4.0.0 \    # Coverage reporting for inventory code paths
-            coverage \              # Coverage analysis for inventory quality
-            pluggy \                # Plugin architecture for test extensions
-            iniconfig \             # Configuration management for test environments
-            packaging \             # Package management for inventory dependencies
+            fastapi==0.111.0 \
+            uvicorn==0.30.0 \
+            httpx==0.27.0 \
+            pydantic==2.11.9 \
+            python-dotenv==1.1.1 \
+            requests==2.31.0 \
+            SQLAlchemy \
+            pytest==8.3.2 \
+            pytest-cov==4.0.0 \
+            coverage \
+            pluggy \
+            iniconfig \
+            packaging \
             || echo "⚠️ Some packages may have been installed from public PyPI"
           
           echo "✅ Installed dependencies with bookverse-core from local libs"
