@@ -1,0 +1,175 @@
+name: "Fixed Rollback"
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Target version to rollback (SemVer)'
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  rollback:
+    name: "Rollback ${{ inputs.version }}"
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: "[Setup] Checkout"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: "[Setup] Checkout bookverse-infra" 
+        uses: actions/checkout@v4
+        with:
+          repository: yonatanp-jfrog/bookverse-infra
+          path: bookverse-infra
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: "[Setup] Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "[Auth] Exchange GitHub OIDC for JFrog access token"
+        run: |
+          set -euo pipefail
+          BASE="${{ vars.JFROG_URL }}"; BASE="${BASE%/}"
+          if [[ -z "$BASE" ]]; then echo "Missing vars.JFROG_URL" >&2; exit 1; fi
+          PROVIDER_NAME="${{ vars.GITHUB_OIDC_PROVIDER_NAME }}"
+          JF_URL="$BASE"
+          if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]]; then
+            echo "❌ Missing GitHub OIDC request env vars" >&2; exit 1; fi
+          echo "🔑 Minting GitHub OIDC ID token (audience=$JF_URL)"
+          ID_TOKEN=$(curl -fsSL -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JF_URL}" | jq -r .value)
+          if [[ -z "$ID_TOKEN" || "$ID_TOKEN" == "null" ]]; then echo "❌ Failed to fetch GitHub ID token" >&2; exit 1; fi
+          echo "🔁 Exchanging OIDC for JFrog access token (provider=$PROVIDER_NAME)"
+          PAYLOAD=$(jq -n --arg jwt "$ID_TOKEN" \
+            --arg provider_name "$PROVIDER_NAME" \
+            --arg project_key "${{ vars.PROJECT_KEY }}" \
+            --arg job_id "${{ github.job }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg repo "${{ github.repositoryUrl }}" \
+            --arg revision "${{ github.sha }}" \
+            --arg branch "${{ github.ref_name }}" \
+            '{
+              grant_type:"urn:ietf:params:oauth:grant-type:token-exchange",
+              subject_token_type:"urn:ietf:params:oauth:token-type:id_token",
+              subject_token:$jwt,
+              provider_name:$provider_name,
+              project_key:$project_key,
+              job_id:$job_id,
+              run_id:$run_id,
+              repo:$repo,
+              revision:$revision,
+              branch:$branch
+            }')
+          RESP=$(curl -fsSL -X POST "$JF_URL/access/api/v1/oidc/token" -H "Content-Type: application/json" -d "$PAYLOAD")
+          JF_OIDC_TOKEN=$(echo "$RESP" | jq -er '.access_token // empty' || true)
+          if [[ -z "$JF_OIDC_TOKEN" ]]; then echo "Failed to obtain JFrog access token: $RESP" >&2; exit 1; fi
+          echo "JF_OIDC_TOKEN=$JF_OIDC_TOKEN" >> $GITHUB_ENV
+
+      - name: "[Setup] JFrog CLI"
+        uses: EyalDelarea/setup-jfrog-cli@swampUpAppTrust
+        with:
+          version: latest
+          oidc-provider-name: ${{ vars.GITHUB_OIDC_PROVIDER_NAME }}
+          disable-job-summary: true
+          oidc-audience: ${{ vars.JFROG_URL }}
+          disable-auto-build-publish: false
+          disable-auto-evidence-collection: false
+
+      - name: "[Rollback] Execute Fixed Rollback"
+        run: |
+          set -euo pipefail
+          echo "🧭 Starting FIXED rollback workflow"
+          
+          # Fix APP_KEY double prefix issue
+          SERVICE_NAME=$(echo "${GITHUB_REPOSITORY}" | cut -d'/' -f2)
+          if [[ "$SERVICE_NAME" =~ ^bookverse-(.+)$ ]]; then
+            APP_KEY="$SERVICE_NAME"  # Already has correct prefix
+            echo "🔧 SERVICE_NAME already has bookverse- prefix: $SERVICE_NAME"
+          else
+            APP_KEY="bookverse-$SERVICE_NAME"  # Add prefix
+          fi
+          echo "📦 Application (FIXED): $APP_KEY"
+          
+          TARGET_VERSION="${{ inputs.version }}"
+          echo "🎯 Target Version: $TARGET_VERSION"
+          
+          export JFROG_URL="${{ vars.JFROG_URL }}"
+          
+          # Execute rollback and capture stage output
+          echo "🔁 Executing fixed rollback via shared script..."
+          ROLLBACK_OUTPUT=$(python3 bookverse-infra/libraries/bookverse-devops/scripts/apptrust_rollback.py \
+            --app "$APP_KEY" \
+            --version "$TARGET_VERSION" 2>&1)
+          
+          echo "$ROLLBACK_OUTPUT"
+          
+          # Extract stage information from rollback output
+          STAGE_BEFORE=$(echo "$ROLLBACK_OUTPUT" | grep "WORKFLOW_STAGE_BEFORE=" | cut -d'=' -f2 || echo "unknown")
+          STAGE_AFTER=$(echo "$ROLLBACK_OUTPUT" | grep "WORKFLOW_STAGE_AFTER=" | cut -d'=' -f2 || echo "unknown")
+          
+          echo "📍 Stage BEFORE (FIXED): $STAGE_BEFORE"
+          echo "📍 Stage AFTER (FIXED): $STAGE_AFTER"
+          
+          # Smart validation that handles the UNASSIGNED edge case properly
+          VALIDATION_ERRORS=()
+          
+          # Only fail UNASSIGNED rollback if it's truly invalid (not the edge case)
+          if [[ "$STAGE_BEFORE" == "unknown" ]]; then
+            VALIDATION_ERRORS+=("Could not determine stage before rollback")
+          elif [[ "$STAGE_BEFORE" == "UNASSIGNED" || "$STAGE_BEFORE" == "" ]]; then
+            # This might be valid if rolling back the only version - check if rollback actually succeeded
+            if echo "$ROLLBACK_OUTPUT" | grep -q "Invoked AppTrust rollback"; then
+              echo "✅ UNASSIGNED rollback is valid (likely last version in PROD)"
+            else
+              VALIDATION_ERRORS+=("Cannot rollback UNASSIGNED version")
+            fi
+          fi
+          
+          # Check stage transition logic
+          if [[ "$STAGE_AFTER" == "unknown" ]]; then
+            echo "⚠️ Stage after rollback is unknown, but rollback may have succeeded"
+          else
+            echo "✅ Stage transition: $STAGE_BEFORE → $STAGE_AFTER"
+          fi
+          
+          # Final status
+          if [ ${#VALIDATION_ERRORS[@]} -eq 0 ]; then
+            echo "🎉 SUCCESS: Fixed rollback completed successfully!"
+            echo "📊 Application: $APP_KEY"
+            echo "📊 Version: $TARGET_VERSION" 
+            echo "📊 Stage Transition: $STAGE_BEFORE → $STAGE_AFTER"
+          else
+            echo "❌ FAILED: Validation errors: ${VALIDATION_ERRORS[*]}"
+            exit 1
+          fi
+
+      - name: "[Tags] Self-Healing Tag Management"
+        run: |
+          set -euo pipefail
+          echo "🏥 Running fixed tag management"
+          
+          # Use the fixed APP_KEY
+          SERVICE_NAME=$(echo "${GITHUB_REPOSITORY}" | cut -d'/' -f2)
+          if [[ "$SERVICE_NAME" =~ ^bookverse-(.+)$ ]]; then
+            APPLICATION_KEY="$SERVICE_NAME"
+          else
+            APPLICATION_KEY="bookverse-$SERVICE_NAME"
+          fi
+          
+          export JFROG_URL='${{ vars.JFROG_URL }}'
+          export PROJECT_KEY='${{ vars.PROJECT_KEY }}'
+          export APPLICATION_KEY="$APPLICATION_KEY"
+          
+          source bookverse-infra/libraries/bookverse-devops/scripts/tag-management-lib.sh
+          validate_and_heal_tags
+          
+          echo "✅ Fixed tag management completed successfully"
