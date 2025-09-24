@@ -316,6 +316,7 @@ class BookService:
                 "genres": book.genres,
                 "price": book.price,
                 "cover_image_url": book.cover_image_url,
+                "rating": book.rating,
                 "availability": availability
             }
             books_with_availability.append(book_dict)
