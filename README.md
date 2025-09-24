@@ -22,46 +22,6 @@ This service demonstrates the **Single Docker Image Application Pattern** - the 
 - **Business value**: Stakeholders can easily understand and relate to the bookstore scenario
 
 This service is **intentionally comprehensive** - it's not just a "hello world" but a realistic microservice that teams can learn from and adapt to their own use cases.
-## 📊 API Endpoints
-
-### Service Information
-- `GET /info` - Service metadata and configuration details
-- `GET /health` - Basic health check
-- `GET /health/live` - Liveness probe for Kubernetes
-- `GET /health/ready` - Readiness probe with dependency checks
-- `GET /health/status` - Detailed health information
-
-### Book Catalog Management
-- `GET /api/v1/books` - List books with pagination and filtering
-- `GET /api/v1/books/{id}` - Get specific book details
-- `POST /api/v1/books` - Create new book (requires authentication)
-- `PUT /api/v1/books/{id}` - Update book information (requires authentication)
-- `DELETE /api/v1/books/{id}` - Remove book from catalog (requires authentication)
-
-### Inventory Operations
-- `GET /api/v1/inventory` - List inventory records with stock levels
-- `GET /api/v1/inventory/{book_id}` - Get specific book inventory details
-- `POST /api/v1/inventory/adjust` - Adjust stock levels with audit trail
-- `GET /api/v1/transactions` - View inventory transaction history
-
-### Example API Usage
-
-```bash
-# List books with pagination
-curl "http://localhost:8000/api/v1/books?page=1&per_page=10"
-
-# Get service information
-curl "http://localhost:8000/info"
-
-# Check inventory for a book
-curl "http://localhost:8000/api/v1/inventory/book-uuid-here"
-
-# Adjust inventory (requires auth when enabled)
-curl -X POST "http://localhost:8000/api/v1/inventory/adjust" \
-  -H "Content-Type: application/json" \
-  -d '{"book_id": "book-uuid", "quantity_change": -5, "reason": "sale"}'
-```
-
 ## ⚙️ Configuration
 
 ### Environment Variables
