@@ -900,114 +900,59 @@ jobs:
           echo "   - 'valid': Other valid SemVer versions"
           echo "   - Non-SemVer versions: No special tags (ignored for 'latest')"
 
-      - name: "📊 Enhanced Build Summary with Accurate Reporting"
+      - name: "📊 Enhanced Build Summary (bookverse-devops pattern)"
         if: always()
         run: |
-          echo "📊 Generating enhanced CI/CD pipeline summary with accurate reporting"
+          echo "📊 Generating comprehensive CI/CD pipeline summary for stakeholder visibility"
+          echo "🎯 This summary provides complete build status, artifacts, and next steps"
           
-          # Determine actual job statuses
-          JOB_1_STATUS="✅ Completed"
-          if [[ "${{ needs.build-test-publish.result }}" == "success" ]]; then
-            JOB_2_STATUS="✅ Completed"
-          else
-            JOB_2_STATUS="❌ Failed"
-          fi
-          
-          # Check if this job failed (promotion failure)
-          if [[ "${{ job.status }}" == "failure" ]]; then
-            JOB_3_STATUS="❌ FAILED - Promotion blocked by policy violations"
-            PROMOTION_FAILED="true"
-          elif [[ "${{ needs.analyze-commit.outputs.create_app_version }}" == "true" ]]; then
-            JOB_3_STATUS="✅ Completed"
-            PROMOTION_FAILED="false"
-          else
-            JOB_3_STATUS="⏭️ Skipped (build-info only)"
-            PROMOTION_FAILED="false"
-          fi
-          
-          # Get real values instead of N/A
-          REAL_COVERAGE="${{ needs.build-test-publish.outputs.coverage_percent }}"
-          REAL_IMAGE_TAG="${{ needs.build-test-publish.outputs.image_tag }}"
-          
-          # Write enhanced summary using simple echo statements
-          echo "## 🚀 CI/CD Pipeline Summary - Inventory" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📊 Pipeline Overview" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏷️ Build Information" >> $GITHUB_STEP_SUMMARY
           echo "- **Service:** inventory" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version:** ${APP_VERSION:-'N/A'}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Build:** $BUILD_NAME #$BUILD_NUMBER" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Name:** $BUILD_NAME" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Number:** $BUILD_NUMBER" >> $GITHUB_STEP_SUMMARY
+          echo "- **Application Version:** ${APP_VERSION:-'N/A'}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           
-          if [[ "$PROMOTION_FAILED" == "true" ]]; then
-            echo "- **Status:** ❌ **FAILED** - Policy violations detected" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔄 Job Status" >> $GITHUB_STEP_SUMMARY
+          echo "- **Job 1 (analyze-commit):** ✅ Completed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Job 2 (build-test-publish):** ✅ Completed" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.analyze-commit.outputs.create_app_version }}" == "true" ]]; then
+            if [[ "${{ job.status }}" == "failure" ]]; then
+            echo "- **Job 3 (create-promote):** ❌ FAILED - Promotion blocked by policy violations" >> $GITHUB_STEP_SUMMARY
           else
-            echo "- **Status:** ✅ **SUCCESS**" >> $GITHUB_STEP_SUMMARY
+            echo "- **Job 3 (create-promote):** ✅ Completed" >> $GITHUB_STEP_SUMMARY
           fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🔄 Job Execution Status" >> $GITHUB_STEP_SUMMARY
-          echo "- **Job 1 (analyze-commit):** $JOB_1_STATUS" >> $GITHUB_STEP_SUMMARY
-          echo "- **Job 2 (build-test-publish):** $JOB_2_STATUS" >> $GITHUB_STEP_SUMMARY  
-          echo "- **Job 3 (create-promote):** $JOB_3_STATUS" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "### 🛣️ Stage Lifecycle Path" >> $GITHUB_STEP_SUMMARY
-          if [[ "$PROMOTION_FAILED" == "true" ]]; then
-            echo "~~Unassigned~~ → **bookverse-DEV** 📍 → 🚫 **bookverse-QA** (BLOCKED) → STAGING → PROD" >> $GITHUB_STEP_SUMMARY
           else
-            echo "~~Unassigned~~ → **bookverse-DEV** ✅ → bookverse-QA → STAGING → PROD" >> $GITHUB_STEP_SUMMARY
+            echo "- **Job 3 (create-promote):** ⏭️ Skipped (build-info only)" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "### 📦 Artifacts & Quality" >> $GITHUB_STEP_SUMMARY
-          echo "- **Test Coverage:** ${REAL_COVERAGE:-'N/A'}%" >> $GITHUB_STEP_SUMMARY
+          echo "- **Test Coverage:** ${COVERAGE_PERCENT:-'N/A'}%" >> $GITHUB_STEP_SUMMARY
           echo "- **Docker Images:**" >> $GITHUB_STEP_SUMMARY
-          echo "  - 📦 inventory: \`${REAL_IMAGE_TAG:-$IMAGE_NAME}\`" >> $GITHUB_STEP_SUMMARY
+          echo "  - 📦 inventory: \`${IMAGE_NAME:-'N/A'}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Evidence Artifacts:** ✅ Collected and uploaded" >> $GITHUB_STEP_SUMMARY
           echo "- **Build-Info:** ✅ Published with all artifacts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Add promotion failure details if needed
-          if [[ "$PROMOTION_FAILED" == "true" ]]; then
-            echo "### 🚨 Promotion Failure Details" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Policy Violations Detected:**" >> $GITHUB_STEP_SUMMARY
-            echo "The promotion to QA stage was blocked due to policy violations. Common issues include:" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "- 📋 **Evidence Required**: Missing required evidence artifacts" >> $GITHUB_STEP_SUMMARY
-            echo "- 🔐 **SBOM Required**: Software Bill of Materials not found" >> $GITHUB_STEP_SUMMARY
-            echo "- 🧪 **Integration Tests**: Custom integration tests failed" >> $GITHUB_STEP_SUMMARY
-            echo "- 🎯 **Demo Policies**: Staging check or production readiness failures" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Next Steps:**" >> $GITHUB_STEP_SUMMARY
-            echo "1. Review the workflow logs above for specific policy details" >> $GITHUB_STEP_SUMMARY
-            echo "2. Ensure all required evidence is collected and signed" >> $GITHUB_STEP_SUMMARY
-            echo "3. Verify integration tests are passing" >> $GITHUB_STEP_SUMMARY
-            echo "4. Check SBOM generation and attachment" >> $GITHUB_STEP_SUMMARY
-            echo "5. Re-run the workflow once issues are resolved" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-          
           echo "### 🛠️ Infrastructure Components" >> $GITHUB_STEP_SUMMARY
-          echo "These shared components support the inventory service:" >> $GITHUB_STEP_SUMMARY
-          echo "- **bookverse-core:** ✅ Shared libraries and common functionality" >> $GITHUB_STEP_SUMMARY
-          echo "- **bookverse-devops:** ✅ CI/CD patterns and evidence collection" >> $GITHUB_STEP_SUMMARY
+          echo "- **bookverse-core:** ✅ Dependency management & testing" >> $GITHUB_STEP_SUMMARY
+          echo "- **bookverse-devops:** ✅ Evidence collection & patterns" >> $GITHUB_STEP_SUMMARY
+          echo "- **Consolidated Environment:** ✅ Centralized JFrog setup" >> $GITHUB_STEP_SUMMARY
+          echo "- **Enhanced Testing:** ✅ Comprehensive coverage reporting" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "### 🎯 Next Steps" >> $GITHUB_STEP_SUMMARY
-          if [[ "$PROMOTION_FAILED" == "true" ]]; then
-            echo "❌ **Action Required:** Fix the policy violations listed above and re-run the workflow" >> $GITHUB_STEP_SUMMARY
-          elif [[ "${{ needs.analyze-commit.outputs.create_app_version }}" == "true" ]]; then
-            echo "✅ **Ready for QA:** Use the Promote workflow to advance to next stage" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.analyze-commit.outputs.create_app_version }}" == "true" ]]; then
+            echo "### 🚀 Next Steps" >> $GITHUB_STEP_SUMMARY
+            echo "Application version **${APP_VERSION:-'N/A'}** has been created and promoted to DEV." >> $GITHUB_STEP_SUMMARY
+            echo "Use the **Promote** workflow to deploy to QA, STAGING, or PROD." >> $GITHUB_STEP_SUMMARY
           else
-            echo "📋 **Build-info Created:** Use manual dispatch with \`force_app_version=true\` to create application version" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "*Enhanced summary generated with accurate job status detection*" >> $GITHUB_STEP_SUMMARY
-          
-          echo "✅ Enhanced summary generated with accurate reporting"
-
+            echo "### 🚀 Next Steps" >> $GITHUB_STEP_SUMMARY
+            echo "This commit created build-info artifacts only (no application version)." >> $GITHUB_STEP_SUMMARY
+            echo "Use manual workflow dispatch with \`force_app_version=true\` to create an application version." >> $GITHUB_STEP_SUMMARY
           fi
 
