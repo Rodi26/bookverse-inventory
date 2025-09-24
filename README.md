@@ -20,13 +20,13 @@ This service is **intentionally comprehensive** - it's not just a "hello world" 
 │                  BookVerse Platform                         │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
-│  │     Web     │────│  Platform   │────│  Checkout   │     │
-│  │  Frontend   │    │   Service   │    │   Service   │     │
-│  └─────────────┘    └─────────────┘    └─────────────┘     │
-│         │                    │                    │         │
-│         │            ┌───────────────┐            │         │
-│         └────────────│   Inventory   │────────────┘         │
+│  ┌─────────────┐                      ┌─────────────┐       │
+│  │     Web     │                      │  Checkout   │       │
+│  │  Frontend   │                      │   Service   │       │
+│  └─────────────┘                      └─────────────┘       │
+│         │                                    │               │
+│         │            ┌───────────────┐      │               │
+│         └────────────│   Inventory   │──────┘               │
 │                      │    Service    │                      │
 │                      │               │                      │
 │                      │ Single Docker │                      │
