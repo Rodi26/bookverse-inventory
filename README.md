@@ -11,17 +11,42 @@ This service demonstrates the **Single Docker Image Application Pattern** - the 
 - **AppTrust benefit**: Simplified artifact promotion - one container moves through all stages (DEV → QA → STAGING → PROD)
 - **Real-world applicability**: Most modern cloud-native applications follow this pattern
 
-### 🔄 **Multi-Artifact Application Versions**
-- **What it demonstrates**: Application versions composed of multiple artifact types
-- **Artifacts created**: Docker images, Python packages, SBOMs, test reports, build evidence
-- **AppTrust benefit**: All artifacts are promoted together as a cohesive application version
-
-### 📊 **Realistic Demo Data**
-- **What it demonstrates**: How to build compelling demos with realistic business context
-- **Demo elements**: 20 professional book catalog, realistic inventory operations, transaction history
-- **Business value**: Stakeholders can easily understand and relate to the bookstore scenario
-
 This service is **intentionally comprehensive** - it's not just a "hello world" but a realistic microservice that teams can learn from and adapt to their own use cases.
+
+## 🏗️ Inventory Service Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  BookVerse Platform                         │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
+│  │     Web     │────│  Platform   │────│  Checkout   │     │
+│  │  Frontend   │    │   Service   │    │   Service   │     │
+│  └─────────────┘    └─────────────┘    └─────────────┘     │
+│         │                    │                    │         │
+│         │            ┌───────────────┐            │         │
+│         └────────────│   Inventory   │────────────┘         │
+│                      │    Service    │                      │
+│                      │               │                      │
+│                      │ Single Docker │                      │
+│                      │     Image     │                      │
+│                      └───────────────┘                      │
+│                             │                               │
+│                    ┌─────────────────┐                      │
+│                    │ Recommendations │                      │
+│                    │    Service      │                      │
+│                    └─────────────────┘                      │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+
+AppTrust Promotion Pipeline:
+DEV → QA → STAGING → PROD
+ │     │       │        │
+ └─────┴───────┴────────┘
+   Single Container Image
+   Moves Through All Stages
+```
 
 ## 🔧 JFrog AppTrust Integration
 
