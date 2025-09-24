@@ -2,14 +2,12 @@
 
 Demo-ready FastAPI microservice for the BookVerse platform, showcasing JFrog AppTrust capabilities with multiple artifact types per application version.
 
-## 🚀 Features
 ## 🎯 Demo Purpose & Patterns
 
-This service serves as a **reference implementation** for the BookVerse platform, demonstrating key enterprise software delivery patterns and JFrog AppTrust capabilities:
+This service demonstrates the **Single Docker Image Application Pattern** - the most common cloud-native deployment approach where application versions are built from a single container image.
 
 ### 📦 **Single Docker Image Application Pattern**
 - **What it demonstrates**: How to build application versions from a single Docker container image
-- **Common use case**: Microservices that are primarily containerized (web APIs, background services)
 - **AppTrust benefit**: Simplified artifact promotion - one container moves through all stages (DEV → QA → STAGING → PROD)
 - **Real-world applicability**: Most modern cloud-native applications follow this pattern
 
@@ -17,31 +15,11 @@ This service serves as a **reference implementation** for the BookVerse platform
 - **What it demonstrates**: Application versions composed of multiple artifact types
 - **Artifacts created**: Docker images, Python packages, SBOMs, test reports, build evidence
 - **AppTrust benefit**: All artifacts are promoted together as a cohesive application version
-- **Learning outcome**: How to coordinate multiple build outputs in enterprise pipelines
 
-### 🛡️ **Security-First Development Workflow**
-- **What it demonstrates**: Comprehensive security scanning and evidence generation
-- **Evidence types**: SBOM generation, vulnerability scanning, build attestations, test coverage
-- **AppTrust benefit**: Complete audit trail from source code to production deployment
-- **Enterprise value**: Meets compliance requirements for regulated industries
-
-### 🚀 **Cloud-Native Deployment Patterns**
-- **What it demonstrates**: Modern containerized service deployment
-- **Features showcased**: Health checks, configuration management, observability, graceful shutdowns
-- **AppTrust benefit**: Reliable promotion criteria based on runtime health and performance
-- **DevOps value**: Production-ready deployment patterns out of the box
-
-### 📊 **Realistic Demo Data & Scenarios**
-- **What it demonstrates**: How to build compelling demos with realistic data
+### 📊 **Realistic Demo Data**
+- **What it demonstrates**: How to build compelling demos with realistic business context
 - **Demo elements**: 20 professional book catalog, realistic inventory operations, transaction history
-- **Business value**: Stakeholders can easily understand and relate to the business context
-- **Training benefit**: New team members learn with familiar, intuitive examples
-
-### 🔧 **Configuration-Driven Environments**
-- **What it demonstrates**: Environment-specific configuration without code changes
-- **Pattern showcased**: 12-factor app principles with environment variables
-- **AppTrust benefit**: Same artifacts work across all stages with different configurations
-- **Operational value**: Reduced deployment complexity and configuration drift
+- **Business value**: Stakeholders can easily understand and relate to the bookstore scenario
 
 This service is **intentionally comprehensive** - it's not just a "hello world" but a realistic microservice that teams can learn from and adapt to their own use cases.
 ## 🏁 Quick Start
