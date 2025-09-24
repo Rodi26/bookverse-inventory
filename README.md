@@ -22,57 +22,6 @@ This service demonstrates the **Single Docker Image Application Pattern** - the 
 - **Business value**: Stakeholders can easily understand and relate to the bookstore scenario
 
 This service is **intentionally comprehensive** - it's not just a "hello world" but a realistic microservice that teams can learn from and adapt to their own use cases.
-## 🏁 Quick Start
-
-### Docker (Recommended)
-
-```bash
-# Run the service with Docker
-docker build -t bookverse-inventory .
-docker run -p 8000:8000 \
-  -e AUTH_ENABLED=false \
-  -e LOG_LEVEL=INFO \
-  bookverse-inventory
-
-# Access the service
-curl http://localhost:8000/health
-curl http://localhost:8000/api/v1/books
-```
-
-### Local Development
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-pip install -e libs/bookverse-core
-
-# Set environment variables
-export AUTH_ENABLED=false
-export LOG_LEVEL=DEBUG
-
-# Initialize demo data
-python scripts/download_images.py
-
-# Run the service
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-# Run tests
-python -m pytest tests/ -v --cov=app
-```
-
-### Python Package
-
-```bash
-# Build package
-python -m build
-
-# Install package
-pip install dist/bookverse_inventory-*.whl
-
-# Run as package
-bookverse-inventory
-```
-
 ## 📊 API Endpoints
 
 ### Service Information
