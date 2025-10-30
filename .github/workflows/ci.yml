@@ -438,8 +438,8 @@ jobs:
         run: |
           echo "🧪 Running simplified tests for E2E demo"
           
-          # Ensure pytest is available (fallback if jf pip install failed)
-          pip install pytest pytest-cov 2>/dev/null || true
+          # Ensure pytest and test dependencies are available (fallback if jf pip install failed)
+          pip install pytest pytest-cov httpx 2>/dev/null || true
           
           # 📦 Inventory testing: Execute database and API validation tests
           # Validates inventory CRUD operations, stock calculations, and data integrity
