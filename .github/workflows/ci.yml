@@ -402,10 +402,10 @@ jobs:
           # 🔧 Pip upgrade: Ensure compatible pip version for inventory packages
           python -m pip install --upgrade "pip<25"
           
-          # 📚 Core library: Install BookVerse core shared library
+          # 📚 Core library: Install BookVerse core shared library with dev dependencies
           # Contains common inventory utilities and database patterns
-          pip install --no-cache-dir ./libs/bookverse-core
-          echo "✅ Installed bookverse-core from local libs"
+          pip install --no-cache-dir "./libs/bookverse-core[dev]"
+          echo "✅ Installed bookverse-core[dev] from local libs (includes pytest, httpx, etc.)"
           
           echo "📦 Installing dependencies using explicit package list to avoid build-info issues..."
           jf pipc --repo-resolve "${{ vars.PROJECT_KEY }}-pypi-virtual"
